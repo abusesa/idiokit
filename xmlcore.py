@@ -146,21 +146,33 @@ class Element(object):
     def __nonzero__(self):
         return True
 
-    def _serialize(self):
-        tag = self._original_tag
-
+    def _serialize_open(self):
         bites = list()
-        bites.append("<%s" % tag)
+
+        bites.append("<%s" % self._original_tag)
         for key, value in self.attrs.iteritems():
             bites.append(" %s=%s" % (key, quoteattr(value)))
         bites.append(">")
 
+        return "".join(bites)
+
+    def serialize_open(self):
+        return self._serialize_open().encode("utf-8")
+
+    def _serialize_close(self):
+        return "</%s>" % self._original_tag
+
+    def serialize_close(self):
+        return self._serialize_close().encode("utf-8")
+
+    def _serialize(self):
+        bites = list()
+        bites.append(self._serialize_open())
         if self.text:
             bites.append(escape(self.text))
         for child in self._children:
             bites.extend(child._serialize())
-
-        bites.append("</%s>" % tag)
+        bites.append(self._serialize_close())
         if self.tail:
             bites.append(escape(self.tail))
             

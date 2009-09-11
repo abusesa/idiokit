@@ -37,9 +37,12 @@ class ElementStream(threado.ThreadedStream):
         self.input.throw(RestartElementStream())
 
     def _run(self):
-        open = "<stream:stream to='%s' xmlns='%s' xmlns:stream='%s' version='1.0'>"
-        open = open % (self.domain, core.STANZA_NS, STREAM_NS)
-        self.socket.send(open)
+        stream_element = Element("stream:stream")
+        stream_element.set_attr("to", self.domain)
+        stream_element.set_attr("xmlns", core.STANZA_NS)
+        stream_element.set_attr("xmlns:stream", STREAM_NS)
+        stream_element.set_attr("version", "1.0")
+        self.socket.send(stream_element.serialize_open())
 
         parser = ElementParser()
         for data in threado.any_of(self.input, self.socket):
