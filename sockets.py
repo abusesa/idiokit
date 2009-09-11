@@ -1,7 +1,6 @@
 import threado
 import socket
 import collections
-import threading
 import select
 import os
 import util
@@ -46,14 +45,32 @@ def socket_wrapper(sock, read, func, *args, **keys):
         else:
             return 0
 
+def blocking_action(func):
+    def _blocking(self, *args, **keys):
+        channel = threado.Channel()
+
+        def _action():
+            try:
+                channel.send(func(self, *args, **keys))
+            except:
+                channel.rethrow()
+        self.send(_action)
+        self.start()
+
+        for result in channel + self.stop_channel:
+            if channel.was_source:
+                return result
+            return _action()
+    return _blocking
+
 class Socket(threado.ThreadedStream):
     def __init__(self, *args, **keys):
         threado.ThreadedStream.__init__(self)
         self.pipe = os.pipe()
         self.socket = socket.socket(*args, **keys)
-        self._ssl = None
         self.buffer = collections.deque()
-        self.close_channel = threado.Channel()
+        self.closed = False
+        self.stop_channel = threado.Channel()
 
     def _read(self, amount):
         return socket_wrapper(self.socket, True, self.socket.recv, amount)
@@ -81,52 +98,45 @@ class Socket(threado.ThreadedStream):
 
         self.pipe = None
 
+    @blocking_action
+    @util.synchronized
     def connect(self, *args, **keys):
         self.socket.setblocking(True)
         self.socket.connect(*args, **keys)
         self.socket.setblocking(False)
-        self.start()
 
+    @blocking_action
+    @util.synchronized
     def ssl(self):
-        channel = threado.Channel()
+        def _ssl_read(amount):
+            return socket_wrapper(self.socket, True, ssl_wrapper, 
+                                  self.socket, ssl.read, amount)
+        def _ssl_write(data):
+            return socket_wrapper(self.socket, True, ssl_wrapper, 
+                                  self.socket, ssl.write, data)
+            
+        self.socket.setblocking(True)
+        ssl = socket.ssl(self.socket)
+        self.socket.setblocking(False)
+        self._read = _ssl_read
+        self._write = _ssl_write
 
-        def _ssl():
-            self.socket.setblocking(True)
-            self._ssl = socket.ssl(self.socket)
-            self.socket.setblocking(False)
-            self._read = self._ssl_read
-            self._write = self._ssl_write
-            channel.send()
-
-        self.send(_ssl)
-        channel.next()
-
+    @blocking_action
+    @util.synchronized
     def close(self):
-        def _close():
+        try:
             self.socket.setblocking(True)
             self.socket.shutdown(socket.SHUT_RDWR)
-            self.socket.close()
-            raise StopIteration()
-
-        self.send(_close)
-        self.close_channel.next()
-
-    def _ssl_read(self, amount):
-        return socket_wrapper(self.socket, True, ssl_wrapper, 
-                              self.socket, self._ssl.read, amount)
-
-    def _ssl_write(self, data):
-        return socket_wrapper(self.socket, False, ssl_wrapper, 
-                              self.socket, self._ssl.write, data)
-
-    def stop(self):
-        pass
+        except socket.error:
+            pass
+        self.socket.close()
+        self.closed = True
 
     def run(self):
         try:
             self._run()
         finally:
-            self.close_channel._finish(True, None)
+            self.stop_channel._finish(True, None)
             self._cleanup()
 
     def _run(self, chunk_size=2**16):
@@ -135,10 +145,11 @@ class Socket(threado.ThreadedStream):
             return
 
         rfd, wfd = pipe
-        while True:
-            while self.buffer and callable(self.buffer[0]):
+        while not self.closed:
+            if self.buffer and callable(self.buffer[0]):
                 func = self.buffer.popleft()
                 func()
+                continue
 
             ifd = [rfd, self.socket]
             ofd = [] if not self.buffer else [self.socket]
@@ -151,7 +162,9 @@ class Socket(threado.ThreadedStream):
                 data = self._read(chunk_size)
                 self.output.send(data)
 
-            if self.socket in ofd and self.buffer and not callable(self.buffer[0]):
+            if (self.socket in ofd 
+                and self.buffer 
+                and not callable(self.buffer[0])):
                 data = self.buffer.popleft()
                 amount = self._write(data)
                 if len(data) > amount:
