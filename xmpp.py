@@ -1,6 +1,8 @@
 import util
 import threado
+import socket
 import sockets
+import weakref
 from jid import JID
 
 import core
@@ -65,10 +67,42 @@ class ElementStream(threado.ThreadedStream):
             except RestartElementStream:
                 pass
 
-import weakref
+def _resolve_with_getaddrinfo(host_or_domain, port_or_service):
+    try:
+        return socket.getaddrinfo(host_or_domain, 
+                                  port_or_service, 
+                                  0, 
+                                  socket.SOCK_STREAM, 
+                                  socket.IPPROTO_TCP)
+    except socket.gaierror:
+        return list()
+
+def _resolve_with_dig(domain, service):
+    from subprocess import Popen, PIPE
+
+    command = "dig", "+short", "srv", "_%s._tcp.%s" % (service, domain)
+    try:
+        popen = Popen(command, stdout=PIPE, stdin=PIPE, stderr=PIPE)
+        lines = popen.communicate()[0].splitlines()
+    except OSError:
+        return list()
+
+    results = list()
+    for line in lines:
+        try:
+            priority, _, port, host = line.split()
+            port = int(port)
+            priority = int(priority)
+        except ValueError:
+            continue
+        results.append((priority, host, port))
+
+    return [(host, port) for (_, host, port) in sorted(results)]
 
 class XMPP(threado.ThreadedStream):
-    def __init__(self, jid, password):
+    DEFAULT_XMPP_PORT = 5222
+
+    def __init__(self, jid, password, host=None, port=None):
         threado.ThreadedStream.__init__(self)
 
         self.input = threado.Channel()
@@ -77,20 +111,61 @@ class XMPP(threado.ThreadedStream):
         self.rethrow = self.input.rethrow
 
         self.elements = None
+        self.channels = weakref.WeakKeyDictionary()
 
         self.jid = JID(jid)
         self.password = password
-        self.channels = weakref.WeakKeyDictionary()
+        self.host = host
+        self.port = port
+        if self.host is not None and self.port is None:
+            self.port = self.DEFAULT_XMPP_PORT
+
+    def resolve_service(self):
+        if self.host is not None:
+            addresses = [(self.host, self.port)]
+        else:
+            domain = self.jid.domain
+            service = "xmpp-client"
+            results = list(_resolve_with_getaddrinfo(domain, service))
+            if results:
+                for result in results:
+                    yield result
+                return
+            
+            addresses = list(_resolve_with_dig(domain, service))
+            if not addresses:
+                addresses.append((self.jid.domain, self.DEFAULT_XMPP_PORT))
+
+        any_resolved = False
+        for host, port in addresses:
+            for result in _resolve_with_getaddrinfo(host, port):
+                any_resolved = True
+                yield result
+
+        if not any_resolved:
+            raise core.XMPPError("could not resolve server address")
 
     def connect(self):
-        family, addr = util.resolve_service(self.jid.domain, "xmpp-client")
+        socket_error = None
 
-        socket = sockets.Socket(family)
-        socket.connect(addr)
-        self.elements = ElementStream(socket, self.jid.domain)
+        for family, socktype, proto, _, address in self.resolve_service():
+            sock = None
+            socket_error = None
+            try:
+                sock = sockets.Socket(family, socktype, proto)
+                sock.connect(address)
+            except socket.error, socket_error:
+                if sock is not None:
+                    sock.close()
+                continue
+            break
+        if socket_error is not None:
+            raise socket_error
+
+        self.elements = ElementStream(sock, self.jid.domain)
         
         core.require_tls(self.elements)
-        socket.ssl()
+        sock.ssl()
         self.elements.restart()
         
         core.require_sasl(self.elements, self.jid, self.password)

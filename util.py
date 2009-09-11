@@ -20,37 +20,6 @@ def synchronized(method):
             return method(self, *args, **keys)
     return _method
 
-def resolve_service(domain, service):
-    from subprocess import Popen, PIPE
-
-    command = "dig", "+short", "srv", "_%s._tcp.%s" % (service, domain)
-    try:
-        popen = Popen(command, stdout=PIPE, stdin=PIPE, stderr=PIPE)
-        lines = popen.communicate()[0].splitlines()
-    except OSError:
-        pass
-    else:
-        for line in lines:
-            bites = line.split()
-            if len(bites) != 4:
-                continue
-            port, domain = bites[-2:]
-            try:
-                service = int(port)
-            except ValueError:
-                continue
-            domain = ".".join(domain.split("."))
-            
-    results = socket.getaddrinfo(domain, service, 0, 
-                                 socket.SOCK_STREAM, 
-                                 socket.IPPROTO_TCP,
-                                 socket.AI_CANONNAME)
-    if not results:
-        raise socket.error("getaddrinfo returned an empty list")
-
-    family, socktype, proto, canonname, address = results[0]
-    return family, address
-
 class LineBuffer(object):
     def __init__(self):
         self.buffer = list()
