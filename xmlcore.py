@@ -227,3 +227,28 @@ class ElementParser(object):
         collected = Query(*self.collected)
         self.collected = list()
         return collected
+
+import unittest
+
+class TestEncoding(unittest.TestCase):
+    def test_escape(self):
+        element = Element("tag")
+        element.text = "<&>"
+        xml.parsers.expat.ParserCreate("utf-8").Parse(element.serialize())
+    
+    def test_ignore_illegal_chars(self):
+        illegal_ranges = [(0x0, 0x9), (0xb, 0xd), (0xe, 0x20),
+                          (0xd800, 0xe000), (0xfffe, 0x10000),
+                          (0x110000, 0x110001)]
+
+        for start, end in illegal_ranges:
+            for value in xrange(start, end):
+                element = Element("tag")
+                element.text = unichr(value)
+
+                parser = xml.parsers.expat.ParserCreate("utf-8")
+                parser.Parse(element.serialize())
+                
+
+if __name__ == "__main__":
+    unittest.main()
