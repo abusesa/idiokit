@@ -7,7 +7,7 @@ xmpp.connect()
 room = xmpp.muc.join(raw_input("Channel: "), "echobot")
 
 for elements in room:
-    for message in elements.filter("message").with_attrs("from"):
+    for message in elements.named("message").with_attrs("from"):
         if message.children("x", "jabber:x:delay"):
             continue
         if message.children("delay", "urn:xmpp:delay"):

@@ -8,10 +8,10 @@ class Query(object):
     def __init__(self, *elements):
         self.elements = elements
 
-    def filter(self, *args, **keys):
+    def named(self, *args, **keys):
         elements = list()
         for element in self.elements:
-            elements.extend(element.filter(*args, **keys))
+            elements.extend(element.named(*args, **keys))
         return Query(*elements)        
 
     def children(self, *args, **keys):
@@ -32,8 +32,8 @@ class Query(object):
     def __nonzero__(self):
         return len(self.elements) > 0
 
-def namespace_split(tag):
-    split = tag.rsplit(":", 1)
+def namespace_split(name):
+    split = name.rsplit(":", 1)
     if len(split) == 1:
         return None, split[-1]
     return split
@@ -82,12 +82,12 @@ class Element(object):
         self.attrs[ns_name] = value
     ns = property(get_ns, set_ns)
 
-    def __init__(self, tag, **keys):
+    def __init__(self, name, **keys):
         self._children = list()
         self._parent = None
 
-        self._original_tag = tag
-        self._ns_name, self.tag = namespace_split(tag)
+        self._original_name = name
+        self._ns_name, self.name = namespace_split(name)
         self.attrs = dict()
         self.text = ""
         self.tail = ""
@@ -98,8 +98,8 @@ class Element(object):
         for key, value in keys.iteritems():
             self.set_attr(key, value)
 
-    def filter(self, tag=None, ns=None):
-        if tag is not None and self.tag != tag:
+    def named(self, name=None, ns=None):
+        if name is not None and self.name != name:
             return Query()
         if ns is not None and self.ns != ns:
             return Query()
@@ -114,7 +114,7 @@ class Element(object):
     def children(self, *args, **keys):
         children = list()
         for child in self._children:
-            children.extend(child.filter(*args, **keys))
+            children.extend(child.named(*args, **keys))
         return Query(*children)
         
     def with_attrs(self, *args, **keys):
@@ -149,7 +149,7 @@ class Element(object):
     def _serialize_open(self):
         bites = list()
 
-        bites.append("<%s" % self._original_tag)
+        bites.append("<%s" % self._original_name)
         for key, value in self.attrs.iteritems():
             bites.append(" %s=%s" % (key, quoteattr(value)))
         bites.append(">")
@@ -160,7 +160,7 @@ class Element(object):
         return self._serialize_open().encode("utf-8")
 
     def _serialize_close(self):
-        return "</%s>" % self._original_tag
+        return "</%s>" % self._original_name
 
     def serialize_close(self):
         return self._serialize_close().encode("utf-8")
@@ -191,8 +191,8 @@ class ElementParser(object):
         self.stack = list()
         self.collected = list()
         
-    def start_element(self, tag, attrs):
-        element = Element(tag)
+    def start_element(self, name, attrs):
+        element = Element(name)
         for key, value in attrs.iteritems():
             element.set_attr(key, value)
 
@@ -200,11 +200,11 @@ class ElementParser(object):
             self.stack[-1].add(element)
         self.stack.append(element)
 
-    def end_element(self, tag):
+    def end_element(self, name):
         current = self.stack.pop()
         if not self.stack:
             return
-        if self.stack[-1].tag != "stream":
+        if self.stack[-1].name != "stream":
             return
         if self.stack[-1].ns != STREAM_NS:
             return
@@ -214,7 +214,7 @@ class ElementParser(object):
 
     def char_data(self, data):
         current = self.stack[-1]
-        if current.tag == "stream" and current.ns == STREAM_NS:
+        if current.name == "stream" and current.ns == STREAM_NS:
             return
         children = list(current.children())
         if not children:
@@ -239,7 +239,7 @@ def is_valid_xml_data(data):
 
 class TestEncoding(unittest.TestCase):
     def test_escape(self):
-        element = Element("tag")
+        element = Element("name")
         element.text = "<&>"
         assert is_valid_xml_data(element.serialize())
     
@@ -250,7 +250,7 @@ class TestEncoding(unittest.TestCase):
 
         for start, end in illegal_ranges:
             for value in xrange(start, end):
-                element = Element("tag")
+                element = Element("name")
                 element.text = unichr(value)
                 assert is_valid_xml_data(element.serialize())
                 

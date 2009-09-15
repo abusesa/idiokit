@@ -14,8 +14,8 @@ STARTTLS_NS = "urn:ietf:params:xml:ns:xmpp-tls"
 class XMPPError(Exception):
     def __init__(self, message, elements=Query(), ns=STANZA_ERROR_NS):
         for element in elements.children(ns=ns):
-            tag = element.tag.replace("-", " ")
-            message += " (" + tag + ")"
+            name = element.name.replace("-", " ")
+            message += " (" + name + ")"
             break
         Exception.__init__(self, message)
 
@@ -28,7 +28,7 @@ def _iq(send, stream, type, query, **attrs):
     send(iq)
 
     for elements in stream:
-        for element in elements.filter("iq").with_attrs(id=uid):
+        for element in elements.named("iq").with_attrs(id=uid):
             type = elements.get_attr("type", None)
             if type == "result":
                 return element
@@ -40,7 +40,7 @@ def _iq(send, stream, type, query, **attrs):
 
 def require_features(stream):
     elements = stream.next()
-    features = elements.filter("features", STREAM_NS)
+    features = elements.named("features", STREAM_NS)
     if not features:
         raise XMPPError("feature list expected")
     return features
@@ -82,9 +82,9 @@ def starttls(stream):
     stream.send(starttls)
 
     for elements in stream:
-        if elements.filter("failure", STARTTLS_NS):
+        if elements.named("failure", STARTTLS_NS):
             raise XMPPError("starttls failed", elements)
-        if elements.filter("proceed", STARTTLS_NS):
+        if elements.named("proceed", STARTTLS_NS):
             break
 
 def sasl_plain(stream, jid, password):
@@ -97,9 +97,9 @@ def sasl_plain(stream, jid, password):
     stream.send(auth)
 
     for elements in stream:
-        if elements.filter("failure", SASL_NS):
+        if elements.named("failure", SASL_NS):
             raise XMPPError("authentication failed", elements)
-        if elements.filter("success", SASL_NS):
+        if elements.named("success", SASL_NS):
             break        
 
 def bind_resource(stream, resource=None):
@@ -118,7 +118,6 @@ def bind_resource(stream, resource=None):
 def session(stream):
     session = Element("session", xmlns=SESSION_NS)
     _iq(stream.send, stream, "set", session)
-
 
 class Core(object):
     VALID_ERROR_TYPES = set(["cancel", "continue", "modify", "auth", "wait"])
@@ -195,4 +194,4 @@ class Core(object):
         self.xmpp.send(iq)
 
     def add_iq_handler(self, handler, *args, **keys):
-        self.iq_handlers[handler] = args, keys
+        self.iq_handlers[handler] = args, keys        

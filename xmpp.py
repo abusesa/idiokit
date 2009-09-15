@@ -53,7 +53,7 @@ class ElementStream(threado.ThreadedStream):
                 # print "->", repr(data)
                 elements = parser.feed(data)
                 for element in elements:
-                    if element.filter("error", STREAM_NS):
+                    if element.named("error", STREAM_NS):
                         raise StreamError(element)
                     self.output.send(element)
             else:

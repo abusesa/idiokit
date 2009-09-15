@@ -12,7 +12,7 @@ class MUCError(XMPPError):
     pass
 
 def parse_participant_presence(elements, own_jid):
-    presences = elements.filter("presence", STANZA_NS)
+    presences = elements.named("presence", STANZA_NS)
 
     for presence in presences.with_attrs("from"):
         other_jid = JID(presence.get_attr("from"))

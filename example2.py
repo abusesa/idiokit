@@ -14,7 +14,7 @@ def guess_encoding(text):
     return text.decode("unicode-escape")
 
 def room_message(room, irc, channel, elements, encoding="latin-1"):
-    for message in elements.filter("message").with_attrs("from"):
+    for message in elements.named("message").with_attrs("from"):
         if message.children("x", "jabber:x:delay"):
             continue
         if message.children("delay", "urn:xmpp:delay"):
