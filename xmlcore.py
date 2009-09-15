@@ -230,11 +230,18 @@ class ElementParser(object):
 
 import unittest
 
+def is_valid_xml_data(data):
+    try:
+        xml.parsers.expat.ParserCreate("utf-8").Parse(data)
+    except xml.parsers.expat.ExpatError:
+        return False
+    return True
+
 class TestEncoding(unittest.TestCase):
     def test_escape(self):
         element = Element("tag")
         element.text = "<&>"
-        xml.parsers.expat.ParserCreate("utf-8").Parse(element.serialize())
+        assert is_valid_xml_data(element.serialize())
     
     def test_ignore_illegal_chars(self):
         illegal_ranges = [(0x0, 0x9), (0xb, 0xd), (0xe, 0x20),
@@ -245,10 +252,7 @@ class TestEncoding(unittest.TestCase):
             for value in xrange(start, end):
                 element = Element("tag")
                 element.text = unichr(value)
-
-                parser = xml.parsers.expat.ParserCreate("utf-8")
-                parser.Parse(element.serialize())
+                assert is_valid_xml_data(element.serialize())
                 
-
 if __name__ == "__main__":
     unittest.main()
