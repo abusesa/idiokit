@@ -6,6 +6,7 @@ import weakref
 from jid import JID
 
 import core
+import disco
 import muc
 from xmlcore import Element, ElementParser, STREAM_NS
 from core import STANZA_NS
@@ -173,6 +174,7 @@ class XMPP(threado.ThreadedStream):
         
         self.jid = core.require_bind_and_session(self.elements, self.jid)
         self.core = core.Core(self)
+        self.disco = disco.Disco(self)
         self.muc = muc.MUC(self)
         self.start()
 

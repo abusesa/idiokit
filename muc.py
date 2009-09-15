@@ -127,8 +127,8 @@ class MUCParticipant(object):
 class MUC(object):
     def __init__(self, xmpp):
         self.xmpp = xmpp
-        #self.xmpp.disco.add_feature(MUC_NS)
-        #self.xmpp.disco.add_node(ROOMS_NODE, self._node_handler)
+        self.xmpp.disco.add_feature(MUC_NS)
+        self.xmpp.disco.add_node(ROOMS_NODE, self._node_handler)
         self.rooms = set()
 
     def _node_handler(self):
@@ -148,16 +148,16 @@ class MUC(object):
         return [item.jid for item in items]
 
     def join(self, jid, nick):
-        #info = self.xmpp.disco.info(jid)
+        info = self.xmpp.disco.info(jid)
 
-        #for identity in info.identities:
-        #    if identity.category == "conference":
-        #        break
-        #else:
-        #    raise MUCError("entity is not a chatroom")
+        for identity in info.identities:
+            if identity.category == "conference":
+                break
+        else:
+            raise MUCError("entity is not a chatroom")
 
-        #if MUC_NS not in info.features:
-        #    raise MUCError("entity does not implement multi-user chat")
+        if MUC_NS not in info.features:
+            raise MUCError("entity does not implement multi-user chat")
 
         room = MUCRoom(self, self.xmpp, jid, nick)
         room._join()
