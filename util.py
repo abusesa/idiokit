@@ -23,22 +23,21 @@ def synchronized(method):
 class LineBuffer(object):
     def __init__(self):
         self.buffer = list()
+        self.pending = collections.deque()
 
-    def feed(self, data):
+    def feed(self, data=""):
         lines = (data + " ").splitlines()
         for line in lines[:-1]:
             self.buffer.append(line)
-            yield "".join(self.buffer)
+            self.pending.append("".join(self.buffer))
             self.buffer = list()
 
         data = lines[-1][:-1]
         if data:
             self.buffer.append(data)
 
-    def flush(self):
-        tail = "".join(self.buffer)
-        self.buffer = list()
-        return tail
+        while self.pending:
+            yield self.pending.popleft()
 
 class TimedCache(object):
     def __init__(self, cache_time):

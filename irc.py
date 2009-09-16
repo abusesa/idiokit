@@ -10,7 +10,7 @@ class IRCParser(object):
     def __init__(self):
         self.line_buffer = util.LineBuffer()
 
-    def feed(self, data):
+    def feed(self, data=""):
         if "\x00" in data:
             raise IRCError("NUL not allowed in messages")
 
@@ -98,6 +98,10 @@ class IRC(threado.ThreadedStream):
 
         for data in self.socket:
             for prefix, command, params in self.parser.feed(data):
+                if command == "PING":
+                    self.socket.send(format_message("PONG", *params))
+                    continue
+
                 if command == "001":
                     self.start()
                     return nick
@@ -110,9 +114,8 @@ class IRC(threado.ThreadedStream):
                         raise NickAlreadyInUse("".join(params[-1:]))
                     continue
 
-                if not ERROR_REX.match(command):
-                    continue
-                raise IRCError("".join(params[-1:]))
+                if ERROR_REX.match(command):
+                    raise IRCError("".join(params[-1:]))
 
     def nick(self, nick):
         self.send("NICK", nick)
@@ -130,6 +133,11 @@ class IRC(threado.ThreadedStream):
             self.send("JOIN", channel, key)
 
     def run(self):
+        for prefix, command, params in self.parser.feed():
+            if command == "PING":
+                self.send("PONG", *params)
+            self.output.send(prefix, command, params)
+            
         for data in threado.any_of(self.input, self.socket):
             if threado.source() is self.input:
                 self.socket.send(data)
