@@ -1,3 +1,4 @@
+import re
 import weakref
 import xml.parsers.expat
 from xml.sax.saxutils import escape, quoteattr
@@ -179,7 +180,8 @@ class Element(object):
         return bites
 
     def serialize(self):
-        return "".join(self._serialize()).encode("utf-8")
+        data = "".join(self._serialize())
+        return data.encode("utf-8")
 
 class ElementParser(object):
     def __init__(self):
@@ -245,14 +247,72 @@ class TestEncoding(unittest.TestCase):
     
     def test_ignore_illegal_chars(self):
         illegal_ranges = [(0x0, 0x9), (0xb, 0xd), (0xe, 0x20),
-                          (0xd800, 0xe000), (0xfffe, 0x10000),
-                          (0x110000, 0x110001)]
+                          (0xd800, 0xe000), (0xfffe, 0x10000)]
 
         for start, end in illegal_ranges:
             for value in xrange(start, end):
                 element = Element("name")
                 element.text = unichr(value)
                 assert is_valid_xml_data(element.serialize())
-                
+
+        element = Element("name")
+        element.text = u"\ud800\ud800"
+        assert is_valid_xml_data(element.serialize())
+
+    def test_legal_wide_unicode_chars(self):
+        element = Element("name")
+        element.text = u"\U00100000"
+        assert is_valid_xml_data(element.serialize())
+
+        element = Element("name")
+        element.text = u"\ud800\U00100000"
+        assert is_valid_xml_data(element.serialize())
+
+class TestElementNamespaces(unittest.TestCase):
+    def test_default_ns(self):
+        element = Element("name", xmlns="default_ns")
+        element.set_attr("xmlns:other", "other_ns")
+
+        assert element.name == "name"
+        assert element.ns == "default_ns"
+
+    def test_non_default_ns(self):
+        element = Element("other:name", xmlns="default_ns")
+        element.set_attr("xmlns:other", "other_ns")
+
+        assert element.name == "name"
+        assert element.ns == "other_ns"
+
+    def test_default_ns_inheritance(self):
+        parent = Element("parent", xmlns="default_ns")
+        child = Element("child")
+        parent.add(child)
+
+        assert child.name == "child"
+        assert child.ns == "default_ns"
+
+    def test_non_default_ns_inheritance(self):
+        parent = Element("parent", xmlns="default_ns")
+        parent.set_attr("xmlns:other", "other_ns")
+
+        child = Element("other:child")
+        parent.add(child)
+
+        assert child.name == "child"
+        assert child.ns == "other_ns"
+
+    def test_default_ns_inheritance_vs_gc(self):
+        import gc
+
+        parent = Element("parent", xmlns="default_ns")
+        child = Element("child")
+        parent.add(child)
+
+        del parent
+        gc.collect()
+
+        assert child.ns == "default_ns"
+        assert not child.has_attrs("xmlns")
+
 if __name__ == "__main__":
     unittest.main()
