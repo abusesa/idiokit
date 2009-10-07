@@ -18,9 +18,6 @@ class Timeout(Exception):
 class Finished(BaseException):
     pass
 
-class Unreachable(Finished):
-    pass
-
 class Event(object):
     @property
     def value(self):
@@ -314,29 +311,14 @@ class Inner(Buffered):
         _, exc, tb = sys.exc_info()
         self.throw(exc, tb)
 
-    def _unreachable(self):
-        self.push(True, False, Unreachable(), None)
-        
     def _finish(self, exc=Finished(), tb=None):
         for outer in self._outer():
             outer.push(True, False, exc, None)
 
 class Outer(Buffered):
-    _reachables = dict()
-
-    @classmethod
-    def unreachable(cls, ref):
-        if ref not in cls._reachables:
-            return
-        inner = cls._reachables.get(ref, None)
-        inner._unreachable()
-
     def __init__(self):
         Buffered.__init__(self)
         self.inner = Inner(self)
-
-        self.reachable_ref = weakref.ref(self, self.unreachable)
-        self._reachables[self.reachable_ref] = self.inner
 
     def send(self, *values):
         self.inner.push(False, True, *values)
@@ -471,15 +453,12 @@ def pair(inner, left, right):
         event = source.consume()
 
         if not (event.final and source is right):
-            try:
-                value = event.value
-            except:
-                destination.rethrow()
-            else:
-                destination.send(*event.args)
-                
             if event.final:
                 destination.finish(*event.args)
+            elif event.success:
+                destination.send(*event.args)
+            else:
+                destination.throw(*event.args)
         else:
             left.throw(PipeBroken())
 
@@ -488,15 +467,14 @@ def pair(inner, left, right):
         else:
             finals[source] = event
             if left in finals and right in finals:
-                channel.send()
+                channel.send(finals[right])
                 
     inner.register(_callback, left)
     left.register(_callback, right)
     right.register(_callback, inner)
 
-    yield channel
-    
-    finals[right].value
+    event = yield channel
+    event.value
 
 def pipe(first, *rest):
     if not rest:
