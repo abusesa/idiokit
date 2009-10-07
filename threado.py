@@ -182,7 +182,6 @@ class Buffered(Reg):
         if not self.queue:
             return None
 
-        print len(self.queue), self
         event = self.queue.popleft()
         if event.final:
             self.queue.append(event)
