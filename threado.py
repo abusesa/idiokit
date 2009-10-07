@@ -182,6 +182,7 @@ class Buffered(Reg):
         if not self.queue:
             return None
 
+        print len(self.queue), self
         event = self.queue.popleft()
         if event.final:
             self.queue.append(event)
@@ -287,7 +288,7 @@ class Par(Reg):
 
     def finish(self, exc=Finished(), tb=None):
         for source in self.sources:
-            source.finished(exc, tb)
+            source.finish(exc, tb)
 
 class Inner(Buffered):
     def __init__(self, outer):
