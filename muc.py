@@ -1,6 +1,6 @@
 import threado
-#import disco
-from xmlcore import Element
+import disco
+from xmlcore import Element, Query
 from core import STANZA_NS, XMPPError
 from jid import JID
 
@@ -57,9 +57,8 @@ class MUCRoom(threado.ThreadedStream):
         self.xmpp = xmpp
         self.stream = self.xmpp.stream()
 
-    def message(self, *payload):
-        attrs = dict(type="groupchat")
-        self.xmpp.core.message(self.room_jid, *payload, **attrs)
+    def send(self, *values):
+        threado.ThreadedStream.send(self, values)
 
     def exit(self, reason=None):
         self.throw(ExitRoom(reason))
@@ -99,7 +98,8 @@ class MUCRoom(threado.ThreadedStream):
         try:
             for elements in self.inner + self.stream:
                 if self.inner.was_source:
-                    self.xmpp.send(elements)
+                    attrs = dict(type="groupchat")
+                    self.xmpp.core.message(self.room_jid, *elements, **attrs)
                     continue
 
                 for element in elements.with_attrs("from"):
