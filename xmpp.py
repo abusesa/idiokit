@@ -20,53 +20,33 @@ class StreamError(core.XMPPError):
         for text_element in element.children("text", core.STREAM_ERROR_NS): 
             self.text = text_element.text
 
-class RestartElementStream(BaseException):
-    pass
+RESTART = object()
 
-class ElementStream(threado.ThreadedStream):
-    def __init__(self, socket, domain):
-        threado.ThreadedStream.__init__(self)
+@threado.stream
+def element_stream(socket, domain, inner):
+    stream_element = Element("stream:stream")
+    stream_element.set_attr("to", domain)
+    stream_element.set_attr("xmlns", core.STANZA_NS)
+    stream_element.set_attr("xmlns:stream", STREAM_NS)
+    stream_element.set_attr("version", "1.0")
 
-        self.socket = socket
-        self.domain = domain
-
-        self.input = threado.Channel()
-        self.send = self.input.send
-        self.throw = self.input.throw
-        self.rethrow = self.input.rethrow
-        self.start()
-
-    def restart(self):
-        self.input.throw(RestartElementStream())
-
-    def _run(self):
-        stream_element = Element("stream:stream")
-        stream_element.set_attr("to", self.domain)
-        stream_element.set_attr("xmlns", core.STANZA_NS)
-        stream_element.set_attr("xmlns:stream", STREAM_NS)
-        stream_element.set_attr("version", "1.0")
-        self.socket.send(stream_element.serialize_open())
-
+    while True:
         parser = ElementParser()
-        for data in threado.any_of(self.input, self.socket):
-            if threado.source() is self.socket:
-                # print "->", repr(data)
-                elements = parser.feed(data)
-                for element in elements:
-                    if element.named("error", STREAM_NS):
-                        raise StreamError(element)
-                    self.output.send(element)
-            else:
-                data = data.serialize()
-                # print "<-", repr(data)
-                self.socket.send(data)
-
-    def run(self):
+        socket.send(stream_element.serialize_open())
+                
         while True:
-            try:
-                self._run()
-            except RestartElementStream:
-                pass
+            data = yield inner, socket
+            if data is RESTART:
+                break
+
+            if inner.was_source:
+                socket.send(data.serialize())
+                continue
+
+            for element in parser.feed(data):
+                if element.named("error", STREAM_NS):
+                    raise StreamError(element)
+                inner.send(element)
 
 def _resolve_with_getaddrinfo(host_or_domain, port_or_service):
     try:
@@ -105,11 +85,6 @@ class XMPP(threado.ThreadedStream):
 
     def __init__(self, jid, password, host=None, port=None):
         threado.ThreadedStream.__init__(self)
-
-        self.input = threado.Channel()
-        self.send = self.input.send
-        self.throw = self.input.throw
-        self.rethrow = self.input.rethrow
 
         self.elements = None
         self.channels = weakref.WeakKeyDictionary()
@@ -163,14 +138,14 @@ class XMPP(threado.ThreadedStream):
         if socket_error is not None:
             raise socket_error
 
-        self.elements = ElementStream(sock, self.jid.domain)
+        self.elements = element_stream(sock, self.jid.domain)
         
         core.require_tls(self.elements)
         sock.ssl()
-        self.elements.restart()
+        self.elements.send(RESTART)
         
         core.require_sasl(self.elements, self.jid, self.password)
-        self.elements.restart()
+        self.elements.send(RESTART)
         
         self.jid = core.require_bind_and_session(self.elements, self.jid)
         self.core = core.Core(self)
@@ -180,16 +155,17 @@ class XMPP(threado.ThreadedStream):
 
     def run(self):
         try:
-            for data in threado.any_of(self.input, self.elements):
-                if threado.source() is self.elements:
-                    for channel_ref in self.channels.keyrefs():
-                        channel = channel_ref()
-                        if channel is None:
-                            continue
-                        for element in data:
-                            channel.send(element)
-                else:
+            for data in self.inner + self.elements:
+                if self.inner.was_source:
                     self.elements.send(data)
+                    continue
+
+                for channel_ref in self.channels.keyrefs():
+                    channel = channel_ref()
+                    if channel is None:
+                        continue
+                    for element in data:
+                        channel.send(element)
         except:
             self.elements.rethrow()
             for channel in self.channels:
@@ -199,4 +175,4 @@ class XMPP(threado.ThreadedStream):
     def stream(self):
         channel = threado.Channel()
         self.channels[channel] = None
-        return threado.any_of(channel, self)
+        return channel + self

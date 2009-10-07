@@ -71,14 +71,6 @@ class TimedCache(object):
         self.queue.append((expire_time, key))
         self.cache[key] = expire_time, value
 
-def in_main_thread():
-    MainThread = getattr(threading, "_MainThread", threading.Thread)
-    return isinstance(threading.currentThread(), MainThread)
-
-def is_generator(func):
-    func = getattr(func, "im_func", func)
-    return func.func_code.co_flags & 0x20 == 0x20
-
 def stdin():
     import os
     import select
@@ -101,6 +93,6 @@ def stdin():
                 if not data:
                     time.sleep(sleep_time)
                 for line in line_buffer.feed(data):
-                    self.output.send(line)
+                    self.inner.send(line)
 
     return StandardInput()

@@ -57,11 +57,6 @@ class MUCRoom(threado.ThreadedStream):
         self.xmpp = xmpp
         self.stream = self.xmpp.stream()
 
-        self.input = threado.Channel()
-        self.send = self.input.send
-        self.throw = self.input.throw
-        self.rethrow = self.input.rethrow
-
     def message(self, *payload):
         attrs = dict(type="groupchat")
         self.xmpp.core.message(self.room_jid, *payload, **attrs)
@@ -102,15 +97,15 @@ class MUCRoom(threado.ThreadedStream):
 
     def run(self):
         try:
-            for elements in threado.any_of(self.input, self.stream):
-                if threado.source() is self.input:
+            for elements in self.inner + self.stream:
+                if self.inner.was_source:
                     self.xmpp.send(elements)
                     continue
 
                 for element in elements.with_attrs("from"):
                     from_jid = JID(element.get_attr("from"))
                     if from_jid.bare() == self.room_jid:
-                        self.output.send(element)
+                        self.inner.send(element)
         except ExitRoom, er:
             self._exit(er.reason)
         finally:

@@ -21,25 +21,23 @@ class CymruWhois(threado.ThreadedStream):
         self.throttle_time = throttle_time
         self.pending = set()
 
-        self.input = threado.Channel()
-
     def send(self, *args, **keys):
-        self.input.send(*args, **keys)
+        threado.ThreadedStream.send(self, *args, **keys)
         self.start()
 
     def throw(self, *args, **keys):
-        self.input.throw(*args, **keys)
+        threado.ThreadedStream.throw(self, *args, **keys)
         self.start()
 
     def rethrow(self, *args, **keys):
-        self.input.rethrow(*args, **keys)
+        threado.ThreadedStream.rethrow(self, *args, **keys)
         self.start()
 
     def _iteration(self, pending):
         for ip in list(pending):
             item = self.cache.get(ip, None)
             if item is not None:
-                self.output.send(item)
+                self.inner.send(item)
                 pending.discard(ip)
 
         if not pending:
@@ -71,7 +69,7 @@ class CymruWhois(threado.ThreadedStream):
 
                     pending.discard(item.ip)
                     self.cache.set(item.ip, item)
-                    self.output.send(item)
+                    self.inner.send(item)
         finally:
             socket.close()
 
@@ -83,7 +81,7 @@ class CymruWhois(threado.ThreadedStream):
 
         while True:
             try:
-                ip = self.input.next(max(0.0, next_purge-time.time()))
+                ip = self.inner.next(max(0.0, next_purge-time.time()))
             except threado.Timeout:
                 pending = self._iteration(pending)
                 next_purge = time.time() + self.throttle_time

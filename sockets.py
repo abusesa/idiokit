@@ -72,15 +72,27 @@ class Socket(threado.ThreadedStream):
         self.closed = False
         self.stop_channel = threado.Channel()
 
-    def _read(self, amount):
-        return socket_wrapper(self.socket, True, self.socket.recv, amount)
-    
-    def _write(self, data):
-        return socket_wrapper(self.socket, False, self.socket.send, data)
+        self.inner.register(self._callback)
+
+    @blocking_action
+    @util.synchronized
+    def _throw(self, type, exc, tb):
+        raise type, exc, tb
 
     @util.synchronized
-    def send(self, data):
-        self.buffer.append(data)
+    def _callback(self, source):
+        event = source.consume()
+        source.register(self._callback)
+
+        try:
+            data = event.value
+        except:
+            self._throw(*sys.exc_info())
+        else:
+            self.buffer.append(data)
+
+        if event.final:
+            self.close()
 
         if self.pipe is not None:
             rfd, wfd = self.pipe
@@ -97,6 +109,12 @@ class Socket(threado.ThreadedStream):
         os.close(wfd)
 
         self.pipe = None
+
+    def _read(self, amount):
+        return socket_wrapper(self.socket, True, self.socket.recv, amount)
+    
+    def _write(self, data):
+        return socket_wrapper(self.socket, False, self.socket.send, data)
 
     @blocking_action
     @util.synchronized
@@ -160,7 +178,7 @@ class Socket(threado.ThreadedStream):
 
             if self.socket in ifd:
                 data = self._read(chunk_size)
-                self.output.send(data)
+                self.inner.send(data)
 
             if (self.socket in ofd 
                 and self.buffer 

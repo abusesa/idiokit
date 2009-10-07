@@ -77,10 +77,9 @@ class IRC(threado.ThreadedStream):
 
         self.parser = None
         self.socket = None
-        self.input = threado.Channel()
         
     def send(self, command, *params):
-        self.input.send(format_message(command, *params))
+        threado.ThreadedStream.send(self, format_message(command, *params))
 
     def connect(self, nick, password=None):
         self.parser = IRCParser()
@@ -136,14 +135,14 @@ class IRC(threado.ThreadedStream):
         for prefix, command, params in self.parser.feed():
             if command == "PING":
                 self.send("PONG", *params)
-            self.output.send(prefix, command, params)
+            self.inner.send(prefix, command, params)
             
-        for data in threado.any_of(self.input, self.socket):
-            if threado.source() is self.input:
+        for data in self.inner + self.socket:
+            if self.inner.was_source:
                 self.socket.send(data)
                 continue
 
             for prefix, command, params in self.parser.feed(data):
                 if command == "PING":
                     self.send("PONG", *params)
-                self.output.send(prefix, command, params)
+                self.inner.send(prefix, command, params)

@@ -11,18 +11,16 @@ class Throttle(threado.ThreadedStream):
         self.expirations = list()
         self.values = dict()
 
-        self.input = threado.Channel()
-
     def send(self, *args, **keys):
-        self.input.send(*args, **keys)
+        threado.ThreadedStream.send(self, *args, **keys)
         self.start()
 
     def throw(self, *args, **keys):
-        self.input.throw(*args, **keys)
+        threado.ThreadedStream.throw(self, *args, **keys)
         self.start()
 
     def rethrow(self, *args, **keys):
-        self.input.rethrow(*args, **keys)
+        threado.ThreadedStream.rethrow(self, *args, **keys)
         self.start()
 
     def _expire(self):
@@ -37,7 +35,7 @@ class Throttle(threado.ThreadedStream):
             values = self.values.pop(key, None)
             if not values:
                 continue
-            self.output.send(key, values)
+            self.inner.send(key, values)
 
             expiration_time = current_time + self.throttle_time
             heapq.heappush(self.expirations, (expiration_time, key))
@@ -59,8 +57,12 @@ class Throttle(threado.ThreadedStream):
     def run(self):
         while True:
             try:
-                message = self.input.next(self._timeout())
+                message = self.inner.next(self._timeout())
             except threado.Timeout:
                 self._expire()
+            except:
+                for key, values in self.values.iteritems():
+                    self.inner.send(key, values)
+                raise
             else:
                 self._feed(*message)
