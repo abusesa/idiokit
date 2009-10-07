@@ -18,4 +18,4 @@ for elements in room:
             continue
 
         for body in message.children("body"):
-            room.message(body)
+            room.send(body)

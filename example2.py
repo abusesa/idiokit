@@ -40,7 +40,7 @@ def irc_message(channel, room, prefix, command, params):
 
     body = Element("body")
     body.text = "<%s> %s" % (guess_encoding(sender), guess_encoding(params[-1]))
-    room.message(body)
+    room.send(body)
 
 def main(bot_name, 
          irc_server, irc_port, irc_ssl, irc_channel,
