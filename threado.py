@@ -40,18 +40,19 @@ class Event(object):
     def reparented(self, source):
         return Event(source, self.final, self.success, *self.args)
 
-sources_with_callbacks = set()
-sources_with_callbacks_lock = threading.Lock()
-
-def set_source_with_callbacks(source, has_callbacks):
-    with sources_with_callbacks_lock:
-        if has_callbacks:
-            sources_with_callbacks.add(source)
-        else:
-            sources_with_callbacks.discard(source)
-
 class Reg(object):
     _local = threading.local()
+
+    _with_callbacks = set()
+    _with_callbacks_lock = threading.Lock()
+
+    @classmethod
+    def _update_callbacks(cls, source):
+        with cls._with_callbacks_lock:
+            if source.callbacks:
+                cls._with_callbacks.add(source)
+            else:
+                cls._with_callbacks.discard(source)
 
     @contextlib.contextmanager
     def as_source(self):
@@ -94,14 +95,15 @@ class Reg(object):
                 continue
             callback = self.callbacks.popleft()
             callback(self)
+        self._update_callbacks(self)
 
     @util.synchronized
     def register(self, func, *args, **keys):
         callback = callqueue.Callback(func, *args, **keys)
 
         self.callbacks.append(callback)
-        set_source_with_callbacks(self, self.callbacks)
         self.signal_activity()
+        self._update_callbacks(self)
         return callback
 
     @util.synchronized
@@ -111,7 +113,7 @@ class Reg(object):
         except ValueError:
             pass
         finally:
-            set_source_with_callbacks(self, self.callbacks)
+            self._update_callbacks(self)
 
     def next(self, timeout=None):
         condition = threading.Condition()
@@ -151,7 +153,7 @@ class Reg(object):
                 return
     
     def __add__(self, other):
-        return Plus(self, other)
+        return Par(self, other)
 
     def __or__(self, other):
         return pair(self, other)
@@ -199,7 +201,7 @@ class Channel(Buffered):
     def finish(self, exc=Finished(), tb=None):
         self.push(True, False, exc, tb)
 
-class Plus(Reg):
+class Par(Reg):
     _ref_sources = dict()
 
     @classmethod
@@ -286,7 +288,7 @@ class Plus(Reg):
     def finish(self, exc=Finished(), tb=None):
         for source in self.sources:
             source.finished(exc, tb)
-            
+
 class Inner(Buffered):
     def __init__(self, outer):
         Buffered.__init__(self)
@@ -363,7 +365,7 @@ class GeneratorStream(Outer):
                 if next is None:
                     next = null_source
                 elif not isinstance(next, Reg):
-                    next = Aggregate(*next)
+                    next = Par(*next)
                 next.register(cls.step, ref)
 
     def __init__(self):
@@ -439,6 +441,9 @@ def thread(func):
         return FuncThread(func, *args, **keys)
     return _thread
 
+class PipeBroken(BaseException):
+    pass
+
 @stream
 def pair(left, right, inner):
     finals = dict()
@@ -458,7 +463,7 @@ def pair(left, right, inner):
             if event.final:
                 destination.finish(*event.args)
         else:
-            left.finish(*event.args)
+            left.throw(PipeBroken())
 
         if not event.final:
             source.register(_callback, destination)
