@@ -18,6 +18,9 @@ class Timeout(Exception):
 class Finished(BaseException):
     pass
 
+class Unreachable(Finished):
+    pass
+
 class Event(object):
     @property
     def value(self):
@@ -311,14 +314,29 @@ class Inner(Buffered):
         _, exc, tb = sys.exc_info()
         self.throw(exc, tb)
 
+    def _unreachable(self):
+        self.push(True, False, Unreachable(), None)
+        
     def _finish(self, exc=Finished(), tb=None):
         for outer in self._outer():
             outer.push(True, False, exc, None)
 
 class Outer(Buffered):
+    _reachables = dict()
+
+    @classmethod
+    def unreachable(cls, ref):
+        if ref not in cls._reachables:
+            return
+        inner = cls._reachables.get(ref, None)
+        inner._unreachable()
+
     def __init__(self):
         Buffered.__init__(self)
         self.inner = Inner(self)
+
+        self.reachable_ref = weakref.ref(self, self.unreachable)
+        self._reachables[self.reachable_ref] = self.inner
 
     def send(self, *values):
         self.inner.push(False, True, *values)
@@ -337,13 +355,13 @@ null_source = Buffered()
 null_source.push(True, True)
 
 class GeneratorStream(Outer):
-    _refs = dict()
+    _generators = dict()
 
     @classmethod
     def step(cls, ref, source):
-        if ref not in cls._refs:
+        if ref not in cls._generators:
             return
-        gen, inner = cls._refs.get(ref, None)
+        gen, inner = cls._generators.get(ref, None)
 
         event = source.consume()
         with event.source.as_source():
@@ -360,7 +378,7 @@ class GeneratorStream(Outer):
                 _, exc, tb = sys.exc_info()
                 inner.throw(exc, tb)
                 inner._finish()
-                cls._refs.pop(ref, None)
+                cls._generators.pop(ref, None)
             else:
                 if next is None:
                     next = null_source
@@ -374,7 +392,7 @@ class GeneratorStream(Outer):
         gen = self.run()
         ref = weakref.ref(self)
 
-        self._refs[ref] = gen, self.inner
+        self._generators[ref] = gen, self.inner
         self.step(ref, null_source)
 
     def run(self):
@@ -433,7 +451,7 @@ class FuncThread(ThreadedStream):
         self.start()
         
     def run(self):
-        args = self.inner + (self.args,)
+        args = (self.inner,) + self.args
         self.func(*args, **self.keys)
 
 def thread(func):
