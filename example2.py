@@ -1,17 +1,7 @@
 from xmpp import XMPP, Element
 from irc import IRC
 from jid import JID
-
-def guess_encoding(text):
-    if isinstance(text, unicode):
-        return text
-
-    for encoding in ["ascii", "utf-8", "latin-1"]:
-        try:
-            return text.decode(encoding)
-        except UnicodeDecodeError:
-            pass
-    return text.decode("unicode-escape")
+from util import guess_encoding
 
 def room_message(room, irc, channel, elements, encoding="latin-1"):
     for message in elements.named("message").with_attrs("from"):

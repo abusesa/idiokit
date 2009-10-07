@@ -96,3 +96,14 @@ def stdin():
                     self.inner.send(line)
 
     return StandardInput()
+
+def guess_encoding(text):
+    if isinstance(text, unicode):
+        return text
+
+    for encoding in ["ascii", "utf-8", "latin-1"]:
+        try:
+            return text.decode(encoding)
+        except UnicodeDecodeError:
+            pass
+    return text.decode("ascii", "replace")
