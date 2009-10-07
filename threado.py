@@ -388,7 +388,7 @@ class FuncStream(GeneratorStream):
         GeneratorStream.__init__(self)
 
     def run(self):
-        args = self.args + (self.inner,)
+        args = (self.inner,) + self.args
         return self.func(*args, **self.keys)
 
 def stream(func):
@@ -433,7 +433,7 @@ class FuncThread(ThreadedStream):
         self.start()
         
     def run(self):
-        args = self.args + (self.inner,)
+        args = self.inner + (self.args,)
         self.func(*args, **self.keys)
 
 def thread(func):
@@ -445,7 +445,7 @@ class PipeBroken(BaseException):
     pass
 
 @stream
-def pair(left, right, inner):
+def pair(inner, left, right):
     finals = dict()
     channel = Channel()
 

@@ -23,7 +23,7 @@ class StreamError(core.XMPPError):
 RESTART = object()
 
 @threado.stream
-def element_stream(socket, domain, inner):
+def element_stream(inner, socket, domain):
     stream_element = Element("stream:stream")
     stream_element.set_attr("to", domain)
     stream_element.set_attr("xmlns", core.STANZA_NS)
