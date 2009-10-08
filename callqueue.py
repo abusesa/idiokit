@@ -22,7 +22,7 @@ class CallQueue(object):
         self.queue = list()
         self.callback = None
 
-        self.thread = threading.Thread(target=self.run)
+        self.thread = threading.Thread(target=self._run)
         self.thread.setDaemon(True)
         self.thread.start()
         
@@ -58,13 +58,12 @@ class CallQueue(object):
             for call in queue:
                 call()
 
-    def run(self):
+    def _run(self):
         event = threading.Event()
 
         while True:
             self.iterate(event.set)
-            while not event.isSet():
-                event.wait(0.5)
+            event.wait()
             event.clear()
 global_queue = CallQueue()
 
