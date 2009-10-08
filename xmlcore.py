@@ -27,6 +27,9 @@ class Query(object):
             elements.extend(element.with_attrs(*args, **keys))
         return Query(*elements)        
 
+    def __len__(self):
+        return len(self.elements)
+
     def __iter__(self):
         return iter(self.elements)
 
@@ -146,6 +149,9 @@ class Element(object):
 
     def __nonzero__(self):
         return True
+
+    def __len__(self):
+        return 1
 
     def _serialize_open(self):
         bites = list()
