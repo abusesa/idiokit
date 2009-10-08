@@ -125,6 +125,34 @@ class Core(object):
     def __init__(self, xmpp):
         self.xmpp = xmpp
         self.iq_handlers = dict()
+        self.iq_dispatcher = self._iq_dispatcher() | xmpp
+
+    def add_iq_handler(self, handler, *args, **keys):
+        self.iq_handlers[handler] = args, keys
+        
+    @threado.stream
+    def _iq_dispatcher(inner, self):
+        stream = self.xmpp.stream()
+
+        while True:
+            elements = yield inner, stream
+            if inner.was_source:
+                continue
+
+            for iq in elements.named("iq", STANZA_NS).with_attrs("type"):
+                if iq.get_attr("type").lower() not in ("get", "set"):
+                    continue
+
+                for handler, (args, keys) in self.iq_handlers.items():
+                    for payload in iq.children(*args, **keys):
+                        handler(iq, payload)
+                        break
+                    else:
+                        continue
+                    break
+                else:
+                    error = self.build_error("cancel", "service-unavailable")
+                    self.iq_error(element, error)
         
     def build_error(self, type, condition, text=None, special=None):
         if type not in self.VALID_ERROR_TYPES:
@@ -192,6 +220,3 @@ class Core(object):
         iq.add(request)
         iq.add(error)
         self.xmpp.send(iq)
-
-    def add_iq_handler(self, handler, *args, **keys):
-        self.iq_handlers[handler] = args, keys        
