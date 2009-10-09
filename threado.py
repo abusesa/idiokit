@@ -8,10 +8,6 @@ import weakref
 import contextlib
 import util
 
-def in_main_thread():
-    MainThread = getattr(threading, "_MainThread", threading.Thread)
-    return isinstance(threading.currentThread(), MainThread)
-
 class Timeout(Exception):
     pass
 
@@ -46,13 +42,12 @@ class Reg(object):
     _with_callbacks = set()
     _with_callbacks_lock = threading.Lock()
 
-    @classmethod
-    def _update_callbacks(cls, source):
-        with cls._with_callbacks_lock:
-            if source.callbacks:
-                cls._with_callbacks.add(source)
+    def _update_callbacks(self):
+        with self._with_callbacks_lock:
+            if self.callbacks:
+                self._with_callbacks.add(self)
             else:
-                cls._with_callbacks.discard(source)
+                self._with_callbacks.discard(self)
 
     @contextlib.contextmanager
     def as_source(self):
@@ -95,7 +90,8 @@ class Reg(object):
                 continue
             callback = self.callbacks.popleft()
             callback(self)
-        self._update_callbacks(self)
+
+        self._update_callbacks()
 
     @util.synchronized
     def register(self, func, *args, **keys):
@@ -103,7 +99,8 @@ class Reg(object):
 
         self.callbacks.append(callback)
         self.signal_activity()
-        self._update_callbacks(self)
+        self._update_callbacks()
+
         return callback
 
     @util.synchronized
@@ -113,7 +110,7 @@ class Reg(object):
         except ValueError:
             pass
         finally:
-            self._update_callbacks(self)
+            self._update_callbacks()
 
     def next(self, timeout=None):
         condition = threading.Condition()
@@ -201,6 +198,9 @@ class Channel(Buffered):
     def finish(self, exc=Finished(), tb=None):
         self.push(True, False, exc, tb)
 
+class AllFinished(Finished):
+    pass
+
 class Par(Reg):
     _ref_sources = dict()
 
@@ -247,22 +247,20 @@ class Par(Reg):
             else:
                 event = source.consume()
 
-            if event.final:
-                self.sources.pop(source, None)
-                continue
-
             if event is None:
                 self._reregister(source)
                 continue
 
             if peek:
                 self.pending_sources.appendleft(source)
-            else:
+            elif not event.final:
                 self._reregister(source)
-            return event
+            else:
+                self.sources.pop(source, None)
+            return Event(event.source, False, event.success, *event.args)
 
         if not self.sources:
-            return Event(self, True, False, Finished(), None)
+            return Event(self, True, False, AllFinished(), None)
         return None
 
     @util.synchronized
@@ -370,11 +368,18 @@ class GeneratorStream(Outer):
 
     def __init__(self):
         Outer.__init__(self)
+        self._started = False
+
+    @util.synchronized
+    def start(self):
+        if self._started:
+            return
+        self._started = True
 
         gen = self.run()
         ref = weakref.ref(self)
-
         self._generators[ref] = gen, self.inner
+
         self.step(ref, null_source)
 
     def run(self):
@@ -382,10 +387,11 @@ class GeneratorStream(Outer):
 
 class FuncStream(GeneratorStream):
     def __init__(self, func, *args, **keys):
+        GeneratorStream.__init__(self)
         self.func = func
         self.args = args
         self.keys = keys
-        GeneratorStream.__init__(self)
+        self.start()
 
     def run(self):
         args = (self.inner,) + self.args
@@ -479,4 +485,4 @@ def pair(inner, left, right):
 def pipe(first, *rest):
     if not rest:
         return first
-    return pair(first, pipe(*rest))
+    return pair(pipe(first, *rest[:-1]), rest[-1])
