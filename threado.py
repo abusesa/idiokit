@@ -1,7 +1,6 @@
 from __future__ import with_statement
 import collections
 import threading
-import time
 import sys
 import callqueue
 import weakref
