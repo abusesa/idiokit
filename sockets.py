@@ -69,6 +69,9 @@ class Socket(threado.ThreadedStream):
         self.pipe = os.pipe()
         self.socket = socket.socket(*args, **keys)
         self.buffer = collections.deque()
+
+        self._read = None
+        self._write = None
         self.closed = False
         self.stop_channel = threado.Channel()
 
@@ -82,7 +85,6 @@ class Socket(threado.ThreadedStream):
     @util.synchronized
     def _callback(self, source):
         event = source.consume()
-        source.register(self._callback)
 
         try:
             data = event.value
@@ -93,6 +95,8 @@ class Socket(threado.ThreadedStream):
 
         if event.final:
             self.close()
+        else:
+            source.register(self._callback)
 
         if self.pipe is not None:
             rfd, wfd = self.pipe
@@ -110,18 +114,18 @@ class Socket(threado.ThreadedStream):
 
         self.pipe = None
 
-    def _read(self, amount):
-        return socket_wrapper(self.socket, True, self.socket.recv, amount)
-    
-    def _write(self, data):
-        return socket_wrapper(self.socket, False, self.socket.send, data)
-
     @blocking_action
     @util.synchronized
     def connect(self, *args, **keys):
+        def _socket_read(amount):
+            return socket_wrapper(self.socket, True, self.socket.recv, amount)
+        def _socket_write(data):
+            return socket_wrapper(self.socket, False, self.socket.send, data)
         self.socket.setblocking(True)
         self.socket.connect(*args, **keys)
         self.socket.setblocking(False)
+        self._read = _socket_read
+        self._write = _socket_write
 
     @blocking_action
     @util.synchronized
@@ -169,8 +173,8 @@ class Socket(threado.ThreadedStream):
                 func()
                 continue
 
-            ifd = [rfd, self.socket]
-            ofd = [] if not self.buffer else [self.socket]
+            ifd = [rfd, self.socket] if self._read else [rfd]
+            ofd = [self.socket] if (self._write and self.buffer) else []
 
             ifd, ofd, _ = select.select(ifd, ofd, [])
             if rfd in ifd:
