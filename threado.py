@@ -485,3 +485,24 @@ def pipe(first, *rest):
     if not rest:
         return first
     return pair(pipe(first, *rest[:-1]), rest[-1])
+
+class Throws(Outer):
+    def __init__(self):
+        Outer.__init__(self)
+        self.inner.register(self._callback)
+
+    def _callback(self, source):
+        event = source.consume()
+
+        if event.final:
+            self.inner._finish(*event.args)
+            return
+
+        if event.success:
+            pass
+        else:
+            self.inner.throw(*event.args)
+        self.inner.register(self._callback)
+
+def throws():
+    return Throws()
