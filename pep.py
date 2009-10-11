@@ -33,13 +33,24 @@ def publish(xmpp, node, *elements):
     xmpp.core.iq_set(pubsub)
 
 @threado.thread
-def pep_stream(inner, xmpp, node):
+def pep_stream(inner, xmpp, node, retry_time=2.5):
     stream = xmpp.stream()
 
     pubsub = Element("pubsub", xmlns=PUBSUB_NS)
     subscribe = Element("subscribe", node=node, jid=xmpp.jid.bare())
     pubsub.add(subscribe)
-    xmpp.core.iq_set(pubsub, to=xmpp.jid.bare())
+
+    while True:
+        try:
+            xmpp.core.iq_set(pubsub, to=xmpp.jid.bare())
+        except XMPPError:
+            try:
+                elements = inner.next(retry_time)
+            except threado.Timeout:
+                continue
+            publish(xmpp, node, *elements)
+        else:
+            break
 
     #elements = fetch(xmpp, node)
     #if elements is not None:
