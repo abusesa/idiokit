@@ -1,6 +1,7 @@
 import threado
 import re
 import util
+import events
 from xmpp import XMPP, Element
 from irc import IRC
 
@@ -27,47 +28,24 @@ def parse(inner):
     while True:
         data = yield inner
 
-        match = data_rex.match(data.strip())
+        match = data_rex.match(util.guess_encoding(data))
         if not match:
             continue
 
-        type = match.group(1)
-        fields = dict()
+        event = events.Event()
+        event.add("type", match.group(1))
+
         fields = field_rex.findall(match.group(2) or "")
-
-        attrs = dict()
         for key, value in fields:
-            key = util.guess_encoding(key)
-            value = util.guess_encoding(value)
-            attrs.setdefault(key.lower(), list()).append(value)
-        inner.send(type.lower(), attrs)
+            event.add(key, value)
 
-@threado.stream
-def convert(inner):
-    while True:
-        source, attrs = yield inner
-
-        event = Element("event", xmlns="idiokit#event")
-        fields = list()
-        for key, values in attrs.items():
-            for value in values:
-                event.add(Element("attr", key=key, value=value))
-                fields.append("%s=%s" % (key, value))
-
-        body = Element("body")
-        body.text = "%s: %s" % (source, ", ".join(fields))
-        inner.send(body, event)
-
-@threado.stream
-def ignore(inner):
-    while True:
-        yield inner
+        inner.send(event)
 
 def main():
-    channel = "#example3"
+    channel = "#ircfeedbot"
 
     irc = IRC("irc.example.com", 6667, ssl=False)
-    nick = irc.connect("ex3bot", password=None)
+    nick = irc.connect("ircbot", password=None)
     irc.join(channel)
 
     xmpp = XMPP("username@example.com", "password")
@@ -77,9 +55,9 @@ def main():
     pipeline = (irc 
                 | filter(channel, "feedbot") 
                 | parse() 
-                | convert() 
+                | events.events_to_elements()
                 | room 
-                | ignore())
+                | threado.throws())
     for msg in pipeline: pass
 
 if __name__ == "__main__":
