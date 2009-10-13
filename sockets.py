@@ -58,9 +58,8 @@ def blocking_action(func):
         self.start()
 
         for result in channel + self.stop_channel:
-            if channel.was_source:
-                return result
-            return _action()
+            return result
+        return _action()
     return _blocking
 
 class Socket(threado.ThreadedStream):
@@ -158,7 +157,7 @@ class Socket(threado.ThreadedStream):
         try:
             self._run()
         finally:
-            self.stop_channel._finish(True, None)
+            self.stop_channel.finish()
             self._cleanup()
 
     def _run(self, chunk_size=2**16):
