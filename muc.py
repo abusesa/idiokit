@@ -44,9 +44,9 @@ class ExitRoom(Exception):
         Exception.__init__(self)
         self.reason = reason
 
-class MUCRoom(threado.ThreadedStream):
+class MUCRoom(threado.GeneratorStream):
     def __init__(self, muc, xmpp, room, nick):
-        threado.ThreadedStream.__init__(self)
+        threado.GeneratorStream.__init__(self)
         
         self.room_jid = JID(room).bare()
         self.nick_jid = JID(room)
@@ -58,21 +58,19 @@ class MUCRoom(threado.ThreadedStream):
         self.stream = self.xmpp.stream()
 
     def send(self, *values):
-        threado.ThreadedStream.send(self, values)
+        threado.GeneratorStream.send(self, values)
 
     def exit(self, reason=None):
         self.throw(ExitRoom(reason))
 
     def _exit(self, reason=None):
         if reason is None:
-            self.xmpp.core.presence(to=self.room_jid,
-                                    type="unavailable")
+            self.xmpp.core.presence(to=self.room_jid, type="unavailable")
         else:
             status = Element("status")
             status.text = reason
             self.xmpp.core.presence(status, 
-                                    to=self.room_jid,
-                                    type="unavailable")
+                                    to=self.room_jid, type="unavailable")
 
     def _join(self):
         attrs = dict()
@@ -96,7 +94,9 @@ class MUCRoom(threado.ThreadedStream):
 
     def run(self):
         try:
-            for elements in self.inner + self.stream:
+            while True:
+                elements = yield self.inner, self.stream
+
                 if self.inner.was_source:
                     attrs = dict(type="groupchat")
                     self.xmpp.core.message(self.room_jid, *elements, **attrs)
