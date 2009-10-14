@@ -68,9 +68,9 @@ def mutations(*nicks):
             suffix = str(i)
             yield nick[:9-len(suffix)] + suffix
 
-class IRC(threado.ThreadedStream):
+class IRC(threado.GeneratorStream):
     def __init__(self, server, port, ssl=False):
-        threado.ThreadedStream.__init__(self)
+        threado.GeneratorStream.__init__(self)
         self.ssl = ssl
         self.server = server
         self.port = port
@@ -79,7 +79,7 @@ class IRC(threado.ThreadedStream):
         self.socket = None
         
     def send(self, command, *params):
-        threado.ThreadedStream.send(self, format_message(command, *params))
+        threado.GeneratorStream.send(self, format_message(command, *params))
 
     def connect(self, nick, password=None):
         self.parser = IRCParser()
@@ -136,8 +136,10 @@ class IRC(threado.ThreadedStream):
             if command == "PING":
                 self.send("PONG", *params)
             self.inner.send(prefix, command, params)
-            
-        for data in self.inner + self.socket:
+
+        while True:
+            data = yield self.inner, self.socket
+
             if self.inner.was_source:
                 self.socket.send(data)
                 continue
