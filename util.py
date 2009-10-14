@@ -71,32 +71,6 @@ class TimedCache(object):
         self.queue.append((expire_time, key))
         self.cache[key] = expire_time, value
 
-def stdin():
-    import os
-    import select
-    import threado
-
-    class StandardInput(threado.ThreadedStream):
-        def __init__(self):
-            threado.ThreadedStream.__init__(self)
-            self.start()
-
-        def run(self, chunk_size=2**16, sleep_time=0.5):
-            line_buffer = LineBuffer()
-            
-            while True:
-                ifd, _, _ = select.select([0], [], [], sleep_time)
-                if not ifd:
-                    continue
-
-                data = os.read(0, chunk_size)
-                if not data:
-                    time.sleep(sleep_time)
-                for line in line_buffer.feed(data):
-                    self.inner.send(line)
-
-    return StandardInput()
-
 def guess_encoding(text):
     if isinstance(text, unicode):
         return text
