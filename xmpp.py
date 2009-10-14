@@ -80,11 +80,11 @@ def _resolve_with_dig(domain, service):
 
     return [(host, port) for (_, host, port) in sorted(results)]
 
-class XMPP(threado.ThreadedStream):
+class XMPP(threado.GeneratorStream):
     DEFAULT_XMPP_PORT = 5222
 
     def __init__(self, jid, password, host=None, port=None):
-        threado.ThreadedStream.__init__(self)
+        threado.GeneratorStream.__init__(self)
 
         self.elements = None
         self.channels = weakref.WeakKeyDictionary()
@@ -155,7 +155,8 @@ class XMPP(threado.ThreadedStream):
 
     def run(self):
         try:
-            for data in self.inner + self.elements:
+            while True:
+                data = yield self.inner, self.elements
                 if self.inner.was_source:
                     self.elements.send(data)
                     continue
