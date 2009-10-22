@@ -35,4 +35,4 @@ class ThreadPool(object):
         return channel
 thread_pool = ThreadPool()
 
-run = thread_pool.run()
+run = thread_pool.run
