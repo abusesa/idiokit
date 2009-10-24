@@ -27,27 +27,12 @@ class Callback(object):
         new_keys.update(keys)
         return self.func(*new_args, **new_keys)
 
-class Event(object):
-    @property
-    def value(self):
-        if self.success:
-            if not self.args:
-                return None
-            elif len(self.args) == 1:
-                return self.args[0]
-            return self.args
-
-        exc, tb = self.args
-        raise type(exc), exc, tb
-
-    def __init__(self, source, final, success, *args):
-        self.source = source
-        self.success = success
-        self.final = final
-        self.args = args
-
-    def reparented(self, source):
-        return Event(source, self.final, self.success, *self.args)
+def peel_args(args):
+    if not args:
+        return None
+    if len(args) == 1:
+        return args[0]
+    return args
 
 class Reg(object):
     _local = threading.local()
@@ -165,9 +150,12 @@ class Reg(object):
         if result[0] is None:
             raise Timeout()
 
-        event = result[0]
-        self._local.source = event.source
-        return event.value 
+        origin, final, success, args = result[0]
+        self._local.source = origin
+        if success:
+            return peel_args(args)
+        exc, tb = args
+        raise type(exc), exc, tb
 
     def __iter__(self):
         while True:
@@ -187,27 +175,28 @@ class Buffered(Reg):
         Reg.__init__(self)
         self.queue = collections.deque()
 
-    def push(self, final, success, *values):
+    def push(self, final, success, *args):
         with self.lock:
-            if self.queue and self.queue[-1].final:
+            if self.queue and self.queue[-1][0]:
                 return
-            self.queue.append(Event(self, final, success, *values))
+            self.queue.append((final, success, args))
         self.signal_activity()
 
     def peek(self):
         with self.lock:
             if not self.queue:
                 return None
-            return self.queue[0]
+            final, success, args = self.queue[0]
+            return self, final, success, args
 
     def consume(self):
         with self.lock:
             if not self.queue:
                 return None
-            event = self.queue.popleft()
-            if event.final:
-                self.queue.append(event)
-        return event
+            final, success, args = self.queue.popleft()
+            if final:
+                self.queue.append((final, success, args))
+        return self, final, success, args
 
 class Channel(Buffered):
     def send(self, *values):
@@ -274,16 +263,17 @@ class Par(Reg):
                     self._reregister(source)
                     continue
 
+                origin, final, success, args = event
                 if peek:
                     self.pending_sources.appendleft(source)
-                elif not event.final:
+                elif not final:
                     self._reregister(source)
                 else:
                     self.sources.pop(source, None)
-                return Event(event.source, False, event.success, *event.args)
+                return origin, False, success, args
 
             if not self.sources:
-                return Event(self, True, False, AllFinished(), None)
+                return self, True, False, (AllFinished(), None)
             return None
 
     def peek(self):
@@ -352,15 +342,14 @@ class GeneratorStream(Outer):
             return
         gen, inner = cls._generators.get(ref, None)
 
-        event = source.consume()
-        with event.source.as_source():
+        origin, final, success, args = source.consume()
+        with origin.as_source():
             try:
-                try:
-                    value = event.value
-                except:
-                    next = gen.throw(*sys.exc_info())
+                if success:
+                    next = gen.send(peel_args(args))
                 else:
-                    next = gen.send(value)
+                    exc, tb = args
+                    next = gen.throw(type(exc), exc, tb)
             except (StopIteration, Finished):
                 inner._finish()
             except:
@@ -471,18 +460,19 @@ def pair(inner, left, right):
                 source.register(_callback, destination)
                 break
             
-            if not (event.final and source is right):
-                if event.final:
-                    destination.finish(*event.args)
-                elif event.success:
-                    destination.send(*event.args)
+            origin, final, success, args = event
+            if not (final and source is right):
+                if final:
+                    destination.finish(*args)
+                elif success:
+                    destination.send(*args)
                 else:
-                    destination.throw(*event.args)
+                    destination.throw(*args)
             else:
                 left.throw(PipeBroken())
 
-            if event.final:
-                finals[source] = event
+            if final:
+                finals[source] = success, args
                 if left in finals and right in finals:
                     channel.send(finals[right])
                 break
@@ -491,8 +481,11 @@ def pair(inner, left, right):
     left.register(_callback, right)
     right.register(_callback, inner)
 
-    event = yield channel
-    event.value
+    success, args = yield channel
+    if success:
+        return
+    exc, tb = args
+    raise type(exc), exc, tb
 
 def pipe(first, *rest):
     if not rest:
@@ -511,14 +504,15 @@ class Throws(Outer):
                 self.inner.register(self._callback)
                 return
 
-            if event.final:
-                self.inner._finish(*event.args)
+            origin, final, success, args = event
+            if final:
+                self.inner._finish(*args)
                 return
 
-            if event.success:
+            if success:
                 pass
             else:
-                self.inner.throw(*event.args)
+                self.inner.throw(*args)
 
 def throws():
     return Throws()
