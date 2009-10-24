@@ -6,12 +6,25 @@ import callqueue
 import weakref
 import contextlib
 import util
+import time
 
 class Timeout(Exception):
     pass
 
 class Finished(BaseException):
     pass
+
+class Callback(object):
+    def __init__(self, func, *args, **keys):
+        self.func = func
+        self.args = args
+        self.keys = keys
+
+    def __call__(self, *args, **keys):
+        new_args = self.args + args
+        new_keys = dict(self.keys)
+        new_keys.update(keys)
+        return self.func(*new_args, **new_keys)
 
 class Event(object):
     @property
@@ -62,8 +75,19 @@ class Reg(object):
         return getattr(self._local, "source", None) is self
 
     def __init__(self):
+        self.lock = threading.Lock()
         self.callbacks = collections.deque()
         self.pending_activity = False
+
+    def send(self, *values):
+        return
+
+    def throw(self, exc, tb=None):
+        return
+
+    def rethrow(self):
+        _, exception, traceback = sys.exc_info()
+        self.throw(exception, traceback)
 
     def peek(self):
         return None
@@ -71,66 +95,69 @@ class Reg(object):
     def consume(self):
         return None
 
-    @util.synchronized
     def signal_activity(self):
-        if self.pending_activity:
-            return
-        self.pending_activity = True
+        with self.lock:
+            if self.pending_activity:
+                return
+            self.pending_activity = True
         callqueue.add(self._loop)
 
-    @util.synchronized
     def _loop(self):
-        self.pending_activity = False
+        with self.lock:
+            self.pending_activity = False
+            callbacks = list(self.callbacks)
 
-        for callback in list(self.callbacks):
+        for current in callbacks:
             if not self.peek():
                 break
-            if callback not in self.callbacks:
-                continue
-            callback = self.callbacks.popleft()
-            callback(self)
-
+            with self.lock:
+                if not self.callbacks or current not in self.callbacks:
+                    continue
+                self.callbacks.popleft()
+            current(self)
         self._update_callbacks()
 
-    @util.synchronized
     def register(self, func, *args, **keys):
-        callback = callqueue.Callback(func, *args, **keys)
-
-        self.callbacks.append(callback)
+        callback = Callback(func, *args, **keys)
+        with self.lock:
+            self.callbacks.append(callback)
         self.signal_activity()
         self._update_callbacks()
-
         return callback
 
-    @util.synchronized
     def unregister(self, callback):
         try:
-            self.callbacks.remove(callback)
+            with self.lock:
+                self.callbacks.remove(callback)
         except ValueError:
             pass
         finally:
             self._update_callbacks()
 
-    def next(self, timeout=None):
-        condition = threading.Condition()
-        result = list()
+    def _next_callback(self, condition, result, source):
+        with condition:
+            if result:
+                return
+            result.append(source.consume())
+            condition.notify()
 
-        def _callback(source):
-            with condition:
-                if result:
-                    return
-                result.append(source.consume())
-                condition.notify()
+    def next(self, timeout=None):
+        result = list()
+        condition = threading.Condition()
 
         if timeout is None:
             timeout = float("infinity")
+        expire_time = time.time() + timeout
 
-        callback = self.register(_callback)
+        callback = self.register(self._next_callback, condition, result)
         try:
             with condition:
-                if not result:
+                while not result:
                     condition.wait(timeout)
-                    result.append(None)
+                    if result:
+                        break
+                    if time.time() >= expire_time:
+                        result.append(None)
         finally:
             self.unregister(callback)
 
@@ -158,29 +185,27 @@ class Buffered(Reg):
     def __init__(self):
         Reg.__init__(self)
         self.queue = collections.deque()
-        self.callbacks = collections.deque()
 
-    @util.synchronized
     def push(self, final, success, *values):
-        if self.queue and self.queue[-1].final:
-            return
-        self.queue.append(Event(self, final, success, *values))
+        with self.lock:
+            if self.queue and self.queue[-1].final:
+                return
+            self.queue.append(Event(self, final, success, *values))
         self.signal_activity()
 
-    @util.synchronized
     def peek(self):
-        if not self.queue:
-            return None
-        return self.queue[0]
+        with self.lock:
+            if not self.queue:
+                return None
+            return self.queue[0]
 
-    @util.synchronized
     def consume(self):
-        if not self.queue:
-            return None
-
-        event = self.queue.popleft()
-        if event.final:
-            self.queue.append(event)
+        with self.lock:
+            if not self.queue:
+                return None
+            event = self.queue.popleft()
+            if event.final:
+                self.queue.append(event)
         return event
 
 class Channel(Buffered):
@@ -190,16 +215,12 @@ class Channel(Buffered):
     def throw(self, exception, traceback=None):
         self.push(False, False, exception, traceback)
 
-    def rethrow(self):
-        _, exception, traceback = sys.exc_info()
-        self.throw(exception, traceback)
-
     def finish(self, exc=Finished(), tb=None):
         self.push(True, False, exc, tb)
 
 class AllFinished(Finished):
     pass
-
+import random
 class Par(Reg):
     _ref_sources = dict()
 
@@ -224,49 +245,49 @@ class Par(Reg):
         self.ref = weakref.ref(self, self._cleanup)
         self._ref_sources[self.ref] = self.sources
 
-        for source in set(aggregated):
+        aggregated = list(set(aggregated))
+        random.shuffle(aggregated)
+        for source in aggregated:
             self._reregister(source)
             
     def _reregister(self, source):
         self.sources[source] = source.register(self._callback, self.ref)
 
-    @util.synchronized
     def _append_pending(self, source):
-        self.sources[source] = None
-        self.pending_sources.append(source)
+        with self.lock:
+            self.sources[source] = None
+            self.pending_sources.append(source)
         self.signal_activity()
 
-    @util.synchronized
     def _peek_or_consume(self, peek=False):
-        while self.pending_sources:
-            source = self.pending_sources.popleft()
+        with self.lock:
+            while self.pending_sources:
+                source = self.pending_sources.popleft()
 
-            if peek:
-                event = source.peek()
-            else:
-                event = source.consume()
+                if peek:
+                    event = source.peek()
+                else:
+                    event = source.consume()
 
-            if event is None:
-                self._reregister(source)
-                continue
+                if event is None:
+                    self._reregister(source)
+                    continue
 
-            if peek:
-                self.pending_sources.appendleft(source)
-            elif not event.final:
-                self._reregister(source)
-            else:
-                self.sources.pop(source, None)
-            return Event(event.source, False, event.success, *event.args)
+                if peek:
+                    self.pending_sources.appendleft(source)
+                elif not event.final:
+                    self._reregister(source)
+                else:
+                    self.sources.pop(source, None)
+                return Event(event.source, False, event.success, *event.args)
 
-        if not self.sources:
-            return Event(self, True, False, AllFinished(), None)
-        return None
+            if not self.sources:
+                return Event(self, True, False, AllFinished(), None)
+            return None
 
-    @util.synchronized
     def peek(self):
         return self._peek_or_consume(peek=True)
 
-    @util.synchronized
     def consume(self):
         return self._peek_or_consume(peek=False)
 
@@ -277,10 +298,6 @@ class Par(Reg):
     def throw(self, exc, tb=None):
         for source in self.sources:
             source.throw(exc, tb)
-
-    def rethrow(self, *values):
-        _, exc, tb = sys.exc_info()
-        self.throw(exc, tb)
 
     def finish(self, exc=Finished(), tb=None):
         for source in self.sources:
@@ -304,10 +321,6 @@ class Inner(Buffered):
         for outer in self._outer():
             outer.push(False, False, exc, tb)
 
-    def rethrow(self):
-        _, exc, tb = sys.exc_info()
-        self.throw(exc, tb)
-
     def _finish(self, exc=Finished(), tb=None):
         for outer in self._outer():
             outer.push(True, False, exc, None)
@@ -322,10 +335,6 @@ class Outer(Buffered):
 
     def throw(self, exc, tb=None):
         self.inner.push(False, False, exc, tb)
-
-    def rethrow(self):
-        _, exc, tb = sys.exc_info()
-        self.throw(exc, tb)
 
     def finish(self, exc=Finished(), tb=None):
         self.inner.push(True, False, exc, tb)
@@ -369,11 +378,11 @@ class GeneratorStream(Outer):
         Outer.__init__(self)
         self._started = False
 
-    @util.synchronized
     def start(self):
-        if self._started:
-            return
-        self._started = True
+        with self.lock:
+            if self._started:
+                return
+            self._started = True
 
         gen = self.run()
         ref = weakref.ref(self)
@@ -406,13 +415,13 @@ class ThreadedStream(Outer):
         Outer.__init__(self)
         self.thread = None
 
-    @util.synchronized
     def start(self):
-        if self.thread is not None:
-            return
-        self.thread = threading.Thread(target=self._main)
-        self.thread.setDaemon(True)
-        self.thread.start()
+        with self.lock:
+            if self.thread is not None:
+                return
+            self.thread = threading.Thread(target=self._main)
+            self.thread.setDaemon(True)
+            self.thread.start()
 
     def _main(self):
         try:
@@ -455,25 +464,28 @@ def pair(inner, left, right):
     channel = Channel()
 
     def _callback(destination, source):
-        event = source.consume()
-
-        if not (event.final and source is right):
-            if event.final:
-                destination.finish(*event.args)
-            elif event.success:
-                destination.send(*event.args)
+        while True:
+            event = source.consume()
+            if event is None:
+                source.register(_callback, destination)
+                break
+            
+            if not (event.final and source is right):
+                if event.final:
+                    destination.finish(*event.args)
+                elif event.success:
+                    destination.send(*event.args)
+                else:
+                    destination.throw(*event.args)
             else:
-                destination.throw(*event.args)
-        else:
-            left.throw(PipeBroken())
+                left.throw(PipeBroken())
 
-        if not event.final:
-            source.register(_callback, destination)
-        else:
-            finals[source] = event
-            if left in finals and right in finals:
-                channel.send(finals[right])
-                
+            if event.final:
+                finals[source] = event
+                if left in finals and right in finals:
+                    channel.send(finals[right])
+                break
+            
     inner.register(_callback, left)
     left.register(_callback, right)
     right.register(_callback, inner)
@@ -492,17 +504,20 @@ class Throws(Outer):
         self.inner.register(self._callback)
 
     def _callback(self, source):
-        event = source.consume()
+        while True:
+            event = source.consume()
+            if event is None:
+                self.inner.register(self._callback)
+                return
 
-        if event.final:
-            self.inner._finish(*event.args)
-            return
+            if event.final:
+                self.inner._finish(*event.args)
+                return
 
-        if event.success:
-            pass
-        else:
-            self.inner.throw(*event.args)
-        self.inner.register(self._callback)
+            if event.success:
+                pass
+            else:
+                self.inner.throw(*event.args)
 
 def throws():
     return Throws()
