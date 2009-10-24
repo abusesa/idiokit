@@ -1,9 +1,9 @@
+from __future__ import with_statement
 import threado
 import socket
 import collections
 import select
 import os
-import util
 import errno
 
 from socket import error
@@ -77,44 +77,45 @@ class Socket(threado.ThreadedStream):
         self.inner.register(self._callback)
 
     @blocking_action
-    @util.synchronized
-    def _throw(self, type, exc, tb):
-        raise type, exc, tb
+    def _throw(self, exc, tb):
+        raise type(exc), exc, tb
 
-    @util.synchronized
     def _callback(self, source):
         event = source.consume()
+        if event is None:
+            source.register(self._callback)
+            return
 
-        try:
-            data = event.value
-        except:
-            self._throw(*sys.exc_info())
+        origin, final, success, args = event
+        if success:
+            with self.lock:
+                self.buffer.append(*args)
         else:
-            self.buffer.append(data)
+            self._throw(*args)
 
-        if event.final:
+        if final:
             self.close()
         else:
             source.register(self._callback)
 
-        if self.pipe is not None:
-            rfd, wfd = self.pipe
-            os.write(wfd, "\x00")
+        with self.lock:
+            if self.pipe is not None:
+                rfd, wfd = self.pipe
+                os.write(wfd, "\x00")
 
-    @util.synchronized
     def _cleanup(self):
-        if self.pipe is None:
-            return
+        with self.lock:
+            if self.pipe is None:
+                return
+            
+            rfd, wfd = self.pipe
+            os.write(wfd, "\x00")        
+            os.close(rfd)
+            os.close(wfd)
 
-        rfd, wfd = self.pipe
-        os.write(wfd, "\x00")        
-        os.close(rfd)
-        os.close(wfd)
-
-        self.pipe = None
+            self.pipe = None
 
     @blocking_action
-    @util.synchronized
     def connect(self, *args, **keys):
         def _socket_read(amount):
             return socket_wrapper(self.socket, True, self.socket.recv, amount)
@@ -127,7 +128,6 @@ class Socket(threado.ThreadedStream):
         self._write = _socket_write
 
     @blocking_action
-    @util.synchronized
     def ssl(self):
         def _ssl_read(amount):
             return socket_wrapper(self.socket, True, ssl_wrapper, 
@@ -143,7 +143,6 @@ class Socket(threado.ThreadedStream):
         self._write = _ssl_write
 
     @blocking_action
-    @util.synchronized
     def close(self):
         try:
             self.socket.setblocking(True)
