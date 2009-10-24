@@ -7,6 +7,7 @@ import weakref
 import contextlib
 import util
 import time
+import random
 
 class Timeout(Exception):
     pass
@@ -220,7 +221,7 @@ class Channel(Buffered):
 
 class AllFinished(Finished):
     pass
-import random
+
 class Par(Reg):
     _ref_sources = dict()
 
