@@ -1,25 +1,6 @@
-from __future__ import with_statement
 import time
-import socket
-import threading
 import collections
          
-def synchronized(method):
-    master_lock = threading.Lock()
-    lock_name = "_synchronized_lock"
-
-    def _method(self, *args, **keys):
-        lock = getattr(self, lock_name, None)
-        if lock is None:
-            with master_lock:
-                lock = getattr(self, lock_name, None)
-                if lock is None:
-                    lock = threading.RLock()
-                    setattr(self, lock_name, lock)
-        with lock:
-            return method(self, *args, **keys)
-    return _method
-
 class LineBuffer(object):
     def __init__(self):
         self.buffer = list()
