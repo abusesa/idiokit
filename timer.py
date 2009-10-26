@@ -7,7 +7,7 @@ from idiokit import threado
 
 class TimerThread(object):
     def __init__(self):
-        self.condition = threading.Condition()
+        self.condition = threading.Condition(threading.Lock())
         self.heap = list()
         self.thread = None
 
