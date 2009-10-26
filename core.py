@@ -29,7 +29,7 @@ def _iq(send, stream, type, query, **attrs):
 
     for elements in stream:
         for element in elements.named("iq").with_attrs(id=uid):
-            type = elements.get_attr("type", None)
+            type = element.get_attr("type", None)
             if type == "result":
                 return element
             elif type == "error":
@@ -152,7 +152,7 @@ class Core(object):
                     break
                 else:
                     error = self.build_error("cancel", "service-unavailable")
-                    self.iq_error(element, error)
+                    self.iq_error(iq, error)
         
     def build_error(self, type, condition, text=None, special=None):
         if type not in self.VALID_ERROR_TYPES:
