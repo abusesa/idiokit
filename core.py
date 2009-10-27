@@ -13,11 +13,29 @@ STARTTLS_NS = "urn:ietf:params:xml:ns:xmpp-tls"
 
 class XMPPError(Exception):
     def __init__(self, message, elements=Query(), ns=STANZA_ERROR_NS):
-        for element in elements.children(ns=ns):
-            name = element.name.replace("-", " ")
-            message += " (" + name + ")"
+        self.type = None
+        self.condition = None
+        self.text = None
+
+        for element in elements:
+            self.type = element.get_attr("type", None)
+            for child in element.children(ns=ns):
+                self.condition = child.name
+                break
+            for child in element.children("text", ns):
+                self.text = child.text
+                break
             break
+
         Exception.__init__(self, message)
+
+    def __str__(self):
+        extra = self.text
+        if extra is None and self.condition is not None:
+            extra = self.condition.replace("-", " ")
+        if extra is None:
+            return self.args[0]
+        return self.args[0] + " (%s)" % extra
 
 def _iq(send, stream, type, query, **attrs):
     uid = uuid.uuid4().hex

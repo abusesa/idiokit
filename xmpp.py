@@ -16,10 +16,6 @@ class StreamError(core.XMPPError):
         core.XMPPError.__init__(self, "stream level error", 
                                 element, core.STREAM_ERROR_NS)
 
-        self.text = None
-        for text_element in element.children("text", core.STREAM_ERROR_NS): 
-            self.text = text_element.text
-
 RESTART = object()
 
 @threado.stream

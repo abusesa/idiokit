@@ -1,5 +1,6 @@
 import threado
 import disco
+import uuid
 from xmlcore import Element, Query
 from core import STANZA_NS, XMPPError
 from jid import JID
@@ -45,12 +46,11 @@ class ExitRoom(Exception):
         self.reason = reason
 
 class MUCRoom(threado.GeneratorStream):
-    def __init__(self, muc, xmpp, room, nick):
+    def __init__(self, muc, xmpp, jid):
         threado.GeneratorStream.__init__(self)
         
-        self.room_jid = JID(room).bare()
-        self.nick_jid = JID(room)
-        self.nick_jid.resource = nick
+        self.room_jid = JID(jid).bare()
+        self.nick_jid = JID(jid)
         self.participants = list()
 
         self.muc = muc
@@ -142,19 +142,29 @@ class MUC(object):
             return
         return [item.jid for item in items]
 
-    def join(self, jid, nick):
-        info = self.xmpp.disco.info(jid)
+    def join(self, room, nick=None):
+        jid = JID(room)
+        if jid.node is None:
+            jid.node = jid.domain
+            jid.domain = "conference." + self.xmpp.jid.domain
+        if nick is not None:
+            jid.resource = nick or "bot"
 
-        for identity in info.identities:
-            if identity.category == "conference":
-                break
-        else:
-            raise MUCError("entity is not a chatroom")
-
+        info = self.xmpp.disco.info(jid.domain)
         if MUC_NS not in info.features:
-            raise MUCError("entity does not implement multi-user chat")
+            raise MUCError("'%s' is not a multi-user chat service" % jid.domain)
+        if not any(x for x in info.identities if x.category == "conference"):
+            raise MUCError("'%s' is not a multi-user chat service" % jid.domain)
 
-        room = MUCRoom(self, self.xmpp, jid, nick)
-        room._join()
-        self.rooms.add(room)
-        return room
+        original_resource = jid.resource
+        while True:
+            room = MUCRoom(self, self.xmpp, jid)
+            try:
+                room._join()
+            except MUCError, me:
+                if (me.type, me.condition) != ("cancel", "conflict"):
+                    raise
+                jid.resource = original_resource + "-" + uuid.uuid4().hex[:8]
+            else:
+                self.rooms.add(room)
+                return room
