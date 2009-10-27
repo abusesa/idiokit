@@ -144,11 +144,11 @@ class MUC(object):
 
     def join(self, room, nick=None):
         jid = JID(room)
+        if jid.resource is not None:
+            raise MUCError("illegal room JID (contains a resource)")
         if jid.node is None:
-            jid.node = jid.domain
-            jid.domain = "conference." + self.xmpp.jid.domain
-        if nick is not None:
-            jid.resource = nick or "bot"
+            jid = JID(room + "@conference." + self.xmpp.jid.domain)
+        jid.resource = nick or "bot"
 
         info = self.xmpp.disco.info(jid.domain)
         if MUC_NS not in info.features:
