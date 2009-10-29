@@ -5,7 +5,6 @@ import sys
 import callqueue
 import weakref
 import contextlib
-import util
 import time
 import random
 
@@ -334,14 +333,10 @@ null_source = Buffered()
 null_source.push(True, True)
 
 class GeneratorStream(Outer):
-    _generators = dict()
+    _generators = set()
 
     @classmethod
-    def step(cls, ref, source):
-        if ref not in cls._generators:
-            return
-        gen, inner = cls._generators.get(ref, None)
-
+    def step(cls, gen, inner, source):
         origin, final, success, args = source.consume()
         with origin.as_source():
             try:
@@ -352,17 +347,18 @@ class GeneratorStream(Outer):
                     next = gen.throw(type(exc), exc, tb)
             except (StopIteration, Finished):
                 inner._finish()
+                cls._generators.discard(gen)
             except:
                 _, exc, tb = sys.exc_info()
                 inner.throw(exc, tb)
                 inner._finish()
-                cls._generators.pop(ref, None)
+                cls._generators.discard(gen)
             else:
                 if next is None:
                     next = null_source
                 elif not isinstance(next, Reg):
                     next = Par(*next)
-                next.register(cls.step, ref)
+                next.register(cls.step, gen, inner)
 
     def __init__(self):
         Outer.__init__(self)
@@ -375,10 +371,8 @@ class GeneratorStream(Outer):
             self._started = True
 
         gen = self.run()
-        ref = weakref.ref(self)
-        self._generators[ref] = gen, self.inner
-
-        self.step(ref, null_source)
+        self._generators.add(gen)
+        self.step(gen, self.inner, null_source)
 
     def run(self):
         yield
