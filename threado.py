@@ -127,29 +127,32 @@ class Reg(object):
             condition.notify()
 
     def next(self, timeout=None):
-        result = list()
-        condition = threading.Condition()
+        item = self.consume()
+        if item is None:
+            result = list()
+            condition = threading.Condition()
+            
+            if timeout is None:
+                timeout = float("infinity")
+            expire_time = time.time() + timeout
 
-        if timeout is None:
-            timeout = float("infinity")
-        expire_time = time.time() + timeout
+            callback = self.register(self._next_callback, condition, result)
+            try:
+                with condition:
+                    while not result:
+                        condition.wait(timeout)
+                        if result:
+                            break
+                        if time.time() >= expire_time:
+                            result.append(None)
+            finally:
+                self.unregister(callback)
 
-        callback = self.register(self._next_callback, condition, result)
-        try:
-            with condition:
-                while not result:
-                    condition.wait(timeout)
-                    if result:
-                        break
-                    if time.time() >= expire_time:
-                        result.append(None)
-        finally:
-            self.unregister(callback)
+            if result[0] is None:
+                raise Timeout()
+            item = result[0]
 
-        if result[0] is None:
-            raise Timeout()
-
-        origin, final, success, args = result[0]
+        origin, final, success, args = item
         self._local.source = origin
         if success:
             return peel_args(args)
@@ -172,24 +175,25 @@ class Reg(object):
 class Buffered(Reg):
     def __init__(self):
         Reg.__init__(self)
+        self.queue_lock = threading.Lock()
         self.queue = collections.deque()
 
     def push(self, final, success, *args):
-        with self.lock:
+        with self.queue_lock:
             if self.queue and self.queue[-1][0]:
                 return
             self.queue.append((final, success, args))
         self.signal_activity()
 
     def peek(self):
-        with self.lock:
+        with self.queue_lock:
             if not self.queue:
                 return None
             final, success, args = self.queue[0]
             return self, final, success, args
 
     def consume(self):
-        with self.lock:
+        with self.queue_lock:
             if not self.queue:
                 return None
             final, success, args = self.queue.popleft()
@@ -335,10 +339,16 @@ null_source.push(True, True)
 class GeneratorStream(Outer):
     @classmethod
     def step(cls, gen, inner, callbacks, source):
-        for other, callback in callbacks:
+        item = source.consume()
+        if item is None:
+            callback = source.register(cls.step, gen, inner, callbacks)
+            callbacks[source] = callback
+            return
+
+        for other, callback in callbacks.items():
             other.unregister(callback)
 
-        origin, final, success, args = source.consume()
+        origin, final, success, args = item
         with origin.as_source():
             try:
                 if success:
@@ -358,10 +368,10 @@ class GeneratorStream(Outer):
                 elif isinstance(next, Reg):
                     next = [next]
 
-                callbacks = list()
+                callbacks = dict()
                 for other in set(next):
                     callback = other.register(cls.step, gen, inner, callbacks)
-                    callbacks.append((other, callback))
+                    callbacks[other] = callback
 
     def __init__(self):
         Outer.__init__(self)
@@ -374,7 +384,7 @@ class GeneratorStream(Outer):
             self._started = True
 
         gen = self.run()
-        self.step(gen, self.inner, [], null_source)
+        self.step(gen, self.inner, dict(), null_source)
 
     def run(self):
         yield
