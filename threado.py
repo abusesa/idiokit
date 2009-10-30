@@ -333,10 +333,11 @@ null_source = Buffered()
 null_source.push(True, True)
 
 class GeneratorStream(Outer):
-    _generators = set()
-
     @classmethod
-    def step(cls, gen, inner, source):
+    def step(cls, gen, inner, callbacks, source):
+        for other, callback in callbacks:
+            other.unregister(callback)
+
         origin, final, success, args = source.consume()
         with origin.as_source():
             try:
@@ -347,18 +348,20 @@ class GeneratorStream(Outer):
                     next = gen.throw(type(exc), exc, tb)
             except (StopIteration, Finished):
                 inner._finish()
-                cls._generators.discard(gen)
             except:
                 _, exc, tb = sys.exc_info()
                 inner.throw(exc, tb)
                 inner._finish()
-                cls._generators.discard(gen)
             else:
                 if next is None:
-                    next = null_source
-                elif not isinstance(next, Reg):
-                    next = Par(*next)
-                next.register(cls.step, gen, inner)
+                    next = [null_source]
+                elif isinstance(next, Reg):
+                    next = [next]
+
+                callbacks = list()
+                for other in set(next):
+                    callback = other.register(cls.step, gen, inner, callbacks)
+                    callbacks.append((other, callback))
 
     def __init__(self):
         Outer.__init__(self)
@@ -371,8 +374,7 @@ class GeneratorStream(Outer):
             self._started = True
 
         gen = self.run()
-        self._generators.add(gen)
-        self.step(gen, self.inner, null_source)
+        self.step(gen, self.inner, [], null_source)
 
     def run(self):
         yield
