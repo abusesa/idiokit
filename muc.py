@@ -72,11 +72,18 @@ class MUCRoom(threado.GeneratorStream):
             self.xmpp.core.presence(status, 
                                     to=self.room_jid, type="unavailable")
 
-    def _join(self):
+    def _join(self, password=None, history=False):
         attrs = dict()
         attrs["to"] = JID(self.nick_jid)
 
         x = Element("x", xmlns=MUC_NS)
+        if password is not None:
+            password_element = Element("password")
+            password_element.text = password
+            x.add(password_element)
+        if not history:
+            history_element = Element("history", maxstanzas="0")
+            x.add(history_element)
         self.xmpp.core.presence(x, **attrs)
 
         for element in self.stream:
@@ -142,7 +149,7 @@ class MUC(object):
             return
         return [item.jid for item in items]
 
-    def join(self, room, nick=None):
+    def join(self, room, nick=None, password=None, history=False):
         jid = JID(room)
         if jid.resource is not None:
             raise MUCError("illegal room JID (contains a resource)")
@@ -160,7 +167,7 @@ class MUC(object):
         while True:
             room = MUCRoom(self, self.xmpp, jid)
             try:
-                room._join()
+                room._join(password=password, history=history)
             except MUCError, me:
                 if (me.type, me.condition) != ("cancel", "conflict"):
                     raise
