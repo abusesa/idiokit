@@ -181,7 +181,9 @@ class Core(object):
         error = Element("error", type=type)
         error.add(Element(condition, xmlns=STANZA_ERROR_NS))
         if text is not None:
-            error.add(Element("text", xmlns=STANZA_ERROR_NS))
+            text_element = Element("text", xmlns=STANZA_ERROR_NS)
+            text_element.text = text
+            error.add(text_element)
         if special is not None:
             error.add(special)
         return error
