@@ -36,7 +36,8 @@ def parse_participant_presence(elements, own_jid):
 
             affiliation = item.get_attr("affiliation")
             role = item.get_attr("role")
-            participant = MUCParticipant(other_jid, affiliation, role, jid)
+            participant = MUCParticipant(other_jid, affiliation, role, 
+                                         presence.children(), jid)
             return participant, codes
     return None
 
@@ -46,7 +47,7 @@ class ExitRoom(Exception):
         self.reason = reason
 
 class MUCRoom(threado.GeneratorStream):
-    def __init__(self, muc, xmpp, jid):
+    def __init__(self, muc, xmpp, stream, jid):
         threado.GeneratorStream.__init__(self)
         
         self.room_jid = JID(jid).bare()
@@ -55,7 +56,7 @@ class MUCRoom(threado.GeneratorStream):
 
         self.muc = muc
         self.xmpp = xmpp
-        self.stream = self.xmpp.stream()
+        self.stream = stream
 
     def send(self, *values):
         threado.GeneratorStream.send(self, values)
@@ -120,18 +121,32 @@ class MUCRoom(threado.GeneratorStream):
             self.muc._exit_room(self)
 
 class MUCParticipant(object):
-    def __init__(self, name, affiliation, role, jid=None):
+    def __init__(self, name, affiliation, role, payload, jid=None):
         self.name = name
         self.affiliation = affiliation
         self.role = role
         self.jid = jid
+        self.payload = payload
 
 class MUC(object):
     def __init__(self, xmpp):
         self.xmpp = xmpp
         self.xmpp.disco.add_feature(MUC_NS)
         self.xmpp.disco.add_node(ROOMS_NODE, self._node_handler)
-        self.rooms = set()
+        self.rooms = dict()
+        self.xmpp.add_listener(self._handler)
+
+    def _handler(self, event):
+        try:
+            element = event.result
+            bare = JID(element.get_attr("from")).bare()
+            for room in self.rooms.get(bare, set()):
+                room.stream.send(element)
+        except:
+            for bare, rooms in self.rooms.iteritems():
+                for room in rooms:
+                    room.stream.rethrow()
+            self.rooms.clear()
 
     def _node_handler(self):
         features = list()
@@ -140,7 +155,10 @@ class MUC(object):
         return features, identities, items
 
     def _exit_room(self, room):
-        self.rooms.discard(room)
+        rooms = self.rooms.get(room.room_jid.bare(), set())
+        rooms.discard(room)
+        if not rooms:
+            self.rooms.pop(room.room_jid.bare(), None)
 
     def joined_rooms(self, jid):
         try:
@@ -165,7 +183,9 @@ class MUC(object):
 
         original_resource = jid.resource
         while True:
-            room = MUCRoom(self, self.xmpp, jid)
+            stream = threado.Channel()
+            room = MUCRoom(self, self.xmpp, stream, jid)
+            self.rooms.setdefault(jid.bare(), set()).add(room)
             try:
                 room._join(password=password, history=history)
             except MUCError, me:
@@ -173,5 +193,4 @@ class MUC(object):
                     raise
                 jid.resource = original_resource + "-" + uuid.uuid4().hex[:8]
             else:
-                self.rooms.add(room)
                 return room

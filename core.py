@@ -1,5 +1,7 @@
+from __future__ import with_statement
 import uuid
 import threado
+import contextlib
 from jid import JID
 from xmlcore import Query, Element, STREAM_NS
 
@@ -137,40 +139,52 @@ def session(stream):
     session = Element("session", xmlns=SESSION_NS)
     _iq(stream.send, stream, "set", session)
 
+def _stream_callback(channel, event):
+    try:
+        channel.send(event.result)
+    except:
+        channel.rethrow()
+
+@contextlib.contextmanager
+def _stream(xmpp):
+    channel = threado.Channel()
+    callback = xmpp.add_listener(_stream_callback, channel)
+    try:
+        yield channel
+    finally:
+        xmpp.discard_listener(callback)
+
 class Core(object):
     VALID_ERROR_TYPES = set(["cancel", "continue", "modify", "auth", "wait"])
 
     def __init__(self, xmpp):
         self.xmpp = xmpp
         self.iq_handlers = dict()
-        self.iq_dispatcher = self._iq_dispatcher() | xmpp
+        self.xmpp.add_listener(self._iq_dispatcher)
 
     def add_iq_handler(self, handler, *args, **keys):
         self.iq_handlers[handler] = args, keys
         
-    @threado.stream
-    def _iq_dispatcher(inner, self):
-        stream = self.xmpp.stream()
+    def _iq_dispatcher(self, event):
+        try:
+            elements = event.result
+        except:
+            return
 
-        while True:
-            elements = yield inner, stream
-            if inner.was_source:
+        for iq in elements.named("iq", STANZA_NS).with_attrs("type"):
+            if iq.get_attr("type").lower() not in ("get", "set"):
                 continue
 
-            for iq in elements.named("iq", STANZA_NS).with_attrs("type"):
-                if iq.get_attr("type").lower() not in ("get", "set"):
-                    continue
-
-                for handler, (args, keys) in self.iq_handlers.items():
-                    for payload in iq.children(*args, **keys):
-                        handler(iq, payload)
-                        break
-                    else:
-                        continue
+            for handler, (args, keys) in self.iq_handlers.items():
+                for payload in iq.children(*args, **keys):
+                    handler(iq, payload)
                     break
                 else:
-                    error = self.build_error("cancel", "service-unavailable")
-                    self.iq_error(iq, error)
+                    continue
+                break
+            else:
+                error = self.build_error("cancel", "service-unavailable")
+                self.iq_error(iq, error)
         
     def build_error(self, type, condition, text=None, special=None):
         if type not in self.VALID_ERROR_TYPES:
@@ -203,11 +217,13 @@ class Core(object):
 
     def iq_get(self, payload, **attrs):
         attrs["from"] = unicode(self.xmpp.jid)
-        return _iq(self.xmpp.send, self.xmpp.stream(), "get", payload, **attrs)
+        with _stream(self.xmpp) as stream:
+            return _iq(self.xmpp.send, stream, "get", payload, **attrs)
 
     def iq_set(self, payload, **attrs):
         attrs["from"] = unicode(self.xmpp.jid)
-        return _iq(self.xmpp.send, self.xmpp.stream(), "set", payload, **attrs)
+        with _stream(self.xmpp) as stream:
+            return _iq(self.xmpp.send, stream, "set", payload, **attrs)
 
     def iq_result(self, request, payload=None, **attrs):
         if not request.has_attrs("id"):

@@ -1,8 +1,10 @@
-import util
+from __future__ import with_statement
+import sys
 import threado
+import threadpool
 import socket
 import sockets
-import weakref
+import callqueue
 from jid import JID
 
 import core
@@ -76,6 +78,18 @@ def _resolve_with_dig(domain, service):
 
     return [(host, port) for (_, host, port) in sorted(results)]
 
+class Event(object):
+    @property
+    def result(self):
+        if self.success:
+            return self.args
+        type, exc, tb = self.args
+        raise type, exc, tb
+
+    def __init__(self, success, args):
+        self.success = success
+        self.args = args
+
 class XMPP(threado.GeneratorStream):
     DEFAULT_XMPP_PORT = 5222
 
@@ -83,7 +97,8 @@ class XMPP(threado.GeneratorStream):
         threado.GeneratorStream.__init__(self)
 
         self.elements = None
-        self.channels = weakref.WeakKeyDictionary()
+        self.listeners = set()
+        self.final = None
 
         self.jid = JID(jid)
         self.password = password
@@ -157,19 +172,32 @@ class XMPP(threado.GeneratorStream):
                     self.elements.send(data)
                     continue
 
-                for channel_ref in self.channels.keyrefs():
-                    channel = channel_ref()
-                    if channel is None:
-                        continue
-                    for element in data:
-                        channel.send(element)
+                event = Event(True, data)
+                for callback in self.listeners:
+                    callback(event)
         except:
             self.elements.rethrow()
-            for channel in self.channels:
-                channel.rethrow()
+            self.final = Event(False, sys.exc_info())
+            for callback in self.listeners:
+                callback(self.final)
+            self.listeners.clear()
             raise
 
-    def stream(self):
-        channel = threado.Channel()
-        self.channels[channel] = None
-        return channel + self
+    def add_listener(self, func, *args, **keys):
+        callback = threado.Callback(func, *args, **keys)
+        def _add():
+            if self.final:
+                callback(self.final)
+            else:
+                self.listeners.add(callback)
+        callqueue.add(_add)
+        return callback
+
+    def discard_listener(self, callback):
+        callqueue.add(self.listeners.discard, callback)
+
+@threado.stream
+def connect(inner, *args, **keys):
+    xmpp = XMPP(*args, **keys)
+    yield threadpool.run(xmpp.connect)
+    inner.send(xmpp)

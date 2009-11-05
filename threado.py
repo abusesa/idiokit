@@ -206,7 +206,7 @@ class Channel(Buffered):
         self.push(False, True, *values)
 
     def throw(self, exception, traceback=None):
-        self.push(False, False, exception, traceback)
+        self.push(True, False, exception, traceback)
 
     def finish(self, exc=Finished(), tb=None):
         self.push(True, False, exc, tb)
@@ -317,7 +317,27 @@ class Inner(Buffered):
 
     def _finish(self, exc=Finished(), tb=None):
         for outer in self._outer():
-            outer.push(True, False, exc, None)
+            outer.push(True, False, exc, tb)
+
+    def sub(self, other):
+        @stream
+        def _sub(inner):
+            while True:
+                try:
+                    item = yield inner, self, other
+                except:
+                    if other.was_source:
+                        _, exc, tb = sys.exc_info()
+                        raise type(exc), exc, tb
+                    else:
+                        other.rethrow()
+                else:
+                    if other.was_source:
+                        for outer in self._outer():
+                            outer.push(False, True, item)
+                    else:
+                        other.send(item)
+        return _sub()
 
 class Outer(Buffered):
     def __init__(self):
@@ -360,8 +380,7 @@ class GeneratorStream(Outer):
                 inner._finish()
             except:
                 _, exc, tb = sys.exc_info()
-                inner.throw(exc, tb)
-                inner._finish()
+                inner._finish(exc, tb)
             else:
                 if next is None:
                     next = [null_source]
@@ -387,7 +406,8 @@ class GeneratorStream(Outer):
         self.step(gen, self.inner, dict(), null_source)
 
     def run(self):
-        yield
+        while True:
+            yield self.inner
 
 class FuncStream(GeneratorStream):
     def __init__(self, func, *args, **keys):
@@ -422,12 +442,10 @@ class ThreadedStream(Outer):
     def _main(self):
         try:
             self.run()
-        except Finished:
-            pass
         except:
             _, exc, tb = sys.exc_info()
-            self.inner.throw(exc, tb)
-        finally:
+            self.inner._finish(exc, tb)
+        else:
             self.inner._finish()
 
     def run(self):
@@ -498,27 +516,7 @@ def pipe(first, *rest):
         return first
     return pair(pipe(first, *rest[:-1]), rest[-1])
 
-class Throws(Outer):
-    def __init__(self):
-        Outer.__init__(self)
-        self.inner.register(self._callback)
-
-    def _callback(self, source):
-        while True:
-            event = source.consume()
-            if event is None:
-                self.inner.register(self._callback)
-                return
-
-            origin, final, success, args = event
-            if final:
-                self.inner._finish(*args)
-                return
-
-            if success:
-                pass
-            else:
-                self.inner.throw(*args)
-
-def throws():
-    return Throws()
+@stream
+def throws(inner):
+    while True:
+        yield inner
