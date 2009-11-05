@@ -386,6 +386,9 @@ class GeneratorStream(Outer):
                     next = [null_source]
                 elif isinstance(next, Reg):
                     next = [next]
+                else:
+                    next = list(next)
+                    random.shuffle(next)
 
                 callbacks = dict()
                 for other in set(next):
