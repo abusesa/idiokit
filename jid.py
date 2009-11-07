@@ -115,10 +115,14 @@ def prep_domain(domain):
     return check_length("domain", domain)
 
 class JID(object):
+    cache = dict()
+
     def __init__(self, jid):
         if not isinstance(jid, unicode):
             jid = unicode(jid)
-        self.node, self.domain, self.resource = prep_unicode_jid(jid)
+        if jid not in self.cache:
+            self.cache[jid] = prep_unicode_jid(jid)
+        self.node, self.domain, self.resource = self.cache[jid]
 
     def bare(self):
         jid = self.domain
