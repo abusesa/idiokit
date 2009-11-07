@@ -46,15 +46,6 @@ class Reg(object):
             else:
                 self._with_callbacks.discard(self)
 
-    @contextlib.contextmanager
-    def as_source(self):
-        previous = getattr(self._local, "source", None)
-        self._local.source = self
-        try:
-            yield
-        finally:
-            self._local.source = previous
-
     @property
     def was_source(self):
         return getattr(self._local, "source", None) is self
@@ -359,41 +350,47 @@ null_source.push(True, True)
 class GeneratorStream(Outer):
     @classmethod
     def step(cls, gen, inner, callbacks, source):
+        if source not in callbacks:
+            return
+        del callbacks[source]
+
         item = source.consume()
         if item is None:
             callback = source.register(cls.step, gen, inner, callbacks)
             callbacks[source] = callback
             return
 
-        for other, callback in callbacks.items():
-            other.unregister(callback)
-
         origin, final, success, args = item
-        with origin.as_source():
-            try:
-                if success:
-                    next = gen.send(peel_args(args))
-                else:
-                    exc, tb = args
-                    next = gen.throw(type(exc), exc, tb)
-            except (StopIteration, Finished):
-                inner._finish()
-            except:
-                _, exc, tb = sys.exc_info()
-                inner._finish(exc, tb)
+        cls._local.source = source
+        try:
+            if success:
+                next = gen.send(peel_args(args))
             else:
-                if next is None:
-                    next = [null_source]
-                elif isinstance(next, Reg):
-                    next = [next]
-                else:
-                    next = list(next)
-                    random.shuffle(next)
+                exc, tb = args
+                next = gen.throw(type(exc), exc, tb)
+        except (StopIteration, Finished):
+            inner._finish()
+        except:
+            _, exc, tb = sys.exc_info()
+            inner._finish(exc, tb)
+        else:
+            if next is None:
+                next = [null_source]
+            elif isinstance(next, Reg):
+                next = [next]
+            else:
+                next = list(set(next))
+                random.shuffle(next)
 
-                callbacks = dict()
-                for other in set(next):
-                    callback = other.register(cls.step, gen, inner, callbacks)
-                    callbacks[other] = callback
+            old = dict(callbacks)
+            for other in next:
+                if other in callbacks:
+                    old.pop(other)
+                else:
+                    callbacks[other] = None
+                    callqueue.add(cls.step, gen, inner, callbacks, other)
+            for other, callback in old.items():
+                other.unregister(callback)
 
     def __init__(self):
         Outer.__init__(self)
@@ -406,7 +403,9 @@ class GeneratorStream(Outer):
             self._started = True
 
         gen = self.run()
-        self.step(gen, self.inner, dict(), null_source)
+        callbacks = dict()
+        callbacks[null_source] = None
+        self.step(gen, self.inner, callbacks, null_source)
 
     def run(self):
         while True:
