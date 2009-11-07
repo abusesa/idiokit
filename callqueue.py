@@ -1,12 +1,21 @@
-from __future__ import with_statement
 import threading
 import contextlib
+from thread import allocate_lock
 
 class CallQueue(object):
     def __init__(self):
-        self.queue_lock = threading.Lock()
-        self.exclusive_lock = threading.RLock()
+        self.queue_lock = allocate_lock()
+        self.queue_lock_acquire = self.queue_lock.acquire
+        self.queue_lock_release = self.queue_lock.release
+        self.exclusive_lock = allocate_lock()
+        self.exclusive_lock_acquire = self.exclusive_lock.acquire
+        self.exclusive_lock_release = self.exclusive_lock.release
 
+        queue_lock_acquire = self.queue_lock.acquire
+        queue_lock_release = self.queue_lock.release
+        exclusive_lock_acquire = self.exclusive_lock.acquire
+        exclusive_lock_release = self.exclusive_lock.release
+        
         self.queue = list()
         self.callback = None
 
@@ -15,33 +24,47 @@ class CallQueue(object):
         self.thread.start()
 
     def _run(self):
-        event = threading.Event()
+        lock = allocate_lock()
+        acquire = lock.acquire
+        release = lock.release
+        iterate = self.iterate
+
         while True:
-            self.iterate(event.set)
-            event.wait()
-            event.clear()
+            acquire()
+            iterate(release)
         
     def add(self, func, *args, **keys):
-        with self.queue_lock:
+        self.queue_lock_acquire()
+        try:
             self.queue.append((func, args, keys))
             if self.callback is not None:
                 self.callback()
                 self.callback = None
+        finally:
+            self.queue_lock_release()
 
     @contextlib.contextmanager
     def exclusive(self):
-        with self.exclusive_lock:
+        self.exclusive_lock_acquire()
+        try:
             yield
+        finally:
+            self.exclusive_lock_release()
 
     def iterate(self, callback=None):
-        with self.exclusive_lock:
-            with self.queue_lock:
-                queue = self.queue
-                self.queue = list()
-                self.callback = callback
+        self.exclusive_lock_acquire()
+        try:
+            self.queue_lock_acquire()
+            queue = self.queue
+            self.queue = list()
+            self.callback = callback
+            self.queue_lock_release()
                 
             for func, args, keys in queue:
                 func(*args, **keys)
+        finally:
+            self.exclusive_lock_release()
+
 global_queue = CallQueue()
 
 iterate = global_queue.iterate
