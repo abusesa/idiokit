@@ -48,7 +48,7 @@ class ExitRoom(Exception):
 
 class MUCRoom(threado.GeneratorStream):
     def __init__(self, muc, xmpp, stream, jid):
-        threado.GeneratorStream.__init__(self)
+        threado.GeneratorStream.__init__(self, fast=True)
         
         self.room_jid = JID(jid).bare()
         self.nick_jid = JID(jid)
@@ -103,17 +103,18 @@ class MUCRoom(threado.GeneratorStream):
     def run(self):
         try:
             while True:
-                elements = yield self.inner, self.stream
+                yield self.inner, self.stream
 
-                if self.inner.was_source:
+                for elements in self.inner.iter():
                     attrs = dict(type="groupchat")
                     self.xmpp.core.message(self.room_jid, *elements, **attrs)
                     continue
 
-                for element in elements.with_attrs("from"):
-                    from_jid = JID(element.get_attr("from"))
-                    if from_jid.bare() == self.room_jid:
-                        self.inner.send(element)
+                for elements in self.stream.iter():
+                    for element in elements.with_attrs("from"):
+                        from_jid = JID(element.get_attr("from"))
+                        if from_jid.bare() == self.room_jid:
+                            self.inner.send(element)
         except ExitRoom, er:
             self._exit(er.reason)
         finally:
@@ -173,7 +174,7 @@ class MUC(object):
             raise MUCError("illegal room JID (contains a resource)")
         if jid.node is None:
             jid = JID(room + "@conference." + self.xmpp.jid.domain)
-        jid.resource = nick or "bot"
+        jid.resource = nick or uuid.uuid4().hex[:8]
 
         info = self.xmpp.disco.info(jid.domain)
         if MUC_NS not in info.features:
