@@ -20,7 +20,7 @@ class StreamError(core.XMPPError):
 
 RESTART = object()
 
-@threado.stream
+@threado.stream_fast
 def element_stream(inner, socket, domain):
     stream_element = Element("stream:stream")
     stream_element.set_attr("to", domain)
@@ -28,19 +28,19 @@ def element_stream(inner, socket, domain):
     stream_element.set_attr("xmlns:stream", STREAM_NS)
     stream_element.set_attr("version", "1.0")
 
+    parser = ElementParser()
+    socket.send(stream_element.serialize_open())
     while True:
-        parser = ElementParser()
-        socket.send(stream_element.serialize_open())
-                
-        while True:
-            data = yield inner, socket
-            if data is RESTART:
-                break
+        yield inner, socket
 
-            if inner.was_source:
-                socket.send(data.serialize())
-                continue
+        for element in inner.iter():
+            if element is RESTART:
+                parser = ElementParser()
+                socket.send(stream_element.serialize_open())
+            else:
+                socket.send(element.serialize())
 
+        for data in socket.iter():
             for element in parser.feed(data):
                 if element.named("error", STREAM_NS):
                     raise StreamError(element)
@@ -50,7 +50,7 @@ def _resolve_with_getaddrinfo(host_or_domain, port_or_service):
     try:
         return socket.getaddrinfo(host_or_domain, 
                                   port_or_service, 
-                                  0, 
+                                  socket.AF_INET, 
                                   socket.SOCK_STREAM, 
                                   socket.IPPROTO_TCP)
     except socket.gaierror:
@@ -94,7 +94,7 @@ class XMPP(threado.GeneratorStream):
     DEFAULT_XMPP_PORT = 5222
 
     def __init__(self, jid, password, host=None, port=None):
-        threado.GeneratorStream.__init__(self)
+        threado.GeneratorStream.__init__(self, fast=True)
 
         self.elements = None
         self.listeners = set()
@@ -148,16 +148,16 @@ class XMPP(threado.GeneratorStream):
             break
         if socket_error is not None:
             raise socket_error
-
-        self.elements = element_stream(sock, self.jid.domain)
         
+        self.elements = element_stream(sock, self.jid.domain)
+
         core.require_tls(self.elements)
         sock.ssl()
         self.elements.send(RESTART)
-        
+
         core.require_sasl(self.elements, self.jid, self.password)
         self.elements.send(RESTART)
-        
+
         self.jid = core.require_bind_and_session(self.elements, self.jid)
         self.core = core.Core(self)
         self.disco = disco.Disco(self)
@@ -167,14 +167,15 @@ class XMPP(threado.GeneratorStream):
     def run(self):
         try:
             while True:
-                data = yield self.inner, self.elements
-                if self.inner.was_source:
-                    self.elements.send(data)
-                    continue
+                yield self.inner, self.elements
 
-                event = Event(True, data)
-                for callback in self.listeners:
-                    callback(event)
+                for element in self.inner.iter():
+                    self.elements.send(element)
+
+                for elements in self.elements.iter():
+                    event = Event(True, elements)
+                    for callback in self.listeners:
+                        callback(event)
         except:
             self.elements.rethrow()
             self.final = Event(False, sys.exc_info())
