@@ -3,7 +3,7 @@ import threading
 import time
 import heapq
 import atexit
-from idiokit import threado
+import threado
 
 class TimerThread(object):
     def __init__(self):
