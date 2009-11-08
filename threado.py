@@ -87,18 +87,21 @@ class Reg(object):
             if not self.peek():
                 break
             with self.lock:
-                if not self.callbacks or current not in self.callbacks:
+                if current not in self.callbacks:
                     continue
                 self.callbacks.popleft()
             current(self)
-        self._update_callbacks()
+        else:
+            self._update_callbacks()
 
     def register(self, func, *args, **keys):
         callback = Callback(func, *args, **keys)
         with self.lock:
+            changed = not self.callbacks
             self.callbacks.append(callback)
-        self.signal_activity()
-        self._update_callbacks()
+        if changed:
+            self.signal_activity()
+            self._update_callbacks()
         return callback
 
     def unregister(self, callback):
@@ -107,8 +110,20 @@ class Reg(object):
                 self.callbacks.remove(callback)
         except ValueError:
             pass
-        finally:
+        else:
             self._update_callbacks()
+
+    def iter(self):
+        while True:
+            item = self.consume()
+            if item is None:
+                return
+            _, _, success, args = item
+            if success:
+                yield peel_args(args)
+            else:
+                exc, tb = args
+                raise type(exc), exc, tb
 
     def _next_callback(self, condition, result, source):
         with condition:
@@ -131,7 +146,7 @@ class Reg(object):
             try:
                 with condition:
                     while not result:
-                        condition.wait(timeout)
+                        condition.wait(max(expire_time-time.time(), 0.0))
                         if result:
                             break
                         if time.time() >= expire_time:
@@ -173,8 +188,10 @@ class Buffered(Reg):
         with self.queue_lock:
             if self.queue and self.queue[-1][0]:
                 return
+            changed = not self.queue
             self.queue.append((final, success, args))
-        self.signal_activity()
+        if changed:
+            self.signal_activity()
 
     def peek(self):
         with self.queue_lock:
@@ -222,7 +239,6 @@ class Par(Reg):
 
     def __init__(self, *aggregated):
         Reg.__init__(self)
-
         self.pending_sources = collections.deque()
         self.sources = dict()
 
@@ -311,23 +327,23 @@ class Inner(Buffered):
             outer.push(True, False, exc, tb)
 
     def sub(self, other):
-        @stream
+        @stream_fast
         def _sub(inner):
             while True:
+                yield inner, self, other
+
                 try:
-                    item = yield inner, self, other
-                except:
-                    if other.was_source:
-                        _, exc, tb = sys.exc_info()
-                        raise type(exc), exc, tb
-                    else:
-                        other.rethrow()
-                else:
-                    if other.was_source:
-                        for outer in self._outer():
-                            outer.push(False, True, item)
-                    else:
+                    for item in inner.iter():
                         other.send(item)
+                    for item in self.iter():
+                        other.send(item)
+                except:
+                    other.rethrow()
+
+                outer = self.outer_ref()
+                for item in other.iter():
+                    if outer is not None:
+                        outer.push(self, False, True, item)
         return _sub()
 
 class Outer(Buffered):
@@ -349,30 +365,45 @@ null_source.push(True, True)
 
 class GeneratorStream(Outer):
     @classmethod
-    def step(cls, gen, inner, callbacks, source):
+    def step(cls, gen, inner, callbacks, fast, source):
         if source not in callbacks:
             return
         del callbacks[source]
 
-        item = source.consume()
-        if item is None:
-            callback = source.register(cls.step, gen, inner, callbacks)
-            callbacks[source] = callback
-            return
+        if fast:
+            if not source.peek():
+                callback = source.register(cls.step, gen, inner, callbacks, fast)
+                callbacks[source] = callback
+                return
+        else:
+            item = source.consume()
+            if item is None:
+                callback = source.register(cls.step, gen, inner, callbacks, fast)
+                callbacks[source] = callback
+                return
+            origin, final, success, args = item
+            cls._local.source = origin
 
-        origin, final, success, args = item
-        cls._local.source = source
         try:
-            if success:
-                next = gen.send(peel_args(args))
+            if fast:
+                next = gen.next()
             else:
-                exc, tb = args
-                next = gen.throw(type(exc), exc, tb)
-        except (StopIteration, Finished):
+                if success:
+                    next = gen.send(peel_args(args))
+                else:
+                    exc, tb = args
+                    next = gen.throw(type(exc), exc, tb)
+        except StopIteration:
             inner._finish()
+            for source, callback in callbacks.items():
+                source.unregister(callback)
+            callbacks.clear()
         except:
             _, exc, tb = sys.exc_info()
             inner._finish(exc, tb)
+            for source, callback in callbacks.items():
+                source.unregister(callback)
+            callbacks.clear()
         else:
             if next is None:
                 next = [null_source]
@@ -382,19 +413,20 @@ class GeneratorStream(Outer):
                 next = list(set(next))
                 random.shuffle(next)
 
-            old = dict(callbacks)
+            old_callbacks = dict(callbacks)
             for other in next:
                 if other in callbacks:
-                    old.pop(other)
+                    old_callbacks.pop(other, None)
                 else:
+                    callqueue.add(cls.step, gen, inner, callbacks, fast, other)
                     callbacks[other] = None
-                    callqueue.add(cls.step, gen, inner, callbacks, other)
-            for other, callback in old.items():
+            for other, callback in old_callbacks.items():
                 other.unregister(callback)
 
-    def __init__(self):
+    def __init__(self, fast=False):
         Outer.__init__(self)
         self._started = False
+        self._fast = fast
 
     def start(self):
         with self.lock:
@@ -405,15 +437,16 @@ class GeneratorStream(Outer):
         gen = self.run()
         callbacks = dict()
         callbacks[null_source] = None
-        self.step(gen, self.inner, callbacks, null_source)
+        self.step(gen, self.inner, callbacks, self._fast, null_source)
 
     def run(self):
         while True:
             yield self.inner
+            for _ in self.inner.iter(): pass
 
 class FuncStream(GeneratorStream):
-    def __init__(self, func, *args, **keys):
-        GeneratorStream.__init__(self)
+    def __init__(self, fast, func, *args, **keys):
+        GeneratorStream.__init__(self, fast)
         self.func = func
         self.args = args
         self.keys = keys
@@ -425,8 +458,13 @@ class FuncStream(GeneratorStream):
 
 def stream(func):
     def _stream(*args, **keys):
-        return FuncStream(func, *args, **keys)
+        return FuncStream(False, func, *args, **keys)
     return _stream
+
+def stream_fast(func):
+    def _stream_fast(*args, **keys):
+        return FuncStream(True, func, *args, **keys)
+    return _stream_fast
 
 class ThreadedStream(Outer):
     def __init__(self):
@@ -518,7 +556,8 @@ def pipe(first, *rest):
         return first
     return pair(pipe(first, *rest[:-1]), rest[-1])
 
-@stream
+@stream_fast
 def throws(inner):
     while True:
         yield inner
+        for _ in inner.iter(): pass
