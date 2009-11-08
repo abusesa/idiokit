@@ -413,15 +413,15 @@ class GeneratorStream(Outer):
                 next = list(set(next))
                 random.shuffle(next)
 
-            old_callbacks = dict(callbacks)
+            old_callbacks = set(callbacks)
             for other in next:
                 if other in callbacks:
-                    old_callbacks.pop(other, None)
+                    old_callbacks.discard(other)
                 else:
                     callqueue.add(cls.step, gen, inner, callbacks, fast, other)
                     callbacks[other] = None
-            for other, callback in old_callbacks.items():
-                other.unregister(callback)
+            for other in old_callbacks:
+                other.unregister(callbacks.pop(other))
 
     def __init__(self, fast=False):
         Outer.__init__(self)
