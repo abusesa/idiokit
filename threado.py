@@ -437,7 +437,7 @@ class GeneratorStream(Outer):
         gen = self.run()
         callbacks = dict()
         callbacks[null_source] = None
-        self.step(gen, self.inner, callbacks, self._fast, null_source)
+        callqueue.add(self.step, gen, self.inner, callbacks, self._fast, null_source)
 
     def run(self):
         while True:
