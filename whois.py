@@ -2,6 +2,7 @@ import time
 import util
 import threado
 import sockets
+import timer
 
 class CymruWhoisItem(object):
     def __init__(self, as_no, ip, bgp_prefix, cc, registry, allocated, as_name):
@@ -13,27 +14,28 @@ class CymruWhoisItem(object):
         self.registry = registry
         self.allocated = allocated
 
-class CymruWhois(threado.ThreadedStream):
+class CymruWhois(threado.GeneratorStream):
     def __init__(self, throttle_time=10.0, cache_time=60*60.0):
-        threado.ThreadedStream.__init__(self)
+        threado.GeneratorStream.__init__(self)
 
         self.cache = util.TimedCache(cache_time)
         self.throttle_time = throttle_time
         self.pending = set()
 
     def send(self, *args, **keys):
-        threado.ThreadedStream.send(self, *args, **keys)
+        threado.GeneratorStream.send(self, *args, **keys)
         self.start()
 
     def throw(self, *args, **keys):
-        threado.ThreadedStream.throw(self, *args, **keys)
+        threado.GeneratorStream.throw(self, *args, **keys)
         self.start()
 
     def rethrow(self, *args, **keys):
-        threado.ThreadedStream.rethrow(self, *args, **keys)
+        threado.GeneratorStream.rethrow(self, *args, **keys)
         self.start()
 
-    def _iteration(self, pending):
+    @threado.stream
+    def _iteration(inner, self, pending):
         for ip in list(pending):
             item = self.cache.get(ip, None)
             if item is not None:
@@ -41,10 +43,10 @@ class CymruWhois(threado.ThreadedStream):
                 pending.discard(ip)
 
         if not pending:
-            return pending
+            inner.finish(pending)
 
         socket = sockets.Socket()
-        socket.connect(("whois.cymru.com", 43))
+        yield inner.sub(socket.connect(("whois.cymru.com", 43)))
 
         try:        
             socket.send("begin\n")
@@ -56,7 +58,7 @@ class CymruWhois(threado.ThreadedStream):
             line_buffer = util.LineBuffer()
             while pending:
                 try:
-                    data = socket.next()
+                    data = yield socket
                 except sockets.error:
                     break
 
@@ -71,25 +73,24 @@ class CymruWhois(threado.ThreadedStream):
                     self.cache.set(item.ip, item)
                     self.inner.send(item)
         finally:
-            socket.close()
+            yield inner.sub(socket.close())
 
-        return pending
+        inner.finish(pending)
         
     def run(self):
-        next_purge = time.time() + self.throttle_time / 2.0
         pending = set()
+        sleeper = timer.sleep(self.throttle_time / 2.0)
 
         while True:
-            try:
-                ip = self.inner.next(max(0.0, next_purge-time.time()))
-            except threado.Timeout:
-                pending = self._iteration(pending)
-                next_purge = time.time() + self.throttle_time
+            ip = yield self.inner, sleeper
+            if sleeper.was_source:
+                sleeper = timer.sleep(self.throttle_time)
+                pending = yield self.inner.sub(self._iteration(pending))
             else:
                 pending.add(ip)
-                continue
 
-def whois(*ips):
+@threado.stream
+def main(inner, *ips):
     ips = set(ips)
 
     cymru = CymruWhois(1.0)
@@ -97,14 +98,10 @@ def whois(*ips):
         cymru.send(ip)
         
     while ips:
-        item = cymru.next()
+        item = yield cymru
         ips.discard(item.ip)
-        yield item
-
-    cymru.throw(StopIteration())
+        print item.ip, item.as_name
 
 if __name__ == "__main__":
     import sys
-
-    for item in whois(*sys.argv[1:]):
-        print item.ip, item.as_name
+    threado.run(main(*sys.argv[1:]))

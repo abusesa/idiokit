@@ -58,9 +58,6 @@ class MUCRoom(threado.GeneratorStream):
         self.xmpp = xmpp
         self.stream = stream
 
-    def send(self, *values):
-        threado.GeneratorStream.send(self, values)
-
     def exit(self, reason=None):
         self.throw(ExitRoom(reason))
 
@@ -73,7 +70,8 @@ class MUCRoom(threado.GeneratorStream):
             self.xmpp.core.presence(status, 
                                     to=self.room_jid, type="unavailable")
 
-    def _join(self, password=None, history=False):
+    @threado.stream_fast
+    def _join(inner, self, password=None, history=False):
         attrs = dict()
         attrs["to"] = JID(self.nick_jid)
 
@@ -87,30 +85,36 @@ class MUCRoom(threado.GeneratorStream):
             x.add(history_element)
         self.xmpp.core.presence(x, **attrs)
 
-        for element in self.stream:
-            parsed = parse_participant_presence(element, self.nick_jid)
-            if parsed is None:
-                continue
+        while True:
+            yield inner, self.stream
+            for _ in inner: pass
 
-            participant, codes = parsed
-            self.participants.append(participant)
+            for element in self.stream:
+                parsed = parse_participant_presence(element, self.nick_jid)
+                if parsed is None:
+                    continue
 
-            if participant.name == self.nick_jid or "110" in codes:
-                nick_jid = participant.name
-                break
-        self.start()
+                participant, codes = parsed
+                self.participants.append(participant)
+
+                if participant.name == self.nick_jid or "110" in codes:
+                    nick_jid = participant.name
+                    self.start()
+                    return
 
     def run(self):
         try:
             while True:
                 yield self.inner, self.stream
 
-                for elements in self.inner.iter():
+                for elements in self.inner:
+                    if elements is None:
+                        elements = list()
                     attrs = dict(type="groupchat")
                     self.xmpp.core.message(self.room_jid, *elements, **attrs)
                     continue
 
-                for elements in self.stream.iter():
+                for elements in self.stream:
                     for element in elements.with_attrs("from"):
                         from_jid = JID(element.get_attr("from"))
                         if from_jid.bare() == self.room_jid:
@@ -168,7 +172,8 @@ class MUC(object):
             return
         return [item.jid for item in items]
 
-    def join(self, room, nick=None, password=None, history=False):
+    @threado.stream
+    def join(inner, self, room, nick=None, password=None, history=False):
         jid = JID(room)
         if jid.resource is not None:
             raise MUCError("illegal room JID (contains a resource)")
@@ -176,7 +181,7 @@ class MUC(object):
             jid = JID(room + "@conference." + self.xmpp.jid.domain)
         jid.resource = nick or uuid.uuid4().hex[:8]
 
-        info = self.xmpp.disco.info(jid.domain)
+        info = yield inner.sub(self.xmpp.disco.info(jid.domain))
         if MUC_NS not in info.features:
             raise MUCError("'%s' is not a multi-user chat service" % jid.domain)
         if not any(x for x in info.identities if x.category == "conference"):
@@ -188,10 +193,10 @@ class MUC(object):
             room = MUCRoom(self, self.xmpp, stream, jid)
             self.rooms.setdefault(jid.bare(), set()).add(room)
             try:
-                room._join(password=password, history=history)
+                yield inner.sub(room._join(password=password, history=history))
             except MUCError, me:
                 if (me.type, me.condition) != ("cancel", "conflict"):
                     raise
                 jid.resource = original_resource + "-" + uuid.uuid4().hex[:8]
             else:
-                return room
+                inner.finish(room)    

@@ -40,7 +40,7 @@ class TimerThread(object):
                     if expire_time > current_time:
                         break
                     heapq.heappop(self.heap)
-                    channel.send()
+                    channel.finish()
 
                 if self.heap:
                     timeout = max(self.heap[0][0]-current_time, 0.0)
@@ -66,7 +66,7 @@ class TimerThread(object):
         waiter = self._wait(delay)
         while not waiter.was_source:
             yield inner, waiter
-        inner.send()
+        inner.finish()
 timer_thread = TimerThread()
 
 sleep = timer_thread.sleep

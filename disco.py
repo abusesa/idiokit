@@ -1,3 +1,4 @@
+import threado
 from xmlcore import Element
 from jid import JID
 
@@ -43,9 +44,7 @@ class Disco(object):
         node = payload.get_attr("node", None)
         handler = self.nodes.get(node, None)
         if handler is None:
-            error = self.xmpp.core.build_error("cancel", "item-not-found")
-            self.xmpp.core.iq_error(element, error)
-            return
+            return False
 
         _, _, items = handler()
 
@@ -59,6 +58,7 @@ class Disco(object):
             result.add(item_element)
 
         self.xmpp.core.iq_result(element, result)            
+        return True
 
     def _info_iq(self, element, payload):
         identities = self.identities
@@ -67,9 +67,7 @@ class Disco(object):
         node = payload.get_attr("node", None)
         handler = self.nodes.get(node, None)
         if handler is None:
-            error = self.xmpp.core.build_error("cancel", "item-not-found")
-            self.xmpp.core.iq_error(element, error)
-            return
+            return False
 
         features, identities, _ = handler()
 
@@ -85,6 +83,7 @@ class Disco(object):
             result.add(Element("feature", var=feature))
 
         self.xmpp.core.iq_result(element, result)
+        return True
 
     def add_node(self, node, handler):
         self.nodes[node] = handler
@@ -96,12 +95,13 @@ class Disco(object):
         identity = DiscoIdentity(category, type, name)
         self.identities.add(identity)
 
-    def info(self, jid, node=None):
+    @threado.stream
+    def info(inner, self, jid, node=None):
         query = Element("query", xmlns=DISCO_INFO_NS)
         if node is not None:
             query.set_attr("node", node)
 
-        elements = self.xmpp.core.iq_get(query, to=jid)
+        elements = yield inner.sub(self.xmpp.core.iq_get(query, to=jid))
 
         query = elements.children("query", DISCO_INFO_NS)
         identities = list()
@@ -114,14 +114,15 @@ class Disco(object):
         features = list()
         for feature in query.children("feature").with_attrs("var"):
             features.append(feature.get_attr("var"))
-        return DiscoInfo(identities, features)
+        inner.finish(DiscoInfo(identities, features))
 
+    @threado.stream
     def items(self, jid, node=None):
         query = Element("query", xmlns=DISCO_ITEMS_NS)
         if node is not None:
             query.set_attr("node", node)
 
-        elements = self.xmpp.core.iq_get(query, to=jid)
+        elements = yield inner.sub(self.xmpp.core.iq_get(query, to=jid))
 
         query = elements.children("query", DISCO_ITEMS_NS)
         items = list()
@@ -130,4 +131,4 @@ class Disco(object):
             node = item.get_attr("node", None)
             name = item.get_attr("name", None)
             items.append(DiscoItem(jid, node, name))
-        return items
+        inner.finish(items)

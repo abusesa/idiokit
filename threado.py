@@ -1,17 +1,19 @@
 from __future__ import with_statement
 import collections
-import threading
-import sys
 import callqueue
+import threading
 import weakref
-import contextlib
-import time
 import random
+import sys
 
-class Timeout(Exception):
-    pass
+def peel_args(args):
+    if not args:
+        return None
+    if len(args) == 1:
+        return args[0]
+    return args
 
-class Finished(BaseException):
+class Finished(Exception):
     pass
 
 class Callback(object):
@@ -26,383 +28,432 @@ class Callback(object):
         new_keys.update(keys)
         return self.func(*new_args, **new_keys)
 
-def peel_args(args):
-    if not args:
-        return None
-    if len(args) == 1:
-        return args[0]
-    return args
+class Empty(Exception):
+    pass
+
+class NotFinished(Exception):
+    pass
 
 class Reg(object):
     _local = threading.local()
+
+    @property
+    def was_source(self):
+        return getattr(self._local, "source", None) is self
 
     _with_callbacks = set()
     _with_callbacks_lock = threading.Lock()
 
     def _update_callbacks(self):
         with self._with_callbacks_lock:
-            if self.callbacks:
+            if self.message_callbacks or self.finish_callbacks:
                 self._with_callbacks.add(self)
             else:
                 self._with_callbacks.discard(self)
 
-    @property
-    def was_source(self):
-        return getattr(self._local, "source", None) is self
-
     def __init__(self):
         self.lock = threading.Lock()
-        self.callbacks = collections.deque()
-        self.pending_activity = False
+        self.message_callbacks = set()
+        self.finish_callbacks = set()
 
-    def send(self, *values):
-        return
+        self._id = None
+        self._result = None
 
-    def throw(self, exc, tb=None):
-        return
+    def signal_activity(self, result=None):
+        with self.lock:
+            self._result = result
+            self._id = object()
+            callbacks = self.message_callbacks
+            self.message_callbacks = set()
+        for callback in callbacks:
+            callback(self)
+
+        if self._result is not None:
+            with self.lock:
+                callbacks = self.finish_callbacks
+                self.finish_callbacks = set()
+            for callback in callbacks:
+                callback(self)
+
+        self._update_callbacks()
+
+    def add_message_callback(self, func, *args, **keys):
+        callback = Callback(func, *args, **keys)
+        with self.lock:
+            if self._id is None:
+                self.message_callbacks.add(callback)
+                self._update_callbacks()
+                return callback
+        callback(self)
+        return callback
+
+    def discard_message_callback(self, callback):
+        with self.lock:
+            self.message_callbacks.discard(callback)
+        self._update_callbacks()
+
+    def add_finish_callback(self, func, *args, **keys):
+        callback = Callback(func, *args, **keys)
+        with self.lock:
+            if self._result is None:
+                self.finish_callbacks.add(callback)
+                self._update_callbacks()
+                return callback
+        callback(self)
+        return callback
+
+    def discard_finish_callback(self, callback):
+        with self.lock:
+            self.finish_callbacks.discard(callback)
+        self._update_callbacks()
+
+    def __iter__(self):
+        next = self.next
+        try:
+            while True:
+                yield next()
+        except Empty:
+            return
+
+    def __or__(self, other):
+        return PipePair(self, other)
+
+    def has_result(self):
+        with self.lock:
+            return self._result is not None
+
+    def __nonzero__(self):
+        with self.lock:
+            return self._id is not None
+
+    def next_raw(self):
+        with self.lock:
+            _id = self._id
+            if _id is None:
+                return None
+            
+        item = self._next_raw()
+        if item is None:
+            with self.lock:
+                if self._id is _id:
+                    self._id = None
+            return None
+
+        final, throw, args = item
+        with self.lock:
+            if final:
+                self._result = throw, args
+                if self._id is None:
+                    self._id = object()
+        return item
+
+    def next(self):
+        item = self.next_raw()
+        if item is None:
+            raise Empty()
+        final, throw, args = item
+        if throw:
+            type, exc, tb = args
+            raise type, exc, tb
+        if final:
+            raise Finished(*args)
+        return peel_args(args)
+
+    def result(self):
+        with self.lock:
+            if self._result is None:
+                raise NotFinished()
+
+            throw, args = self._result
+            if not throw:
+                return peel_args(args)
+            type, exc, tb = args
+            raise type, exc, tb
 
     def rethrow(self):
         _, exception, traceback = sys.exc_info()
         self.throw(exception, traceback)
 
-    def peek(self):
-        return None
+    # implement these
 
-    def consume(self):
-        return None
+    def _next_raw(self):
+        raise NotImplementedError()
 
-    def signal_activity(self):
-        with self.lock:
-            if self.pending_activity:
-                return
-            self.pending_activity = True
-        callqueue.add(self._loop)
+    def pipe(self, other):
+        raise NotImplementedError("this stream is not pipeable")
 
-    def _loop(self):
-        with self.lock:
-            self.pending_activity = False
-            callbacks = list(self.callbacks)
+    def send(self, *values):
+        return
 
-        for current in callbacks:
-            if not self.peek():
-                break
-            with self.lock:
-                if current not in self.callbacks:
-                    continue
-                self.callbacks.popleft()
-            current(self)
-        else:
-            self._update_callbacks()
+    def throw(self, exc, tb=None):
+        return
 
-    def register(self, func, *args, **keys):
-        callback = Callback(func, *args, **keys)
-        with self.lock:
-            changed = not self.callbacks
-            self.callbacks.append(callback)
-        if changed:
-            self.signal_activity()
-            self._update_callbacks()
-        return callback
-
-    def unregister(self, callback):
-        try:
-            with self.lock:
-                self.callbacks.remove(callback)
-        except ValueError:
-            pass
-        else:
-            self._update_callbacks()
-
-    def iter(self):
-        while True:
-            item = self.consume()
-            if item is None:
-                return
-            _, _, success, args = item
-            if success:
-                yield peel_args(args)
-            else:
-                exc, tb = args
-                raise type(exc), exc, tb
-
-    def _next_callback(self, condition, result, source):
-        with condition:
-            if result:
-                return
-            result.append(source.consume())
-            condition.notify()
-
-    def next(self, timeout=None):
-        item = self.consume()
-        if item is None:
-            result = list()
-            condition = threading.Condition()
-            
-            if timeout is None:
-                timeout = float("infinity")
-            expire_time = time.time() + timeout
-
-            callback = self.register(self._next_callback, condition, result)
-            try:
-                with condition:
-                    while not result:
-                        condition.wait(max(expire_time-time.time(), 0.0))
-                        if result:
-                            break
-                        if time.time() >= expire_time:
-                            result.append(None)
-            finally:
-                self.unregister(callback)
-
-            if result[0] is None:
-                raise Timeout()
-            item = result[0]
-
-        origin, final, success, args = item
-        self._local.source = origin
-        if success:
-            return peel_args(args)
-        exc, tb = args
-        raise type(exc), exc, tb
-
-    def __iter__(self):
-        while True:
-            try:
-                yield self.next()
-            except Finished:
-                return
-    
-    def __add__(self, other):
-        return Par(self, other)
-
-    def __or__(self, other):
-        return pair(self, other)
-
-class Buffered(Reg):
+class Channel(Reg):
     def __init__(self):
         Reg.__init__(self)
         self.queue_lock = threading.Lock()
         self.queue = collections.deque()
 
-    def push(self, final, success, *args):
+    def send(self, *values):
+        self._push(False, False, values)
+
+    def throw(self, exc, tb=None):
+        self._push(True, True, (type(exc), exc, tb))
+
+    def finish(self, *args):
+        self._push(True, False, args)
+
+    def _push(self, final, throw, args):
         with self.queue_lock:
             if self.queue and self.queue[-1][0]:
                 return
-            changed = not self.queue
-            self.queue.append((final, success, args))
-        if changed:
-            self.signal_activity()
-
-    def peek(self):
-        with self.queue_lock:
-            if not self.queue:
-                return None
-            final, success, args = self.queue[0]
-            return self, final, success, args
-
-    def consume(self):
-        with self.queue_lock:
-            if not self.queue:
-                return None
-            final, success, args = self.queue.popleft()
+            self.queue.append((final, throw, args))
             if final:
-                self.queue.append((final, success, args))
-        return self, final, success, args
+                result = throw, args
+            else:
+                result = None
+        self.signal_activity(result)
 
-class Channel(Buffered):
-    def send(self, *values):
-        self.push(False, True, *values)
+    def _next_raw(self):
+        with self.queue_lock:
+            if not self.queue:
+                return None
 
-    def throw(self, exception, traceback=None):
-        self.push(True, False, exception, traceback)
+            final, throw, args = self.queue.popleft()
+            if final:
+                self.queue.append((final, throw, args))
+            return final, throw, args
 
-    def finish(self, exc=Finished(), tb=None):
-        self.push(True, False, exc, tb)
-
-class AllFinished(Finished):
-    pass
-
-class Par(Reg):
-    _ref_sources = dict()
-
-    @classmethod
-    def _cleanup(cls, ref):
-        sources = cls._ref_sources.pop(ref, dict())
-        for source, callback in sources.iteritems():
-            source.unregister(callback)
-
-    @classmethod
-    def _callback(cls, ref, source):
-        aggregate = ref()
-        if aggregate is not None:
-            aggregate._append_pending(source)
-
-    def __init__(self, *aggregated):
+class _Pipeable(Reg):
+    def __init__(self):
         Reg.__init__(self)
-        self.pending_sources = collections.deque()
-        self.sources = dict()
 
-        self.ref = weakref.ref(self, self._cleanup)
-        self._ref_sources[self.ref] = self.sources
+        self.pipe_lock = threading.Lock()
+        self.pipes = dict()
+        self.pipes_pending = collections.deque()
+        self.final = None
 
-        aggregated = list(set(aggregated))
-        random.shuffle(aggregated)
-        for source in aggregated:
-            self._reregister(source)
-            
-    def _reregister(self, source):
-        self.sources[source] = source.register(self._callback, self.ref)
+    def _pipe_callback(self, other):
+        with self.pipe_lock:
+            if other not in self.pipes:
+                return
+            self.pipes[other] = None
 
-    def _append_pending(self, source):
-        with self.lock:
-            self.sources[source] = None
-            self.pending_sources.append(source)
+            self.pipes_pending.append(other)
+            if len(self.pipes_pending) > 1:
+                return
         self.signal_activity()
 
-    def _peek_or_consume(self, peek=False):
-        with self.lock:
-            while self.pending_sources:
-                source = self.pending_sources.popleft()
+    def _finish(self, throw, args):
+        with self.pipe_lock:
+            if self.final is not None:
+                return
+            self.final = True, throw, args
+            self.pipes_pending.clear()
+            pipes = dict(self.pipes)
+            self.pipes.clear()
 
-                if peek:
-                    event = source.peek()
+        for other, callback in pipes.items():
+            other.discard_message_callback(callback)
+        self.signal_activity((throw, args))
+
+    def _pipe(self, other):
+        with self.pipe_lock:
+            if self.final is not None:
+                return
+            if other in self.pipes:
+                return
+            self.pipes[other] = None
+            self.pipes_pending.append(other)
+            if len(self.pipes_pending) > 1:
+                return
+        self.signal_activity()
+
+    def _next_raw(self):
+        while True:
+            with self.pipe_lock:
+                if self.final:
+                    return self.final
+                if not self.pipes_pending:
+                    return None
+                other = self.pipes_pending.popleft()
+
+            item = other.next_raw()
+            if item is None:
+                with self.pipe_lock:
+                    _id = object()
+                    self.pipes[other] = _id
+                callback = other.add_message_callback(self._pipe_callback)
+                with self.pipe_lock:
+                    if self.pipes.get(other, None) is _id:
+                        self.pipes[other] = callback
+                        continue
+                other.discard_message_callback(callback)
+            else:
+                final, throw, args = item
+                if final:
+                    with self.pipe_lock:
+                        callback = self.pipes.pop(other, None)
+                    other.discard_message_callback(callback)
                 else:
-                    event = source.consume()
+                    with self.pipe_lock:
+                        self.pipes_pending.append(other)
+                return item
 
-                if event is None:
-                    self._reregister(source)
-                    continue
+class _Stackable(Reg):
+    def __init__(self):
+        Reg.__init__(self)
 
-                origin, final, success, args = event
-                if peek:
-                    self.pending_sources.appendleft(source)
-                elif not final:
-                    self._reregister(source)
+        self.stack_lock = threading.Lock()
+        self.stack = collections.deque()
+        self.final = None
+
+    def _stack_callback(self, other):
+        with self.stack_lock:
+            if self.final is not None:
+                return
+            if not self.stack:
+                return
+            if other is not self.stack[0]:
+                return
+        self.signal_activity()
+
+    def _stack(self, other):
+        with self.stack_lock:
+            if self.final is not None:
+                return
+            self.stack.append(other)
+            if len(self.stack) > 1:
+                return
+        self.signal_activity()
+            
+    def _finish(self, throw, args):
+        with self.stack_lock:
+            if self.final is not None:
+                return
+            self.final = True, throw, args
+        self.signal_activity((throw, args))
+        
+    def _next_raw(self):
+        while True:
+            with self.stack_lock:
+                if self.stack:
+                    other = self.stack[0]
+                elif self.final:
+                    return self.final
                 else:
-                    self.sources.pop(source, None)
-                return origin, False, success, args
+                    return None
+            
+            item = other.next_raw()
+            if item is None:
+                other.add_message_callback(self._stack_callback)
+                return None
 
-            if not self.sources:
-                return self, True, False, (AllFinished(), None)
-            return None
+            final, throw, args = item
+            if not final:
+                return item
 
-    def peek(self):
-        return self._peek_or_consume(peek=True)
+            with self.stack_lock:
+                if other is self.stack[0]:
+                    self.stack.popleft()
 
-    def consume(self):
-        return self._peek_or_consume(peek=False)
-
-    def send(self, *values):
-        for source in self.sources:
-            source.send(*values)
-
-    def throw(self, exc, tb=None):
-        for source in self.sources:
-            source.throw(exc, tb)
-
-    def finish(self, exc=Finished(), tb=None):
-        for source in self.sources:
-            source.finish(exc, tb)
-
-class Inner(Buffered):
+class Inner(_Pipeable):
     def __init__(self, outer):
-        Buffered.__init__(self)
+        _Pipeable.__init__(self)
         self.outer_ref = weakref.ref(outer)
 
-    def _outer(self):        
+    def send(self, *values):
         outer = self.outer_ref()
         if outer is not None:
-            yield outer
+            outer.inner_send(*values)
 
-    def send(self, *values):
-        for outer in self._outer():
-            outer.push(False, True, *values)
-            
-    def throw(self, exc, tb=None):
-        for outer in self._outer():
-            outer.push(False, False, exc, tb)
+    def finish(self, *values):
+        raise Finished(*values)
 
-    def _finish(self, exc=Finished(), tb=None):
-        for outer in self._outer():
-            outer.push(True, False, exc, tb)
+    def _finish(self, throw, args):
+        _Pipeable._finish(self, throw, args)
+
+        outer = self.outer_ref()
+        if outer is not None:
+            outer.inner_finish(throw, args)
+
+    def thread(self, func, *args, **keys):
+        import threadpool
+        return threadpool.run(func, *args, **keys)
 
     def sub(self, other):
-        @stream_fast
-        def _sub(inner):
-            while True:
-                yield inner, self, other
+        def _callback(channel, _):
+            try:
+                result = other.result()
+            except:
+                channel.rethrow()
+            else:
+                channel.finish(result)
 
-                try:
-                    for item in inner.iter():
-                        other.send(item)
-                    for item in self.iter():
-                        other.send(item)
-                except:
-                    other.rethrow()
+        channel = Channel()
+        other.pipe(self)
+        other.add_finish_callback(_callback, channel)
 
-                outer = self.outer_ref()
-                for item in other.iter():
-                    if outer is not None:
-                        outer.push(self, False, True, item)
-        return _sub()
+        outer = self.outer_ref()
+        if outer is not None:        
+            outer.inner_sub(other)
+        return channel
 
-class Outer(Buffered):
+class BrokenPipe(Exception):
+    pass
+
+class NullSource(Reg):
     def __init__(self):
-        Buffered.__init__(self)
-        self.inner = Inner(self)
+        Reg.__init__(self)
+        self.signal_activity()
+    
+    def _next_raw(self):
+        return False, False, ()
+null_source = NullSource()
 
-    def send(self, *values):
-        self.inner.push(False, True, *values)
-
-    def throw(self, exc, tb=None):
-        self.inner.push(False, False, exc, tb)
-
-    def finish(self, exc=Finished(), tb=None):
-        self.inner.push(True, False, exc, tb)
-
-null_source = Buffered()
-null_source.push(True, True)
-
-class GeneratorStream(Outer):
+class GeneratorStream(_Stackable):
     @classmethod
     def step(cls, gen, inner, callbacks, fast, source):
         if source not in callbacks:
             return
         del callbacks[source]
 
-        if fast:
-            if not source.peek():
-                callback = source.register(cls.step, gen, inner, callbacks, fast)
-                callbacks[source] = callback
-                return
-        else:
-            item = source.consume()
+        if not source:
+            callback = source.add_message_callback(callqueue.add, cls.step, gen, inner, callbacks, fast)
+            callbacks[source] = callback
+            return
+        elif not fast:
+            item = source.next_raw()
+
             if item is None:
-                callback = source.register(cls.step, gen, inner, callbacks, fast)
+                callback = source.add_message_callback(callqueue.add, cls.step, gen, inner, callbacks, fast)
                 callbacks[source] = callback
                 return
-            origin, final, success, args = item
-            cls._local.source = origin
+
+            final, throw, args = item
+            # FIXME: should this be done?
+            # if final and not throw:
+            #     throw = True
+            #     args = Finished, Finished(*args), None
+            cls._local.source = source
 
         try:
             if fast:
                 next = gen.next()
             else:
-                if success:
-                    next = gen.send(peel_args(args))
+                if throw:
+                    next = gen.throw(*args)
                 else:
-                    exc, tb = args
-                    next = gen.throw(type(exc), exc, tb)
-        except StopIteration:
-            inner._finish()
+                    next = gen.send(peel_args(args))
+        except (StopIteration, Finished), exc:
+            inner._finish(False, exc.args)
             for source, callback in callbacks.items():
-                source.unregister(callback)
+                source.discard_message_callback(callback)
             callbacks.clear()
         except:
-            _, exc, tb = sys.exc_info()
-            inner._finish(exc, tb)
+            inner._finish(True, sys.exc_info())
             for source, callback in callbacks.items():
-                source.unregister(callback)
+                source.discard_message_callback(callback)
             callbacks.clear()
         else:
             if next is None:
@@ -421,12 +472,52 @@ class GeneratorStream(Outer):
                     callqueue.add(cls.step, gen, inner, callbacks, fast, other)
                     callbacks[other] = None
             for other in old_callbacks:
-                other.unregister(callbacks.pop(other))
+                callback = callbacks.pop(other, None)
+                other.discard_message_callback(callback)
 
     def __init__(self, fast=False):
-        Outer.__init__(self)
+        _Stackable.__init__(self)
+
+        self.inner = Inner(self)
+        self.input = Channel()
+        self.output = Channel()
+
+        self.inner._pipe(self.input)
+        self._stack(self.output)
+
         self._started = False
         self._fast = fast
+        
+    def pipe(self, other):
+        return self.inner._pipe(other)
+
+    def _pipe_broken(self):
+        self.throw(BrokenPipe())
+
+    def send(self, *values):
+        self.input.send(*values)
+
+    def throw(self, exc, tb=None):
+        self.input.throw(exc, tb)
+
+    def inner_send(self, *args):
+        self.output.send(*args)
+
+    def inner_finish(self, throw, args):
+        self._finish(throw, args)
+        if throw:
+            type, exc, tb = args
+            self.output.throw(exc, tb)
+        else:
+            self.output.finish(*args)
+
+    def inner_sub(self, other):
+        with self.stack_lock:
+            old_output = self.output
+            self.output = Channel()
+        old_output.finish()
+        self._stack(other)
+        self._stack(self.output)
 
     def start(self):
         with self.lock:
@@ -442,7 +533,7 @@ class GeneratorStream(Outer):
     def run(self):
         while True:
             yield self.inner
-            for _ in self.inner.iter(): pass
+            list(self.inner)
 
 class FuncStream(GeneratorStream):
     def __init__(self, fast, func, *args, **keys):
@@ -466,98 +557,103 @@ def stream_fast(func):
         return FuncStream(True, func, *args, **keys)
     return _stream_fast
 
-class ThreadedStream(Outer):
-    def __init__(self):
-        Outer.__init__(self)
-        self.thread = None
+class PipePair(Reg):
+    def __init__(self, left, right):
+        Reg.__init__(self)
 
-    def start(self):
+        self.left = left
+        self.right = right
+
+        self.left_has_result = False
+        self.right_has_result = False
+        self.input = Channel()
+
+        self.left.pipe(self.input)
+        self.right.pipe(self.left)
+        self.left.add_finish_callback(self._left_finish_callback)
+        self.right.add_finish_callback(self._right_finish_callback)
+        self.right.add_message_callback(self._callback)
+
+    def _left_finish_callback(self, _):
         with self.lock:
-            if self.thread is not None:
+            self.left_has_result = True
+            if not self.right_has_result:
                 return
-            self.thread = threading.Thread(target=self._main)
-            self.thread.setDaemon(True)
-            self.thread.start()
-
-    def _main(self):
         try:
-            self.run()
+            self.signal_activity((False, self.right.result()))
         except:
-            _, exc, tb = sys.exc_info()
-            self.inner._finish(exc, tb)
-        else:
-            self.inner._finish()
+            self.signal_activity((True, sys.exc_info()))
 
-    def run(self):
-        return
+    def _right_finish_callback(self, _):
+        self.left._pipe_broken()
+        with self.lock:
+            self.right_has_result = True
+            if not self.left_has_result:
+                return
+        try:
+            self.signal_activity((False, self.right.result()))
+        except:
+            self.signal_activity((True, sys.exc_info()))
 
-class FuncThread(ThreadedStream):
-    def __init__(self, func, *args, **keys):
-        ThreadedStream.__init__(self)
+    def _callback(self, _):
+        self.signal_activity()
         
-        self.func = func
-        self.args = args
-        self.keys = keys
-        self.start()
-        
-    def run(self):
-        args = (self.inner,) + self.args
-        self.func(*args, **self.keys)
+    def _pipe_broken(self):
+        self.right._pipe_broken()
 
-def thread(func):
-    def _thread(*args, **keys):
-        return FuncThread(func, *args, **keys)
-    return _thread
+    def pipe(self, other):
+        self.left.pipe(other)
 
-class PipeBroken(BaseException):
-    pass
+    def _next_raw(self):
+        item = self.right.next_raw()
+        if item is None:
+            self.right.add_message_callback(self._callback)
+            return None
+        final, throw, args = item
+        if final and not self.left_has_result:
+            return None
+        return item
 
-@stream
-def pair(inner, left, right):
-    finals = dict()
-    channel = Channel()
+    def send(self, *values):
+        self.input.send(*values)
 
-    def _callback(destination, source):
-        while True:
-            event = source.consume()
-            if event is None:
-                source.register(_callback, destination)
-                break
-            
-            origin, final, success, args = event
-            if not (final and source is right):
-                if final:
-                    destination.finish(*args)
-                elif success:
-                    destination.send(*args)
-                else:
-                    destination.throw(*args)
-            else:
-                left.throw(PipeBroken())
-
-            if final:
-                finals[source] = success, args
-                if left in finals and right in finals:
-                    channel.send(finals[right])
-                break
-            
-    inner.register(_callback, left)
-    left.register(_callback, right)
-    right.register(_callback, inner)
-
-    success, args = yield channel
-    if success:
-        return
-    exc, tb = args
-    raise type(exc), exc, tb
+    def throw(self, exc, tb=None):
+        self.input.throw(exc, tb)
 
 def pipe(first, *rest):
     if not rest:
         return first
-    return pair(pipe(first, *rest[:-1]), rest[-1])
+    cut = len(rest) // 2
+    return PipePair(pipe(first, *rest[:cut]), pipe(*rest[cut:]))
 
-@stream_fast
+@stream
 def throws(inner):
     while True:
         yield inner
-        for _ in inner.iter(): pass
+        list(inner)
+
+def run(main, redirect_signals=False):
+    import signal
+
+    def _signal(*args, **keys):
+        main.throw(KeyboardInterrupt())
+    sigint = signal.getsignal(signal.SIGINT)
+    sigterm = signal.getsignal(signal.SIGTERM)
+
+    if redirect_signals:
+        signal.signal(signal.SIGINT, _signal)
+        signal.signal(signal.SIGTERM, _signal)
+
+    event = threading.Event()
+    try:
+        with callqueue.exclusive(event.set) as iterate:
+            while not main.has_result():
+                iterate()
+                while not (main.has_result() or event.isSet()):
+                    event.wait(0.5)
+                event.clear()
+        return main.result()
+    finally:
+        if redirect_signals:
+            signal.signal(signal.SIGINT, sigint)
+            signal.signal(signal.SIGTERM, sigterm)

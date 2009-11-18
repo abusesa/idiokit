@@ -1,10 +1,10 @@
 from __future__ import with_statement
 import threado
 import socket
-import collections
 import select
 import os
 import errno
+import threading
 
 from socket import error
 
@@ -46,74 +46,45 @@ def socket_wrapper(sock, read, func, *args, **keys):
             return 0
 
 def blocking_action(func):
-    def _blocking(self, *args, **keys):
+    @threado.stream
+    def _blocking(inner, self, *args, **keys):
         channel = threado.Channel()
 
         def _action():
             try:
-                channel.send(func(self, *args, **keys))
+                channel.finish(func(self, *args, **keys))
             except:
                 channel.rethrow()
         self.send(_action)
         self.start()
 
-        for result in channel + self.stop_channel:
-            return result
-        return _action()
+        result = yield channel, self.stop_channel
+        if self.stop_channel.was_source:
+            if channel.has_result():
+                result = channel.result()
+            else:
+                result = yield inner.thread(func, self, *args, **keys)
+        inner.finish(result)
+                
     return _blocking
 
-class Socket(threado.ThreadedStream):
+class Socket(threado.GeneratorStream):
     def __init__(self, *args, **keys):
-        threado.ThreadedStream.__init__(self)
+        threado.GeneratorStream.__init__(self)
+
         self.pipe = os.pipe()
         self.socket = socket.socket(*args, **keys)
-        self.buffer = collections.deque()
 
         self._read = None
         self._write = None
         self.closed = False
         self.stop_channel = threado.Channel()
 
-        self.inner.register(self._callback)
-
-    @blocking_action
-    def _throw(self, exc, tb):
-        raise type(exc), exc, tb
-
-    def _callback(self, source):
-        event = source.consume()
-        if event is None:
-            source.register(self._callback)
-            return
-
-        origin, final, success, args = event
-        if success:
-            with self.lock:
-                self.buffer.append(*args)
-        else:
-            self._throw(*args)
-
-        if final:
-            self.close()
-        else:
-            source.register(self._callback)
-
+    def _socket_callback(self, _):
         with self.lock:
             if self.pipe is not None:
                 rfd, wfd = self.pipe
                 os.write(wfd, "\x00")
-
-    def _cleanup(self):
-        with self.lock:
-            if self.pipe is None:
-                return
-            
-            rfd, wfd = self.pipe
-            os.write(wfd, "\x00")        
-            os.close(rfd)
-            os.close(wfd)
-
-            self.pipe = None
 
     @blocking_action
     def connect(self, *args, **keys):
@@ -144,48 +115,58 @@ class Socket(threado.ThreadedStream):
 
     @blocking_action
     def close(self):
-        try:
-            self.socket.setblocking(True)
-            self.socket.shutdown(socket.SHUT_RDWR)
-        except socket.error:
-            pass
-        self.socket.close()
         self.closed = True
 
     def run(self):
+        rfd, wfd = self.pipe
         try:
-            self._run()
+            yield self.inner.thread(self._run, self.inner, rfd)
         finally:
             self.stop_channel.finish()
-            self._cleanup()
 
-    def _run(self, chunk_size=2**16):
-        pipe = self.pipe
-        if pipe is None:
-            return
+            with self.lock:
+                os.write(wfd, "\x00")        
+                os.close(rfd)
+                os.close(wfd)
+                self.pipe = None
 
-        rfd, wfd = pipe
+            try:
+                self.socket.setblocking(True)
+                self.socket.shutdown(socket.SHUT_RDWR)
+            except socket.error:
+                pass
+            self.socket.close()
+
+    def _run(self, inner, rfd, chunk_size=2**16):
+        data = None
+
         while not self.closed:
-            if self.buffer and callable(self.buffer[0]):
-                func = self.buffer.popleft()
-                func()
-                continue
+            if data is None:
+                try:
+                    next = inner.next()
+                except threado.Empty:
+                    inner.add_message_callback(self._socket_callback)
+                else:
+                    if not callable(next):
+                        data = next
+                    else:
+                        next()
+                        continue
 
             ifd = [rfd, self.socket] if self._read else [rfd]
-            ofd = [self.socket] if (self._write and self.buffer) else []
+            ofd = [self.socket] if (self._write and data is not None) else []
 
             ifd, ofd, _ = select.select(ifd, ofd, [])
             if rfd in ifd:
-                os.read(rfd, 2**16)
-
+                os.read(rfd, chunk_size)
+                
             if self.socket in ifd:
-                data = self._read(chunk_size)
-                self.inner.send(data)
-
-            if (self.socket in ofd 
-                and self.buffer 
-                and not callable(self.buffer[0])):
-                data = self.buffer.popleft()
+                output = self._read(chunk_size)
+                inner.send(output)
+                    
+            if self.socket in ofd:
                 amount = self._write(data)
                 if len(data) > amount:
-                    self.buffer.appendleft(data[amount:])
+                    data = data[amount:]
+                else:
+                    data = None

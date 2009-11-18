@@ -39,7 +39,8 @@ class XMPPError(Exception):
             return self.args[0]
         return self.args[0] + " (%s)" % extra
 
-def _iq(send, stream, type, query, **attrs):
+@threado.stream_fast
+def _iq(inner, send, stream, type, query, **attrs):
     uid = uuid.uuid4().hex
     attrs["id"] = uid
 
@@ -47,97 +48,120 @@ def _iq(send, stream, type, query, **attrs):
     iq.add(query)
     send(iq)
 
-    for elements in stream:
-        for element in elements.named("iq").with_attrs(id=uid):
-            type = element.get_attr("type", None)
-            if type == "result":
-                return element
-            elif type == "error":
-                errors = element.children("error", STANZA_NS)
-                raise XMPPError("iq failed", errors)
-            elif type is None:
-                raise XMPPError("type attribute missing for iq stanza")
+    while True:
+        elements = yield inner, stream
 
-def require_features(stream):
-    elements = stream.next()
+        for _ in inner: pass
+        
+        for elements in stream:
+            for element in elements.named("iq").with_attrs(id=uid):
+                type = element.get_attr("type", None)
+                if type == "result":
+                    inner.finish(element)
+                elif type == "error":
+                    errors = element.children("error", STANZA_NS)
+                    raise XMPPError("iq failed", errors)
+                elif type is None:
+                    raise XMPPError("type attribute missing for iq stanza")
+
+@threado.stream
+def require_features(inner, stream):
+    while True:
+        elements = yield inner, stream
+        if stream.was_source:
+            break
+
     features = elements.named("features", STREAM_NS)
     if not features:
         raise XMPPError("feature list expected")
-    return features
+    inner.finish(features)
 
-def require_tls(stream):
-    features = require_features(stream)
+@threado.stream
+def require_tls(inner, stream):
+    features = yield inner.sub(require_features(stream))
 
     tls = features.children("starttls", STARTTLS_NS)
     if not tls:
         raise XMPPError("server does not support starttls")
+    yield inner.sub(starttls(stream))
 
-    starttls(stream)
-
-def require_sasl(stream, jid, password):
-    features = require_features(stream)
+@threado.stream
+def require_sasl(inner, stream, jid, password):
+    features = yield inner.sub(require_features(stream))
     
     mechanisms = features.children("mechanisms", SASL_NS).children("mechanism")
     for mechanism in mechanisms:
         if mechanism.text != "PLAIN":
             continue
-        return sasl_plain(stream, jid, password)
-
+        result = yield inner.sub(sasl_plain(stream, jid, password))
+        inner.finish(result)
     raise XMPPError("server does not support plain sasl")
 
-def require_bind_and_session(stream, jid):
-    features = require_features(stream)
+@threado.stream
+def require_bind_and_session(inner, stream, jid):
+    features = yield inner.sub(require_features(stream))
     
     if not features.children("bind", BIND_NS):
         raise XMPPError("server does not support resource binding")
     if not features.children("session", SESSION_NS):
         raise XMPPError("server does not support sessions")
 
-    jid = bind_resource(stream, jid.resource)
-    session(stream)
-    return jid
+    jid = yield inner.sub(bind_resource(stream, jid.resource))
+    yield inner.sub(session(stream))
+    inner.finish(jid)
 
-def starttls(stream):
+@threado.stream
+def starttls(inner, stream):
     starttls = Element("starttls", xmlns=STARTTLS_NS)
     stream.send(starttls)
 
-    for elements in stream:
+    while True:
+        elements = yield inner, stream
+        if inner.was_source:
+            continue
+
         if elements.named("failure", STARTTLS_NS):
             raise XMPPError("starttls failed", elements)
         if elements.named("proceed", STARTTLS_NS):
             break
 
-def sasl_plain(stream, jid, password):
+@threado.stream
+def sasl_plain(inner, stream, jid, password):
     import base64
 
     data = u"%s\x00%s\x00%s" % (jid.bare(), jid.node, password)
-    
+
     auth = Element("auth", xmlns=SASL_NS, mechanism="PLAIN")
     auth.text = base64.b64encode(data)
     stream.send(auth)
 
-    for elements in stream:
+    while True:
+        elements = yield inner, stream
+        if inner.was_source:
+            continue
+
         if elements.named("failure", SASL_NS):
             raise XMPPError("authentication failed", elements)
         if elements.named("success", SASL_NS):
-            break        
+            break
 
-def bind_resource(stream, resource=None):
+@threado.stream
+def bind_resource(inner, stream, resource=None):
     bind = Element("bind", xmlns=BIND_NS)
     if resource is not None:
         element = Element("resource")
         element.text = resource
         bind.add(element)
-
-    result = _iq(stream.send, stream, "set", bind)
+    result = yield inner.sub(_iq(stream.send, stream, "set", bind))
 
     for jid in result.children("bind", BIND_NS).children("jid"):
-        return JID(jid.text)
+        inner.finish(JID(jid.text))
     raise XMPPError("no jid supplied by bind")
 
-def session(stream):
+@threado.stream
+def session(inner, stream):
     session = Element("session", xmlns=SESSION_NS)
-    _iq(stream.send, stream, "set", session)
+    yield inner.sub(_iq(stream.send, stream, "set", session))
 
 def _stream_callback(channel, event):
     try:
@@ -159,11 +183,11 @@ class Core(object):
 
     def __init__(self, xmpp):
         self.xmpp = xmpp
-        self.iq_handlers = dict()
+        self.iq_handlers = list()
         self.xmpp.add_listener(self._iq_dispatcher)
 
     def add_iq_handler(self, handler, *args, **keys):
-        self.iq_handlers[handler] = args, keys
+        self.iq_handlers.append((handler, args, keys))
         
     def _iq_dispatcher(self, event):
         try:
@@ -175,13 +199,10 @@ class Core(object):
             if iq.get_attr("type").lower() not in ("get", "set"):
                 continue
 
-            for handler, (args, keys) in self.iq_handlers.items():
-                for payload in iq.children(*args, **keys):
-                    handler(iq, payload)
+            for handler, args, keys in self.iq_handlers:
+                payload = iq.children(*args, **keys)
+                if payload and handler(iq, list(payload)[0]):
                     break
-                else:
-                    continue
-                break
             else:
                 error = self.build_error("cancel", "service-unavailable")
                 self.iq_error(iq, error)
@@ -215,15 +236,19 @@ class Core(object):
         presence.add(*payload)
         self.xmpp.send(presence)
 
-    def iq_get(self, payload, **attrs):
+    @threado.stream
+    def iq_get(inner, self, payload, **attrs):
         attrs["from"] = unicode(self.xmpp.jid)
         with _stream(self.xmpp) as stream:
-            return _iq(self.xmpp.send, stream, "get", payload, **attrs)
+            result = yield inner.sub(_iq(self.xmpp.send, stream, "get", payload, **attrs))
+        inner.finish(result)
 
-    def iq_set(self, payload, **attrs):
+    @threado.stream
+    def iq_set(inner, self, payload, **attrs):
         attrs["from"] = unicode(self.xmpp.jid)
         with _stream(self.xmpp) as stream:
-            return _iq(self.xmpp.send, stream, "set", payload, **attrs)
+            result = yield inner.sub(_iq(self.xmpp.send, stream, "set", payload, **attrs))
+        inner.finish(result)
 
     def iq_result(self, request, payload=None, **attrs):
         if not request.has_attrs("id"):

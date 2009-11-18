@@ -1,7 +1,6 @@
 import threado
 import sockets
 import util
-import threading
 
 class IRCError(Exception):
     pass
@@ -77,17 +76,16 @@ class IRC(threado.GeneratorStream):
 
         self.parser = None
         self.socket = None
-        
-    def send(self, command, *params):
-        threado.GeneratorStream.send(self, format_message(command, *params))
 
-    def connect(self, nick, password=None):
+    @threado.stream
+    def connect(inner, self, nick, password=None):
         self.parser = IRCParser()
         self.socket = sockets.Socket()
 
-        self.socket.connect((self.server, self.port))
+        yield inner.sub(self.socket.connect((self.server, self.port)))
+
         if self.ssl:
-            self.socket.ssl()
+            yield inner.sub(self.socket.ssl())
         
         nicks = mutations(nick)
         if password is not None:
@@ -95,7 +93,11 @@ class IRC(threado.GeneratorStream):
         self.socket.send(format_message("NICK", nicks.next()))
         self.socket.send(format_message("USER", nick, nick, "-", nick))
 
-        for data in self.socket:
+        while True:
+            data = yield inner, self.socket
+            if inner.was_source:
+                continue
+
             for prefix, command, params in self.parser.feed(data):
                 if command == "PING":
                     self.socket.send(format_message("PONG", *params))
@@ -103,8 +105,8 @@ class IRC(threado.GeneratorStream):
 
                 if command == "001":
                     self.start()
-                    return nick
-
+                    inner.finish(nick)
+                    
                 if command == "433":
                     for nick in nicks:
                         self.socket.send(format_message("NICK", nick))
@@ -113,8 +115,8 @@ class IRC(threado.GeneratorStream):
                         raise NickAlreadyInUse("".join(params[-1:]))
                     continue
 
-                if ERROR_REX.match(command):
-                    raise IRCError("".join(params[-1:]))
+                    if ERROR_REX.match(command):
+                        raise IRCError("".join(params[-1:]))
 
     def nick(self, nick):
         self.send("NICK", nick)
@@ -141,7 +143,7 @@ class IRC(threado.GeneratorStream):
             data = yield self.inner, self.socket
 
             if self.inner.was_source:
-                self.socket.send(data)
+                self.socket.send(format_message(*data))
                 continue
 
             for prefix, command, params in self.parser.feed(data):

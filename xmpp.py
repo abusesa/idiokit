@@ -1,7 +1,6 @@
 from __future__ import with_statement
 import sys
 import threado
-import threadpool
 import socket
 import sockets
 import callqueue
@@ -33,14 +32,14 @@ def element_stream(inner, socket, domain):
     while True:
         yield inner, socket
 
-        for element in inner.iter():
+        for element in inner:
             if element is RESTART:
                 parser = ElementParser()
                 socket.send(stream_element.serialize_open())
             else:
                 socket.send(element.serialize())
 
-        for data in socket.iter():
+        for data in socket:
             for element in parser.feed(data):
                 if element.named("error", STREAM_NS):
                     raise StreamError(element)
@@ -98,7 +97,7 @@ class XMPP(threado.GeneratorStream):
 
         self.elements = None
         self.listeners = set()
-        self.final = None
+        self.final_event = None
 
         self.jid = JID(jid)
         self.password = password
@@ -132,33 +131,40 @@ class XMPP(threado.GeneratorStream):
         if not any_resolved:
             raise core.XMPPError("could not resolve server address")
 
-    def connect(self):
+    @threado.stream
+    def connect(inner, self):
         socket_error = None
-
-        for family, socktype, proto, _, address in self.resolve_service():
-            sock = None
-            socket_error = None
+        resolver = self.resolve_service()
+        while True:
             try:
-                sock = sockets.Socket(family, socktype, proto)
-                sock.connect(address)
-            except socket.error, socket_error:
-                if sock is not None:
-                    sock.close()
-                continue
-            break
+                family, socktype, proto, _, address = yield inner.thread(resolver.next)
+                sock = None
+                socket_error = None
+                try:
+                    sock = sockets.Socket(family, socktype, proto)
+                    yield inner.sub(sock.connect(address))
+                except socket.error, socket_error:
+                    if sock is not None:
+                        yield inner.sub(sock.close())
+                    continue
+                break
+            except StopIteration:
+                break
         if socket_error is not None:
             raise socket_error
-        
+
         self.elements = element_stream(sock, self.jid.domain)
 
-        core.require_tls(self.elements)
-        sock.ssl()
+        yield inner.sub(core.require_tls(self.elements))
+        yield inner.sub(sock.ssl())
         self.elements.send(RESTART)
 
-        core.require_sasl(self.elements, self.jid, self.password)
+        yield inner.sub(core.require_sasl(self.elements, self.jid, 
+                                          self.password))
         self.elements.send(RESTART)
 
-        self.jid = core.require_bind_and_session(self.elements, self.jid)
+        self.jid = yield inner.sub(core.require_bind_and_session(self.elements, 
+                                                                 self.jid))
         self.core = core.Core(self)
         self.disco = disco.Disco(self)
         self.muc = muc.MUC(self)
@@ -169,26 +175,26 @@ class XMPP(threado.GeneratorStream):
             while True:
                 yield self.inner, self.elements
 
-                for element in self.inner.iter():
+                for element in self.inner:
                     self.elements.send(element)
 
-                for elements in self.elements.iter():
+                for elements in self.elements:
                     event = Event(True, elements)
                     for callback in self.listeners:
                         callback(event)
         except:
             self.elements.rethrow()
-            self.final = Event(False, sys.exc_info())
+            self.final_event = Event(False, sys.exc_info())
             for callback in self.listeners:
-                callback(self.final)
+                callback(self.final_event)
             self.listeners.clear()
             raise
 
     def add_listener(self, func, *args, **keys):
         callback = threado.Callback(func, *args, **keys)
         def _add():
-            if self.final:
-                callback(self.final)
+            if self.final_event:
+                callback(self.final_event)
             else:
                 self.listeners.add(callback)
         callqueue.add(_add)
@@ -200,5 +206,5 @@ class XMPP(threado.GeneratorStream):
 @threado.stream
 def connect(inner, *args, **keys):
     xmpp = XMPP(*args, **keys)
-    yield threadpool.run(xmpp.connect)
-    inner.send(xmpp)
+    yield inner.sub(xmpp.connect())
+    inner.finish(xmpp)

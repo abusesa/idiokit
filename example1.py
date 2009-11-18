@@ -1,21 +1,24 @@
 import getpass
-from xmpp import XMPP
+import threado
+from xmpp import connect
 from jid import JID
 
-xmpp = XMPP(raw_input("Username: "), getpass.getpass())
-xmpp.connect()
-room = xmpp.muc.join(raw_input("Channel: "), "echobot")
+@threado.stream
+def main(inner):
+    xmpp = yield inner.sub(connect(raw_input("Username: "), getpass.getpass()))
+    room = yield inner.sub(xmpp.muc.join(raw_input("Channel: ")))
 
-for elements in room:
-    for message in elements.named("message").with_attrs("from"):
-        if message.children("x", "jabber:x:delay"):
-            continue
-        if message.children("delay", "urn:xmpp:delay"):
-            continue
-
-        sender = JID(message.get_attr("from"))
-        if sender == room.nick_jid:
+    while True:
+        elements = yield inner, room
+        if inner.was_source:
             continue
 
-        for body in message.children("body"):
-            room.send(body)
+        for message in elements.named("message").with_attrs("from"):
+            sender = JID(message.get_attr("from"))
+            if sender == room.nick_jid:
+                continue
+            for body in message.children("body"):
+                room.send(body)
+
+if __name__ == "__main__":
+    threado.run(main())

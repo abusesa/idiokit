@@ -1,54 +1,58 @@
-from xmpp import XMPP, Element
+from xmpp import connect, Element
 from irc import IRC
 from jid import JID
 from util import guess_encoding
+import threado
 
-def room_message(room, irc, channel, elements, encoding="latin-1"):
-    for message in elements.named("message").with_attrs("from"):
-        if message.children("x", "jabber:x:delay"):
+@threado.stream
+def xmpp_to_irc(inner, own_jid, channel, encoding="latin-1"):
+    while True:
+        elements = yield inner
+
+        for message in elements.named("message").with_attrs("from"):
+            sender = JID(message.get_attr("from"))
+            if sender == own_jid:
+                continue
+            if sender.resource is None:
+                continue
+
+            for body in message.children("body"):
+                text = "<%s> %s" % (sender.resource, body.text)
+                inner.send("PRIVMSG", channel, text.encode(encoding))
+
+@threado.stream
+def irc_to_xmpp(inner, channel):
+    while True:
+        prefix, command, params = yield inner
+        if command != "PRIVMSG":
             continue
-        if message.children("delay", "urn:xmpp:delay"):
+        if not params or params[0] != channel:
             continue
 
-        sender = JID(message.get_attr("from"))
-        if sender == room.nick_jid:
-            continue
-        if sender.resource is None:
-            continue
+        sender = prefix.split("@", 1)[0].split("!", 1)[0]
+        text = "<%s> %s" % (guess_encoding(sender), guess_encoding(params[-1]))
 
-        for body in message.children("body").with_attrs(irc=None):
-            text = "<%s> %s" % (sender.resource, body.text)
-            irc.send("PRIVMSG", channel, text.encode(encoding))
+        body = Element("body")
+        body.text = text
+        inner.send(body)
 
-def irc_message(channel, room, prefix, command, params):
-    if command != "PRIVMSG":
-        return
-    if not params or params[0] != channel:
-        return
-
-    sender = prefix.split("@", 1)[0].split("!", 1)[0]
-
-    body = Element("body")
-    body.text = "<%s> %s" % (guess_encoding(sender), guess_encoding(params[-1]))
-    room.send(body)
-
-def main(bot_name, 
+@threado.stream
+def main(inner, bot_name, 
          irc_server, irc_port, irc_ssl, irc_channel,
          xmpp_jid, xmpp_password, xmpp_channel):
 
     irc = IRC(irc_server, irc_port, irc_ssl)
-    nick = irc.connect(bot_name)
+    nick = yield inner.sub(irc.connect(bot_name))
     irc.join(irc_channel)
 
-    xmpp = XMPP(xmpp_jid, xmpp_password)
-    xmpp.connect()
-    room = xmpp.muc.join(xmpp_channel, nick)
+    xmpp = yield inner.sub(connect(xmpp_jid, xmpp_password))
+    room = yield inner.sub(xmpp.muc.join(xmpp_channel, nick))
 
-    for item in room + irc:
-        if room.was_source:
-            room_message(room, irc, irc_channel, item)
-        else:
-            irc_message(irc_channel, room, *item)
+    yield inner.sub(room 
+                    | xmpp_to_irc(room.nick_jid, irc_channel)
+                    | irc
+                    | irc_to_xmpp(irc_channel)
+                    | room)
 
 if __name__ == "__main__":
     import getpass
@@ -56,6 +60,6 @@ if __name__ == "__main__":
     username = raw_input("Username: ")
     password = getpass.getpass()
 
-    main("echobot", 
-         "irc.example.com", 6667, False, "#echobot",
-         username, password, "room@conference.example.com")
+    threado.run(main("echobot", 
+                     "irc.example.com", 6667, False, "#echobot",
+                     username, password, "room@conference.example.com"))
