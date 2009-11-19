@@ -68,7 +68,7 @@ class Reg(object):
         for callback in callbacks:
             callback(self)
 
-        if self._result is not None:
+        if result is not None:
             with self.lock:
                 callbacks = self.finish_callbacks
                 self.finish_callbacks = set()
@@ -176,6 +176,9 @@ class Reg(object):
 
     # implement these
 
+    def next_is_final(self):
+        raise NotImplementedError()
+
     def _next_raw(self):
         raise NotImplementedError()
 
@@ -210,9 +213,17 @@ class Channel(Reg):
             self.queue.append((final, throw, args))
             if final:
                 result = throw, args
-            else:
+            elif len(self.queue) == 1:
                 result = None
+            else:
+                return
         self.signal_activity(result)
+
+    def next_is_final(self):
+        with self.queue_lock:
+            if self.queue and self.queue[-1][0]:
+                return True
+            return False
 
     def _next_raw(self):
         with self.queue_lock:
@@ -303,6 +314,10 @@ class _Pipeable(Reg):
                         self.pipes_pending.append(other)
                 return False, throw, args
 
+    def next_is_final(self):
+        with self.pipe_lock:
+            return self.final is not None
+
 class _Stackable(Reg):
     def __init__(self):
         Reg.__init__(self)
@@ -326,8 +341,7 @@ class _Stackable(Reg):
             if self.final is not None:
                 return
             self.stack.append(other)
-            if len(self.stack) > 1:
-                return
+        self.next_is_final()
         self.signal_activity()
             
     def _finish(self, throw, args):
@@ -335,6 +349,7 @@ class _Stackable(Reg):
             if self.final is not None:
                 return
             self.final = True, throw, args
+        self.next_is_final()
         self.signal_activity((throw, args))
         
     def _next_raw(self):
@@ -355,6 +370,20 @@ class _Stackable(Reg):
             final, throw, args = item
             if not final:
                 return item
+
+            with self.stack_lock:
+                if other is self.stack[0]:
+                    self.stack.popleft()
+
+    def next_is_final(self):
+        while True:
+            with self.stack_lock:
+                if not self.stack:
+                    return self.final is not None
+                other = self.stack[0]
+
+            if not other.next_is_final():
+                return False
 
             with self.stack_lock:
                 if other is self.stack[0]:
@@ -622,6 +651,9 @@ class PipePair(Reg):
 
     def throw(self, exc, tb=None):
         self.input.throw(exc, tb)
+
+    def next_is_final(self):
+        return self.right.next_is_final()
 
 def pipe(first, *rest):
     if not rest:
