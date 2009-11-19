@@ -221,7 +221,7 @@ class Channel(Reg):
 
     def next_is_final(self):
         with self.queue_lock:
-            if self.queue and self.queue[-1][0]:
+            if self.queue and self.queue[0][0]:
                 return True
             return False
 
