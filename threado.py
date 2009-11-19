@@ -295,10 +295,13 @@ class _Pipeable(Reg):
                     with self.pipe_lock:
                         callback = self.pipes.pop(other, None)
                     other.discard_message_callback(callback)
+                    if not throw:
+                        throw = True
+                        args = Finished, Finished(*args), None
                 else:
                     with self.pipe_lock:
                         self.pipes_pending.append(other)
-                return item
+                return False, throw, args
 
 class _Stackable(Reg):
     def __init__(self):
