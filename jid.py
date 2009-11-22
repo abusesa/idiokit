@@ -1,5 +1,5 @@
 # Module for XMPP JID processing as defined in on RFC 3920
-# (http://www.ietf.org/rfc/rfc3920.txt) and RFC 3454
+# (http://www.ietf.org/rfc/rfc3920.txt) And RFC 3454
 # (http://www.ietf.org/rfc/rfc3454.txt).
 # 
 # This module was originally written using both the above RFCs and the
@@ -14,47 +14,63 @@ from encodings import idna
 class JIDError(Exception):
     pass
 
-_prohibited_tables = [in_table_c11,
-                      in_table_c12,
-                      in_table_c21,
-                      in_table_c22,
-                      in_table_c3,
-                      in_table_c4,
-                      in_table_c5,
-                      in_table_c6,
-                      in_table_c7,
-                      in_table_c8,
-                      in_table_c9]
-in_prohibited_table = lambda ch: any(func(ch) for func in _prohibited_tables)
-in_unassigned_table = in_table_a1
-in_ral_table = in_table_d1
-in_l_table = in_table_d2
+def check_prohibited_and_unassigned(chars, prohibited_tables):
+    for pos, ch in enumerate(chars):
+        if any(table(ch) for table in prohibited_tables):
+            raise JIDError("prohibited character %r at index %d" % (ch, pos))
+        if in_table_a1(ch):
+            raise JIDError("unassigned characted %r at index %d" % (ch, pos))
 
-def create_prep_func(mapping, prohibited):
-    def prep_func(string):
-        string = u"".join(mapping(ch) for ch in string if in_table_b1(ch))
-        string = unicodedata.normalize("NFKC", string)
+def check_bidirectional(chars):
+    # RFC 3454: If a string contains any RandALCat character, the
+    # string MUST NOT contain any LCat character.
+    if not any(in_table_d1(ch) for ch in chars):
+        return
+    if any(in_table_d2(ch) for ch in chars):
+        raise JIDError("string contains RandALCat and LCat characters")
 
-        for ch in string:
-            if prohibited(ch):
-                raise JIDError("prohibited character '%r'" % ch)
-            if in_unassigned_table(ch):
-                raise JIDError("unassigned character '%r'" % ch)
-        
-        has_ral = any(in_ral_table(ch) for ch in string)
-        has_l = any(in_l_table(ch) for ch in string)
-        if has_ral and has_l:
-            raise JIDError("both RAL an L bidirectional characters present")
-        if string and has_ral and not (in_ral_table(string[0]) and 
-                                       in_ral_table(string[-1])):
-            raise JIDError("first and last character must be RAL bidirectional")
-        return string
-    return prep_func
+    # RFC 3454: If a string contains any RandALCat character, a
+    # RandALCat character MUST be the first character of the string,
+    # and a RandALCat character MUST be the last character of the
+    # string.
+    if not (in_table_d1(chars[0]) and in_table_d1(chars[-1])):
+        raise JIDError("string must start and end with RandALCat characters")
 
-def nodeprep_prohibited(ch, extra=frozenset(u"\"&'/:<>")):
-    return in_prohibited_table(ch) or ch in extra
-nodeprep = create_prep_func(map_table_b2, nodeprep_prohibited)
-resourceprep = create_prep_func(lambda ch: ch, in_prohibited_table)
+NODEPREP_PROHIBITED = [in_table_c11,
+                       in_table_c12,
+                       in_table_c21,
+                       in_table_c22,
+                       in_table_c3,
+                       in_table_c4,
+                       in_table_c5,
+                       in_table_c6,
+                       in_table_c7,
+                       in_table_c8,
+                       in_table_c9,
+                       frozenset(u"\"&'/:<>").__contains__]
+def nodeprep(string):
+    string = u"".join(map_table_b2(ch) for ch in string if not in_table_b1(ch))
+    string = unicodedata.normalize("NFKC", string)
+    check_prohibited_and_unassigned(string, NODEPREP_PROHIBITED)
+    check_bidirectional(string)
+    return string
+
+RESOURCEPREP_PROHIBITED = [in_table_c12,
+                           in_table_c21,
+                           in_table_c22,
+                           in_table_c3,
+                           in_table_c4,
+                           in_table_c5,
+                           in_table_c6,
+                           in_table_c7,
+                           in_table_c8,
+                           in_table_c9]
+def resourceprep(string):
+    string = u"".join(ch for ch in string if not in_table_b1(ch))
+    string = unicodedata.normalize("NFKC", string)
+    check_prohibited_and_unassigned(string, RESOURCEPREP_PROHIBITED)
+    check_bidirectional(string)
+    return string
 
 JID_REX = re.compile("^(?:(.*?)@)?([^\.\/]+(?:\.[^\.\/]+)*)(?:/(.*))?$", re.U)
 def prep_unicode_jid(jid):
@@ -144,6 +160,10 @@ class JID(object):
 import unittest
 
 class TestJID(unittest.TestCase):
+    def test_basic(self):
+        jid_string = u"node@domain/resource"
+        assert unicode(JID(jid_string)) == jid_string
+
     def test_eq_and_neq(self):
         jid1 = JID(u"n1@d1/r1")
         jid2 = JID(u"n2@d2/r2")
