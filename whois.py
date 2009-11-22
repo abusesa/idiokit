@@ -22,16 +22,6 @@ class CymruWhois(threado.GeneratorStream):
         self.throttle_time = throttle_time
         self.pending = set()
 
-    def send(self, *args, **keys):
-        threado.GeneratorStream.send(self, *args, **keys)
-        self.start()
-
-    def throw(self, *args, **keys):
-        threado.GeneratorStream.throw(self, *args, **keys)
-        self.start()
-
-    def rethrow(self, *args, **keys):
-        threado.GeneratorStream.rethrow(self, *args, **keys)
         self.start()
 
     @threado.stream
