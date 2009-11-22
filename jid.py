@@ -1,6 +1,14 @@
+# Module for XMPP JID processing as defined in on RFC 3920
+# (http://www.ietf.org/rfc/rfc3920.txt) and RFC 3454
+# (http://www.ietf.org/rfc/rfc3454.txt).
+# 
+# This module was originally written using both the above RFCs and the
+# xmppstringprep module of the pyxmpp package
+# (http://pyxmpp.jajcus.net/) as a reference.
+
 import re
 import stringprep
-import unicodedata
+from unicodedata import ucd_3_2_0 as unicodedata
 from encodings import idna
 
 class JIDError(Exception):
@@ -17,32 +25,6 @@ def mapping(*funcs):
                 return mapped
         return ch
     return _mapping
-
-class Profile(object):
-    def __init__(self, mapping, prohibited, unassigned):
-        object.__init__(self)
-        self.mapping = mapping
-        self.prohibited = prohibited
-        self.unassigned = unassigned
-
-    def __call__(self, string):
-        string = u"".join(self.mapping(ch) for ch in string)
-        string = unicodedata.normalize("NFKC", string)
-
-        for ch in string:
-            if self.prohibited(ch):
-                raise JIDError("prohibited character %r" % ch)
-        for ch in string:
-            if self.unassigned(ch):
-                raise JIDError("unassigned character %r" % ch)
-        has_ral = any(D1(ch) for ch in string)
-        has_l = any(D2(ch) for ch in string)
-        if has_l and has_ral:
-            raise JIDError("both RAL an L bidirectional characters present")
-        if string and has_l and None in (D1(string[0]), D1(string[-1])):
-            raise JIDError("the first and last character must be RAL bidirectional")
-
-        return string
 
 A1 = stringprep.in_table_a1
 def B1(ch):
@@ -64,15 +46,37 @@ C9 = stringprep.in_table_c9
 D1 = stringprep.in_table_d1
 D2 = stringprep.in_table_d2
 
-nodeprep = Profile(mapping(B1, B2),
-                   in_sets(C11, C12, C21, C22, C3, C4, C5, C6, C7, C8, C9,
-                           set(u"\"&'/:<>").__contains__),
-                   mapping(A1))
-resourceprep = Profile(mapping(B1),
-                       in_sets(C12, C21, C22, C3, C4, C5, C6, C7, C8, C9),
-                       mapping(A1))
+def prep_func(mapping, prohibited, unassigned):
+    def _prep_func(string):
+        string = u"".join(mapping(ch) for ch in string)
+        string = unicodedata.normalize("NFKC", string)
 
-JID_REX = re.compile("^(?:(.*?)@)?([^\.\/]+(?:\.[^\.\/]+)*)(?:/(.*))?$", re.UNICODE)
+        for ch in string:
+            if prohibited(ch):
+                raise JIDError("prohibited character '%r'" % ch)
+        for ch in string:
+            if unassigned(ch):
+                raise JIDError("unassigned character '%r'" % ch)
+
+        has_ral = any(D1(ch) for ch in string)
+        has_l = any(D2(ch) for ch in string)
+        if has_ral and has_l:
+            raise JIDError("both RAL an L bidirectional characters present")
+        if string and has_ral and not (D1(string[0]) and D1(string[-1])):
+            raise JIDError("first and last character must be RAL bidirectional")
+
+        return string
+    return _prep_func
+
+nodeprep = prep_func(mapping(B1, B2),
+                     in_sets(C11, C12, C21, C22, C3, C4, C5, C6, C7, C8, C9,
+                             set(u"\"&'/:<>").__contains__),
+                     mapping(A1))
+resourceprep = prep_func(mapping(B1),
+                         in_sets(C12, C21, C22, C3, C4, C5, C6, C7, C8, C9),
+                         mapping(A1))
+
+JID_REX = re.compile("^(?:(.*?)@)?([^\.\/]+(?:\.[^\.\/]+)*)(?:/(.*))?$", re.U)
 def prep_unicode_jid(jid):
     match = JID_REX.match(jid)
     if not match:
@@ -85,9 +89,9 @@ def prep_unicode_jid(jid):
 
     return node, domain, resource
 
-def check_length(thing, value):    
+def check_length(identifier, value):    
     if len(value) > 1023:
-        raise JIDError("%s identifier too long" % thing)
+        raise JIDError("%s identifier too long" % identifier)
     return value
 
 def prep_node(node):
