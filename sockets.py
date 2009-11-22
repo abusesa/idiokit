@@ -72,19 +72,12 @@ class Socket(threado.GeneratorStream):
     def __init__(self, *args, **keys):
         threado.GeneratorStream.__init__(self)
 
-        self.pipe = os.pipe()
         self.socket = socket.socket(*args, **keys)
 
         self._read = None
         self._write = None
         self.closed = False
         self.stop_channel = threado.Channel()
-
-    def _socket_callback(self, _):
-        with self.lock:
-            if self.pipe is not None:
-                rfd, wfd = self.pipe
-                os.write(wfd, "\x00")
 
     @blocking_action
     def connect(self, *args, **keys):
@@ -118,9 +111,9 @@ class Socket(threado.GeneratorStream):
         self.closed = True
 
     def run(self):
-        rfd, wfd = self.pipe
+        rfd, wfd = os.pipe()
         try:
-            yield self.inner.thread(self._run, self.inner, rfd)
+            yield self.inner.thread(self._run, self.inner, rfd, wfd)
         finally:
             self.stop_channel.finish()
 
@@ -128,7 +121,6 @@ class Socket(threado.GeneratorStream):
                 os.write(wfd, "\x00")        
                 os.close(rfd)
                 os.close(wfd)
-                self.pipe = None
 
             try:
                 self.socket.setblocking(True)
@@ -137,7 +129,11 @@ class Socket(threado.GeneratorStream):
                 pass
             self.socket.close()
 
-    def _run(self, inner, rfd, chunk_size=2**16):
+    def _socket_callback(self, wfd, _):
+        with self.lock:
+            os.write(wfd, "\x00")
+
+    def _run(self, inner, rfd, wfd, chunk_size=2**16):
         data = None
 
         while not self.closed:
@@ -145,7 +141,7 @@ class Socket(threado.GeneratorStream):
                 try:
                     next = inner.next()
                 except threado.Empty:
-                    inner.add_message_callback(self._socket_callback)
+                    inner.add_message_callback(self._socket_callback, wfd)
                 else:
                     if not callable(next):
                         data = next
