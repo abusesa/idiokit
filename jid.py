@@ -7,74 +7,54 @@
 # (http://pyxmpp.jajcus.net/) as a reference.
 
 import re
-import stringprep
+from stringprep import *
 from unicodedata import ucd_3_2_0 as unicodedata
 from encodings import idna
 
 class JIDError(Exception):
     pass
 
-def in_sets(*funcs):
-    return lambda item: any(func(item) for func in funcs)
+_prohibited_tables = [in_table_c11,
+                      in_table_c12,
+                      in_table_c21,
+                      in_table_c22,
+                      in_table_c3,
+                      in_table_c4,
+                      in_table_c5,
+                      in_table_c6,
+                      in_table_c7,
+                      in_table_c8,
+                      in_table_c9]
+in_prohibited_table = lambda ch: any(func(ch) for func in _prohibited_tables)
+in_unassigned_table = in_table_a1
+in_ral_table = in_table_d1
+in_l_table = in_table_d2
 
-def mapping(*funcs):
-    def _mapping(ch):
-        for func in funcs:
-            mapped = func(ch)
-            if mapped is not None:
-                return mapped
-        return ch
-    return _mapping
-
-A1 = stringprep.in_table_a1
-def B1(ch):
-    if stringprep.in_table_b1(ch):
-        return u""
-    return None
-B2 = stringprep.map_table_b2
-C11 = stringprep.in_table_c11
-C12 = stringprep.in_table_c12
-C21 = stringprep.in_table_c21
-C22 = stringprep.in_table_c22
-C3 = stringprep.in_table_c3
-C4 = stringprep.in_table_c4
-C5 = stringprep.in_table_c5
-C6 = stringprep.in_table_c6
-C7 = stringprep.in_table_c7
-C8 = stringprep.in_table_c8
-C9 = stringprep.in_table_c9
-D1 = stringprep.in_table_d1
-D2 = stringprep.in_table_d2
-
-def prep_func(mapping, prohibited, unassigned):
-    def _prep_func(string):
-        string = u"".join(mapping(ch) for ch in string)
+def create_prep_func(mapping, prohibited):
+    def prep_func(string):
+        string = u"".join(mapping(ch) for ch in string if in_table_b1(ch))
         string = unicodedata.normalize("NFKC", string)
 
         for ch in string:
             if prohibited(ch):
                 raise JIDError("prohibited character '%r'" % ch)
-        for ch in string:
-            if unassigned(ch):
+            if in_unassigned_table(ch):
                 raise JIDError("unassigned character '%r'" % ch)
-
-        has_ral = any(D1(ch) for ch in string)
-        has_l = any(D2(ch) for ch in string)
+        
+        has_ral = any(in_ral_table(ch) for ch in string)
+        has_l = any(in_l_table(ch) for ch in string)
         if has_ral and has_l:
             raise JIDError("both RAL an L bidirectional characters present")
-        if string and has_ral and not (D1(string[0]) and D1(string[-1])):
+        if string and has_ral and not (in_ral_table(string[0]) and 
+                                       in_ral_table(string[-1])):
             raise JIDError("first and last character must be RAL bidirectional")
-
         return string
-    return _prep_func
+    return prep_func
 
-nodeprep = prep_func(mapping(B1, B2),
-                     in_sets(C11, C12, C21, C22, C3, C4, C5, C6, C7, C8, C9,
-                             set(u"\"&'/:<>").__contains__),
-                     mapping(A1))
-resourceprep = prep_func(mapping(B1),
-                         in_sets(C12, C21, C22, C3, C4, C5, C6, C7, C8, C9),
-                         mapping(A1))
+def nodeprep_prohibited(ch, extra=frozenset(u"\"&'/:<>")):
+    return in_prohibited_table(ch) or ch in extra
+nodeprep = create_prep_func(map_table_b2, nodeprep_prohibited)
+resourceprep = create_prep_func(lambda ch: ch, in_prohibited_table)
 
 JID_REX = re.compile("^(?:(.*?)@)?([^\.\/]+(?:\.[^\.\/]+)*)(?:/(.*))?$", re.U)
 def prep_unicode_jid(jid):
