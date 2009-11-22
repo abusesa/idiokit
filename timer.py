@@ -6,7 +6,6 @@ import threading
 class _Timer(threado.GeneratorStream):
     def __init__(self):
         threado.GeneratorStream.__init__(self)
-        self.heap = list()
         self.event = threading.Event()
         self.start()
 
@@ -27,12 +26,11 @@ class _Timer(threado.GeneratorStream):
             while heap and heap[0][0] <= current_time:
                 _, channel = heapq.heappop(heap)
                 channel.finish()
-            if not heap:
-                continue
 
-            timeout = heap[0][0]-current_time
-            yield self.inner.thread(self.event.wait, timeout)
-            self.event.clear()
+            if heap:
+                timeout = heap[0][0]-current_time
+                yield self.inner.thread(self.event.wait, timeout)
+                self.event.clear()
 
     @threado.stream
     def sleep(inner, self, delay):
