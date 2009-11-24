@@ -4,7 +4,9 @@
 # 
 # This module was originally written using both the above RFCs and the
 # xmppstringprep module of the pyxmpp package
-# (http://pyxmpp.jajcus.net/) as a reference.
+# (http://pyxmpp.jajcus.net/) as well as the
+# twisted.words.protocols.jabber.xmpp_stringprep module of Twisted
+# (http://twistedmatrix.com/) as a reference.
 
 import re
 from stringprep import *
