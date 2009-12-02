@@ -131,7 +131,11 @@ class Socket(threado.GeneratorStream):
 
     def _socket_callback(self, wfd, _):
         with self.lock:
-            os.write(wfd, "\x00")
+            try:
+                os.write(wfd, "\x00")
+            except OSError, ose:
+                if ose.errno != errno.EBADF:
+                    raise
 
     def _run(self, inner, rfd, wfd, chunk_size=2**16):
         data = None
