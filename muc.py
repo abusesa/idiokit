@@ -156,7 +156,7 @@ class MUC(object):
     def _node_handler(self):
         features = list()
         identities = [disco.DiscoIdentity("client", "bot")]
-        items = [disco.DiscoItem(room.room_jid) for room in self.rooms]
+        items = [disco.DiscoItem(room) for room in self.rooms]
         return features, identities, items
 
     def _exit_room(self, room):
@@ -165,12 +165,13 @@ class MUC(object):
         if not rooms:
             self.rooms.pop(room.room_jid.bare(), None)
 
-    def joined_rooms(self, jid):
+    @threado.stream
+    def joined_rooms(inner, self, jid):
         try:
-            items = self.xmpp.disco.items(jid, node=ROOMS_NODE)
+            items = yield inner.sub(self.xmpp.disco.items(jid, node=ROOMS_NODE))
         except XMPPError:
-            return
-        return [item.jid for item in items]
+            inner.finish()
+        inner.finish([item.jid for item in items])
 
     @threado.stream
     def join(inner, self, room, nick=None, password=None, history=False):

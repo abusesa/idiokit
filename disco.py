@@ -117,7 +117,7 @@ class Disco(object):
         inner.finish(DiscoInfo(identities, features))
 
     @threado.stream
-    def items(self, jid, node=None):
+    def items(inner, self, jid, node=None):
         query = Element("query", xmlns=DISCO_ITEMS_NS)
         if node is not None:
             query.set_attr("node", node)
