@@ -372,7 +372,7 @@ class _Stackable(Reg):
                 return item
 
             with self.stack_lock:
-                if other is self.stack[0]:
+                if self.stack and other is self.stack[0]:
                     self.stack.popleft()
 
     def next_is_final(self):
@@ -386,7 +386,7 @@ class _Stackable(Reg):
                 return False
 
             with self.stack_lock:
-                if other is self.stack[0]:
+                if self.stack and other is self.stack[0]:
                     self.stack.popleft()
 
 class Inner(_Pipeable):
