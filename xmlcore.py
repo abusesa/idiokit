@@ -79,7 +79,6 @@ class Element(object):
             return Query()
         if ns is not None and self.ns != ns:
             return Query()
-                
         return Query(self)
 
     def add(self, *children):
@@ -133,10 +132,10 @@ class Element(object):
             bites.append(" %s=%s" % (key, quoteattr(value)))
         bites.append(">")
 
-        return "".join(bites)
+        return bites
 
     def serialize_open(self):
-        return self._serialize_open().encode("utf-8")
+        return "".join(self._serialize_open()).encode("utf-8")
 
     def _serialize_close(self):
         return "</%s>" % self._original_name
@@ -145,8 +144,7 @@ class Element(object):
         return self._serialize_close().encode("utf-8")
 
     def _serialize(self):
-        bites = list()
-        bites.append(self._serialize_open())
+        bites = list(self._serialize_open())
         if self.text:
             bites.append(escape(self.text))
         for child in self._children:
@@ -182,20 +180,17 @@ class ElementParser(object):
 
     def end_element(self, name):
         current = self.stack.pop()
-        if not self.stack:
+        if len(self.stack) != 1:
             return
-        if self.stack[-1].name != "stream":
-            return
-        if self.stack[-1].ns != STREAM_NS:
-            return
-        del self.stack[-1]._children[-1]
+        last = self.stack[-1]._children.pop()
+        assert current == last
         self.collected.append(current)
 
     def char_data(self, data):
         current = self.stack[-1]
-        if current.name == "stream" and current.ns == STREAM_NS:
+        if len(self.stack) == 1:
             return
-        children = list(current.children())
+        children = current._children
         if not children:
             current.text += data
         else:
