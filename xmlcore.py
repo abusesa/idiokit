@@ -183,7 +183,7 @@ class ElementParser(object):
         if len(self.stack) != 1:
             return
         last = self.stack[-1]._children.pop()
-        assert current == last
+        assert current is last
         self.collected.append(current)
 
     def char_data(self, data):
