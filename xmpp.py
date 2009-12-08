@@ -9,8 +9,8 @@ from jid import JID
 import core
 import disco
 import muc
-from xmlcore import Element, ElementParser, STREAM_NS
-from core import STANZA_NS
+from xmlcore import Element, ElementParser
+from core import STREAM_NS, STANZA_NS
 
 class StreamError(core.XMPPError):
     def __init__(self, element):

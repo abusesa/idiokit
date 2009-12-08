@@ -3,8 +3,9 @@ import uuid
 import threado
 import contextlib
 from jid import JID
-from xmlcore import Query, Element, STREAM_NS
+from xmlcore import Query, Element
 
+STREAM_NS = "http://etherx.jabber.org/streams"
 STREAM_ERROR_NS = "urn:ietf:params:xml:ns:xmpp-streams"
 STANZA_ERROR_NS = "urn:ietf:params:xml:ns:xmpp-stanzas"
 SASL_NS = "urn:ietf:params:xml:ns:xmpp-sasl"

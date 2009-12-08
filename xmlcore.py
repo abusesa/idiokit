@@ -2,8 +2,6 @@ import re
 import xml.parsers.expat
 from xml.sax.saxutils import escape, quoteattr
 
-STREAM_NS = "http://etherx.jabber.org/streams"
-
 class Query(object):
     def __init__(self, *elements):
         self.elements = elements
