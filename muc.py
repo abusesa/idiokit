@@ -141,16 +141,15 @@ class MUC(object):
         self.rooms = dict()
         self.xmpp.add_listener(self._handler)
 
-    def _handler(self, event):
-        try:
-            element = event.result
-            bare = JID(element.get_attr("from")).bare()
+    def _handler(self, success, value):
+        if success:
+            bare = JID(value.get_attr("from")).bare()
             for room in self.rooms.get(bare, set()):
-                room.stream.send(element)
-        except:
+                room.stream.send(value)
+        else:
             for bare, rooms in self.rooms.iteritems():
                 for room in rooms:
-                    room.stream.rethrow()
+                    room.stream.throw(*value)
             self.rooms.clear()
 
     def _node_handler(self):

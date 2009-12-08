@@ -164,11 +164,11 @@ def session(inner, stream):
     session = Element("session", xmlns=SESSION_NS)
     yield inner.sub(_iq(stream.send, stream, "set", session))
 
-def _stream_callback(channel, event):
-    try:
-        channel.send(event.result)
-    except:
-        channel.rethrow()
+def _stream_callback(channel, success, value):
+    if success:
+        channel.send(value)
+    else:
+        channel.throw(*value)
 
 @contextlib.contextmanager
 def _stream(xmpp):
@@ -190,10 +190,8 @@ class Core(object):
     def add_iq_handler(self, handler, *args, **keys):
         self.iq_handlers.append((handler, args, keys))
         
-    def _iq_dispatcher(self, event):
-        try:
-            elements = event.result
-        except:
+    def _iq_dispatcher(self, success, elements):
+        if not success:
             return
 
         for iq in elements.named("iq", STANZA_NS).with_attrs("type"):

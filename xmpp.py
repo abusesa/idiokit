@@ -77,18 +77,6 @@ def _resolve_with_dig(domain, service):
 
     return [(host, port) for (_, host, port) in sorted(results)]
 
-class Event(object):
-    @property
-    def result(self):
-        if self.success:
-            return self.args
-        type, exc, tb = self.args
-        raise type, exc, tb
-
-    def __init__(self, success, args):
-        self.success = success
-        self.args = args
-
 class XMPP(threado.GeneratorStream):
     DEFAULT_XMPP_PORT = 5222
 
@@ -179,22 +167,25 @@ class XMPP(threado.GeneratorStream):
                     self.elements.send(element)
 
                 for elements in self.elements:
-                    event = Event(True, elements)
                     for callback in self.listeners:
-                        callback(event)
+                        callback(True, elements)
         except:
             self.elements.rethrow()
-            self.final_event = Event(False, sys.exc_info())
+
+            _, exc, tb = sys.exc_info()
+            self.final_event = False, (exc, tb)
+
             for callback in self.listeners:
-                callback(self.final_event)
+                callback(*self.final_event)
             self.listeners.clear()
+
             raise
 
     def add_listener(self, func, *args, **keys):
         callback = threado.Callback(func, *args, **keys)
         def _add():
             if self.final_event:
-                callback(self.final_event)
+                callback(*self.final_event)
             else:
                 self.listeners.add(callback)
         callqueue.add(_add)
