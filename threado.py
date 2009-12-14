@@ -13,6 +13,9 @@ def peel_args(args):
         return args[0]
     return args
 
+class Cancelled(Exception):
+    pass
+
 class Finished(Exception):
     pass
 
@@ -169,6 +172,9 @@ class Reg(object):
                 return peel_args(args)
             type, exc, tb = args
             raise type, exc, tb
+
+    def cancel(self):
+        self.throw(Cancelled())
 
     def rethrow(self):
         _, exception, traceback = sys.exc_info()
@@ -607,15 +613,18 @@ class PipePair(Reg):
         self.right.add_finish_callback(self._right_finish_callback)
         self.right.add_message_callback(self._callback)
 
+    def _finish(self):
+        try:
+            self.signal_activity((False, (self.right.result(),)))
+        except:
+            self.signal_activity((True, sys.exc_info()))
+
     def _left_finish_callback(self, _):
         with self.lock:
             self.left_has_result = True
             if not self.right_has_result:
                 return
-        try:
-            self.signal_activity((False, self.right.result()))
-        except:
-            self.signal_activity((True, sys.exc_info()))
+        self._finish()
 
     def _right_finish_callback(self, _):
         self.left._pipe_broken()
@@ -623,10 +632,7 @@ class PipePair(Reg):
             self.right_has_result = True
             if not self.left_has_result:
                 return
-        try:
-            self.signal_activity((False, self.right.result()))
-        except:
-            self.signal_activity((True, sys.exc_info()))
+        self._finish()
 
     def _callback(self, _):
         self.signal_activity()
@@ -668,15 +674,15 @@ def throws(inner):
         yield inner
         list(inner)
 
-def run(main, redirect_signals=False):
+def run(main, cancel_on_signal=False):
     import signal
 
     def _signal(*args, **keys):
-        main.throw(KeyboardInterrupt())
+        main.cancel()
     sigint = signal.getsignal(signal.SIGINT)
     sigterm = signal.getsignal(signal.SIGTERM)
 
-    if redirect_signals:
+    if cancel_on_signal:
         signal.signal(signal.SIGINT, _signal)
         signal.signal(signal.SIGTERM, _signal)
 
@@ -689,8 +695,10 @@ def run(main, redirect_signals=False):
                     event.wait(0.5)
                 event.clear()
         return main.result()
+    except Cancelled:
+        pass
     finally:
-        if redirect_signals:
+        if cancel_on_signal:
             signal.signal(signal.SIGINT, sigint)
             signal.signal(signal.SIGTERM, sigterm)
 
