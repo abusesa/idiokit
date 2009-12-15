@@ -39,7 +39,7 @@ def namespace_split(name):
         return "xmlns", split[-1]
     return "xmlns:"+split[0], split[1]
 
-class Element(object):
+class _Element(object):
     @property
     def ns(self):
         return self.ns_attrs.get(self._ns_name, None)
@@ -156,6 +156,10 @@ class Element(object):
     def serialize(self):
         data = "".join(self._serialize())
         return data.encode("utf-8")
+
+_example = _Element("_example")
+class Element(_Element):
+    __slots__ = tuple(_example.__dict__)
 
 class ElementParser(object):
     def __init__(self):
