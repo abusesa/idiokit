@@ -34,28 +34,33 @@ class Query(object):
         return len(self.elements) > 0
 
 def namespace_split(name):
+    if ":" not in name:
+        return "xmlns", name
     split = name.rsplit(":", 1)
-    if len(split) == 1:
-        return "xmlns", split[-1]
     return "xmlns:"+split[0], split[1]
 
 class _Element(object):
     @property
     def ns(self):
-        return self.ns_attrs.get(self._ns_name, None)
+        attrs = self.attrs
+        ns_name = self._ns_name
+        
+        while attrs is not None:
+            if ns_name in attrs:
+                return attrs[ns_name]
+            attrs = attrs.get(None, None)
 
-    def __init__(self, name, **keys):
+    def __init__(self, name, _text="", _tail="", _attrs=dict(), **keys):
         self._children = list()
 
         self._original_name = name
         self._ns_name, self.name = namespace_split(name)
 
-        self.attrs = dict()
-        self.ns_attrs = dict()
-        self.text = ""
-        self.tail = ""
+        self.attrs = dict(_attrs)
+        self.text = _text
+        self.tail = _tail
 
-        for key, value in keys.iteritems():
+        for key, value in keys.items():
             self.set_attr(key, value)
 
     def named(self, name=None, ns=None):
@@ -65,17 +70,9 @@ class _Element(object):
             return Query()
         return self
 
-    def _reparent(self, ns_attrs):
-        ns_attrs = dict(ns_attrs)
-        ns_attrs.update([item for item in self.attrs.items()
-                         if item[0].startswith("xmlns")])
-        for child in self._children:
-            child._reparent(ns_attrs)
-        self.ns_attrs = ns_attrs
-
     def add(self, *children):
         for child in children:            
-            child._reparent(self.ns_attrs)
+            child.attrs[None] = self.attrs
         self._children.extend(children)
 
     def children(self, *args, **keys):
@@ -102,16 +99,10 @@ class _Element(object):
     def get_attr(self, key, default=None):
         return self.attrs.get(key, default)
 
-    def set_attr(self, key, value, _inherited=False):
-        if not _inherited:
-            key = unicode(key.lower())
-            value = unicode(value)
-            self.attrs[key] = value
-
-        if _inherited or key.startswith("xmlns"):
-            self.ns_attrs[key] = value
-            for child in self._children:
-                child.set_attr(key, value, True)
+    def set_attr(self, key, value):
+        key = unicode(key.lower())
+        value = unicode(value)
+        self.attrs[key] = value
 
     def __iter__(self):
         yield self
@@ -127,6 +118,8 @@ class _Element(object):
 
         bites.append("<%s" % self._original_name)
         for key, value in self.attrs.iteritems():
+            if key is None:
+                continue
             bites.append(" %s=%s" % (key, quoteattr(value)))
         bites.append(">")
 
@@ -172,10 +165,7 @@ class ElementParser(object):
         self.collected = list()
         
     def start_element(self, name, attrs):
-        element = Element(name)
-        for key, value in attrs.iteritems():
-            element.set_attr(key, value)
-
+        element = Element(name, _attrs=attrs)
         if self.stack:
             self.stack[-1].add(element)
         self.stack.append(element)
