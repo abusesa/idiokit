@@ -1,6 +1,6 @@
 import re
 import xml.parsers.expat
-from xml.sax.saxutils import escape, quoteattr
+from xml.sax.saxutils import escape as _escape, quoteattr as _quoteattr
 
 class Query(object):
     def __init__(self, *elements):
@@ -38,6 +38,23 @@ def namespace_split(name):
         return "xmlns", name
     split = name.rsplit(":", 1)
     return "xmlns:"+split[0], split[1]
+
+_quoteattr_cache = dict()
+_quoteattr_cache_size = 10000
+def quoteattr(attr):
+    value = _quoteattr_cache.get(attr, None)
+    if value is not None:
+        return value
+    if len(_quoteattr_cache) > _quoteattr_cache_size:
+        _quoteattr_cache.clear()
+    value = _quoteattr(attr)
+    _quoteattr_cache[attr] = value
+    return value
+
+def escape(text):
+    if "]]>" not in text:
+        return "<![CDATA[" + text + "]]>"
+    return _escape(text)
 
 class _Element(object):
     @property
@@ -113,42 +130,41 @@ class _Element(object):
     def __len__(self):
         return 1
 
-    def _serialize_open(self):
-        bites = list()
-
-        bites.append("<%s" % self._original_name)
+    def _serialize_open(self, append):
+        append("<" + self._original_name)
         for key, value in self.attrs.iteritems():
             if key is None:
                 continue
-            bites.append(" %s=%s" % (key, quoteattr(value)))
-        bites.append(">")
-
-        return bites
+            append(" " + key + "=" + quoteattr(value))
+        append(">")
 
     def serialize_open(self):
-        return "".join(self._serialize_open()).encode("utf-8")
+        bites = list()
+        self._serialize_open(bites.append)
+        return "".join(bites).encode("utf-8")
 
-    def _serialize_close(self):
-        return "</%s>" % self._original_name
+    def _serialize_close(self, append):
+        append("</" + self._original_name + ">")
 
     def serialize_close(self):
-        return self._serialize_close().encode("utf-8")
+        bites = list()
+        self._serialize_close(bites.append)
+        return "".join(bites).encode("utf-8")
 
-    def _serialize(self):
-        bites = list(self._serialize_open())
+    def _serialize(self, append):
+        self._serialize_open(append)
         if self.text:
-            bites.append(escape(self.text))
+            append(escape(self.text))
         for child in self._children:
-            bites.extend(child._serialize())
-        bites.append(self._serialize_close())
+            child._serialize(append)
+        self._serialize_close(append)
         if self.tail:
-            bites.append(escape(self.tail))
-            
-        return bites
+            append(escape(self.tail))
 
     def serialize(self):
-        data = "".join(self._serialize())
-        return data.encode("utf-8")
+        bites = list()
+        self._serialize(bites.append)
+        return "".join(bites).encode("utf-8")
 
 _example = _Element("_example")
 class Element(_Element):
