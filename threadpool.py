@@ -1,4 +1,5 @@
 from __future__ import with_statement
+import sys
 import threado
 import threading
 import Queue
@@ -9,8 +10,7 @@ class ThreadPool(object):
         self.threads = list()
         self.idle_time = idle_time
 
-    @threado.stream
-    def run(inner, self, func, *args, **keys):
+    def run(self, func, *args, **keys):
         with self.lock:
             if self.threads:
                 thread, queue = self.threads.pop()
@@ -24,8 +24,7 @@ class ThreadPool(object):
         if not thread.isAlive():
             thread.start()
 
-        result = yield channel
-        inner.finish(result)
+        return channel
 
     def _thread(self, queue):
         item = threading.currentThread(), queue
