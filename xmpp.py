@@ -53,9 +53,10 @@ class Resolver(object):
         self.port = forced_port if forced_port is None else self.DEFAULT_XMPP_PORT
 
     def resolve(self, domain, service="xmpp-client"):
-        if self.host is None:
+        if self.host is not None:
             for result in self._getaddrinfo(self.host, self.port):
                 yield result
+            return
 
         any_resolved = False
 
