@@ -45,41 +45,68 @@ def element_stream(inner, socket, domain):
                     raise StreamError(element)
                 inner.send(element)
 
-def _resolve_with_getaddrinfo(host_or_domain, port_or_service):
-    try:
-        return socket.getaddrinfo(host_or_domain, 
-                                  port_or_service, 
-                                  socket.AF_INET, 
-                                  socket.SOCK_STREAM, 
-                                  socket.IPPROTO_TCP)
-    except socket.gaierror:
-        return list()
-
-def _resolve_with_dig(domain, service):
-    from subprocess import Popen, PIPE
-
-    command = "dig", "+short", "srv", "_%s._tcp.%s" % (service, domain)
-    try:
-        popen = Popen(command, stdout=PIPE, stdin=PIPE, stderr=PIPE)
-        lines = popen.communicate()[0].splitlines()
-    except OSError:
-        return list()
-
-    results = list()
-    for line in lines:
-        try:
-            priority, _, port, host = line.split()
-            port = int(port)
-            priority = int(priority)
-        except ValueError:
-            continue
-        results.append((priority, host, port))
-
-    return [(host, port) for (_, host, port) in sorted(results)]
-
-class XMPP(threado.GeneratorStream):
+class Resolver(object):
     DEFAULT_XMPP_PORT = 5222
 
+    def __init__(self, domain, forced_host=None, forced_port=None):
+        self.host = forced_host
+        self.port = forced_port if forced_port is None else self.DEFAULT_XMPP_PORT
+
+    def resolve(self, domain, service="xmpp-client"):
+        if self.host is None:
+            for result in self._getaddrinfo(self.host, self.port):
+                yield result
+
+        any_resolved = False
+
+        for resolver in (self._dig(domain, service),
+                         self._getaddrinfo(domain, service),
+                         self._getaddrinfo(domain, self.DEFAULT_XMPP_PORT)):
+            for result in resolver:
+                any_resolved = True
+                yield result
+            if any_resolved:
+                return
+
+        if not any_resolved:
+            raise core.XMPPError("could not resolve server address")
+
+    def _getaddrinfo(self, host_or_domain, port_or_service):
+        try:
+            for result in socket.getaddrinfo(host_or_domain, 
+                                             port_or_service, 
+                                             socket.AF_INET, 
+                                             socket.SOCK_STREAM, 
+                                             socket.IPPROTO_TCP):
+                yield result
+        except socket.gaierror:
+            return
+
+    def _dig(self, domain, service):
+        from subprocess import Popen, PIPE
+
+        command = "dig", "+short", "srv", "_%s._tcp.%s" % (service, domain)
+        try:
+            popen = Popen(command, stdout=PIPE, stdin=PIPE, stderr=PIPE)
+            lines = popen.communicate()[0].splitlines()
+        except OSError:
+            return
+
+        results = list()
+        for line in lines:
+            try:
+                priority, _, port, host = line.split()
+                port = int(port)
+                priority = int(priority)
+            except ValueError:
+                continue
+            results.append((priority, host, port))
+
+        for _, host, port in sorted(results):
+            for result in self._getaddrinfo(host, port):
+                yield result
+
+class XMPP(threado.GeneratorStream):
     def __init__(self, jid, password, host=None, port=None):
         threado.GeneratorStream.__init__(self, fast=True)
 
@@ -89,40 +116,14 @@ class XMPP(threado.GeneratorStream):
 
         self.jid = JID(jid)
         self.password = password
-        self.host = host
-        self.port = port
-        if self.host is not None and self.port is None:
-            self.port = self.DEFAULT_XMPP_PORT
 
-    def resolve_service(self):
-        if self.host is not None:
-            addresses = [(self.host, self.port)]
-        else:
-            domain = self.jid.domain
-            service = "xmpp-client"
-            results = list(_resolve_with_getaddrinfo(domain, service))
-            if results:
-                for result in results:
-                    yield result
-                return
-            
-            addresses = list(_resolve_with_dig(domain, service))
-            if not addresses:
-                addresses.append((self.jid.domain, self.DEFAULT_XMPP_PORT))
-
-        any_resolved = False
-        for host, port in addresses:
-            for result in _resolve_with_getaddrinfo(host, port):
-                any_resolved = True
-                yield result
-
-        if not any_resolved:
-            raise core.XMPPError("could not resolve server address")
+        self.resolver = Resolver(host, port)
 
     @threado.stream
     def connect(inner, self):
         socket_error = None
-        resolver = self.resolve_service()
+        resolver = self.resolver.resolve(self.jid.domain)
+
         while True:
             try:
                 family, socktype, proto, _, address = yield inner.thread(resolver.next)
