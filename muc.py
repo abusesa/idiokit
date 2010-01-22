@@ -12,7 +12,7 @@ ROOMS_NODE = "http://jabber.org/protocol/muc#rooms"
 class MUCError(XMPPError):
     pass
 
-def parse_participant_presence(elements, own_jid):
+def parse_presence(elements, own_jid):
     presences = elements.named("presence", STANZA_NS)
 
     for presence in presences.with_attrs("from"):
@@ -41,11 +41,6 @@ def parse_participant_presence(elements, own_jid):
             return participant, codes
     return None
 
-class ExitRoom(Exception):
-    def __init__(self, reason=None):
-        Exception.__init__(self)
-        self.reason = reason
-
 class MUCRoom(threado.GeneratorStream):
     def __init__(self, muc, xmpp, stream, jid):
         threado.GeneratorStream.__init__(self, fast=True)
@@ -58,23 +53,8 @@ class MUCRoom(threado.GeneratorStream):
         self.xmpp = xmpp
         self.stream = stream
 
-    def exit(self, reason=None):
-        self.throw(ExitRoom(reason))
-
-    def _exit(self, reason=None):
-        if reason is None:
-            self.xmpp.core.presence(to=self.room_jid, type="unavailable")
-        else:
-            status = Element("status")
-            status.text = reason
-            self.xmpp.core.presence(status, 
-                                    to=self.room_jid, type="unavailable")
-
     @threado.stream_fast
     def _join(inner, self, password=None, history=False):
-        attrs = dict()
-        attrs["to"] = JID(self.nick_jid)
-
         x = Element("x", xmlns=MUC_NS)
         if password is not None:
             password_element = Element("password")
@@ -83,14 +63,14 @@ class MUCRoom(threado.GeneratorStream):
         if not history:
             history_element = Element("history", maxstanzas="0")
             x.add(history_element)
-        self.xmpp.core.presence(x, **attrs)
+        self.xmpp.core.presence(x, to=JID(self.nick_jid))
 
         while True:
             yield inner, self.stream
-            for _ in inner: pass
+            list(inner)
 
             for element in self.stream:
-                parsed = parse_participant_presence(element, self.nick_jid)
+                parsed = parse_presence(element, self.nick_jid)
                 if parsed is None:
                     continue
 
@@ -102,27 +82,57 @@ class MUCRoom(threado.GeneratorStream):
                     self.start()
                     return
 
+    def _exit(self, reason=None):
+        if reason is not None:
+            status = Element("status")
+            status.text = reason
+            self.xmpp.core.presence(status, to=self.nick_jid, type="unavailable")
+        else:
+            self.xmpp.core.presence(to=self.nick_jid, type="unavailable")
+
     def run(self):
+        exit_sent = False
+
         try:
             while True:
                 yield self.inner, self.stream
 
-                for elements in self.inner:
-                    if elements is None:
-                        elements = list()
-                    attrs = dict(type="groupchat")
-                    self.xmpp.core.message(self.room_jid, *elements, **attrs)
-                    continue
+                try:
+                    for elements in self.inner:
+                        if exit_sent:
+                            continue
+                        if elements is None:
+                            elements = list()
+                        attrs = dict(type="groupchat")
+                        self.xmpp.core.message(self.room_jid, *elements, **attrs)
+                        continue
+                except threado.Finished:
+                    if not exit_sent:
+                        self._exit()
+                        exit_send = True
+                except:
+                    if not exit_sent:
+                        self._exit()
+                        exit_send = True
+                    raise
 
                 for elements in self.stream:
                     for element in elements.with_attrs("from"):
                         from_jid = JID(element.get_attr("from"))
-                        if from_jid.bare() == self.room_jid:
-                            self.inner.send(element)
-        except ExitRoom, er:
-            self._exit(er.reason)
+                        if from_jid.bare() != self.room_jid:
+                            continue
+
+                        self.inner.send(element)
+
+                        for presence in element.named("presence"):
+                            if presence.get_attr("type", None) != "unavailable":
+                                continue
+                            if from_jid == self.nick_jid:
+                                return
+                            for x in presence.children("x", USER_NS):
+                                if x.children("status").with_attrs("code", "110"):
+                                    return
         finally:
-            self._exit()
             self.muc._exit_room(self)
 
 class MUCParticipant(object):
