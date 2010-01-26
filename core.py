@@ -42,7 +42,7 @@ class XMPPError(Exception):
 
 @threado.stream_fast
 def _iq(inner, send, stream, type, query, **attrs):
-    uid = uuid.uuid4().hex
+    uid = uuid.uuid4().hex[:16]
     attrs["id"] = uid
 
     iq = Element("iq", type=type, **attrs)
@@ -224,27 +224,23 @@ class Core(object):
 
     def message(self, to, *payload, **attrs):
         attrs["to"] = to
-        attrs["from"] = unicode(self.xmpp.jid)
         message = Element("message", **attrs)
         message.add(*payload)
         self.xmpp.send(message)
 
     def presence(self, *payload, **attrs):
-        attrs["from"] = unicode(self.xmpp.jid)
         presence = Element("presence", **attrs)
         presence.add(*payload)
         self.xmpp.send(presence)
 
     @threado.stream
     def iq_get(inner, self, payload, **attrs):
-        attrs["from"] = unicode(self.xmpp.jid)
         with _stream(self.xmpp) as stream:
             result = yield inner.sub(_iq(self.xmpp.send, stream, "get", payload, **attrs))
         inner.finish(result)
 
     @threado.stream
     def iq_set(inner, self, payload, **attrs):
-        attrs["from"] = unicode(self.xmpp.jid)
         with _stream(self.xmpp) as stream:
             result = yield inner.sub(_iq(self.xmpp.send, stream, "set", payload, **attrs))
         inner.finish(result)
@@ -274,7 +270,6 @@ class Core(object):
         attrs["type"] = "error"        
         attrs["to"] = request.get_attr("from")
         attrs["id"] = request.get_attr("id")
-        attrs["from"] = unicode(self.xmpp.jid)
             
         iq = Element("iq", **attrs)
         iq.add(request)

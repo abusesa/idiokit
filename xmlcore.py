@@ -130,13 +130,17 @@ class _Element(object):
     def __len__(self):
         return 1
 
-    def _serialize_open(self, append):
+    def _serialize_open(self, append, close=False):
         append("<" + self._original_name)
         for key, value in self.attrs.iteritems():
             if key is None:
                 continue
             append(" " + key + "=" + quoteattr(value))
-        append(">")
+
+        if close:
+            append("/>")
+        else:
+            append(">")
 
     def serialize_open(self):
         bites = list()
@@ -152,12 +156,16 @@ class _Element(object):
         return "".join(bites).encode("utf-8")
 
     def _serialize(self, append):
-        self._serialize_open(append)
-        if self.text:
-            append(escape(self.text))
-        for child in self._children:
-            child._serialize(append)
-        self._serialize_close(append)
+        if not (self.text or self._children):
+            self._serialize_open(append, close=True)
+        else:
+            self._serialize_open(append, close=False)
+            if self.text:
+                append(escape(self.text))
+            for child in self._children:
+                child._serialize(append)
+            self._serialize_close(append)
+
         if self.tail:
             append(escape(self.tail))
 
