@@ -47,6 +47,7 @@ class MUCRoom(threado.GeneratorStream):
         
         self.room_jid = JID(jid).bare()
         self.nick_jid = JID(jid)
+        self.exit_done = threado.Channel()
         self.participants = list()
 
         self.muc = muc
@@ -82,13 +83,16 @@ class MUCRoom(threado.GeneratorStream):
                     self.start()
                     return
 
-    def _exit(self, reason=None):
+    @threado.stream
+    def exit(inner, self, reason=None):
         if reason is not None:
             status = Element("status")
             status.text = reason
             self.xmpp.core.presence(status, to=self.nick_jid, type="unavailable")
         else:
             self.xmpp.core.presence(to=self.nick_jid, type="unavailable")
+
+        yield self.exit_done
 
     def run(self):
         exit_sent = False
@@ -108,11 +112,11 @@ class MUCRoom(threado.GeneratorStream):
                         continue
                 except threado.Finished:
                     if not exit_sent:
-                        self._exit()
+                        self.exit()
                         exit_send = True
                 except:
                     if not exit_sent:
-                        self._exit()
+                        self.exit()
                         exit_send = True
                     raise
 
@@ -134,6 +138,7 @@ class MUCRoom(threado.GeneratorStream):
                                     return
         finally:
             self.muc._exit_room(self)
+            self.exit_done.finish()
 
 class MUCParticipant(object):
     def __init__(self, name, affiliation, role, payload, jid=None):
