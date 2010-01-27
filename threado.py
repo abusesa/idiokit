@@ -663,7 +663,7 @@ def pipe(first, *rest):
     return PipePair(pipe(first, *rest[:cut]), pipe(*rest[cut:]))
 
 @stream
-def throws(inner):
+def dev_null(inner):
     while True:
         yield inner
         list(inner)
