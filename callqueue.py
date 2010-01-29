@@ -1,59 +1,59 @@
 from __future__ import with_statement
-import threading
 import contextlib
 from thread import allocate_lock
 
 class CallQueue(object):
     def __init__(self):
-        self.lock = allocate_lock()
+        self.exclusive_lock = allocate_lock()
+        self.queue_lock = allocate_lock()
         
         self.queue = list()
-
-        self.callback = lambda: None
-        self.callback_called = True
-        self.id = None
+        self.callback = None
         
     def add(self, func, *args, **keys):
-        self.lock.acquire()
+        self.queue_lock.acquire()
         try:
             self.queue.append((func, args, keys))
-            if not self.callback_called:
+            if self.callback is not None:
                 self.callback()
-                self.callback_called = True
+                self.callback = None
         finally:
-            self.lock.release()
+            self.queue_lock.release()
 
     @contextlib.contextmanager
     def exclusive(self, callback):
-        _id = object()
-        lock = self.lock
+        queue_lock = self.queue_lock
+        acquire = queue_lock.acquire
+        release = queue_lock.release
 
         def iterate():
-            with lock:
-                if self.id != _id:
-                    return
+            acquire()
+            try:
                 queue = self.queue
                 self.queue = list()
-                self.callback_called = False
+                self.callback = callback
+            finally:
+                release()
 
             for func, args, keys in queue:
                 func(*args, **keys)
 
-        with self.lock:
-            previous_id = self.id
-            previous_callback = self.callback
+        with self.exclusive_lock:
+            with queue_lock:
+                old_callback = self.callback
+                self.callback = callback
 
-            self.id = _id
-            self.callback = callback
+            if callback is not None:
+                callback()
 
-        try:
-            yield iterate
-        finally:
-            with self.lock:
-                self.id = previous_id
-                self.callback = previous_callback
-                self.callback_called = True
-                previous_callback()
+            try:
+                yield iterate
+            finally:
+                with queue_lock:
+                    self.callback = old_callback
+
+                if old_callback is not None:
+                    old_callback()
 
 global_queue = CallQueue()
 
