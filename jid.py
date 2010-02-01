@@ -49,7 +49,7 @@ NODEPREP_PROHIBITED = [in_table_c11,
                        in_table_c7,
                        in_table_c8,
                        in_table_c9,
-                       frozenset(u"\"&'/:<>").__contains__]
+                       frozenset(u"\"&'/:<>@").__contains__]
 def nodeprep(string):
     string = u"".join(map_table_b2(ch) for ch in string if not in_table_b1(ch))
     string = unicodedata.normalize("NFKC", string)
