@@ -1,4 +1,3 @@
-import re
 import xml.parsers.expat
 from xml.sax.saxutils import escape as _escape, quoteattr as _quoteattr
 
@@ -109,9 +108,6 @@ class _Element(object):
             if other != value:
                 return Query()
         return self
-
-    def has_attrs(self, *args, **keys):
-        return self.with_attrs(*args, **keys).__nonzero__()
 
     def get_attr(self, key, default=None):
         return self.attrs.get(key, default)
@@ -300,7 +296,7 @@ class TestElementNamespaces(unittest.TestCase):
         gc.collect()
 
         assert child.ns == "default_ns"
-        assert not child.has_attrs("xmlns")
+        assert not child.with_attrs("xmlns")
 
 if __name__ == "__main__":
     unittest.main()

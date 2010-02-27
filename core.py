@@ -246,9 +246,9 @@ class Core(object):
         inner.finish(result)
 
     def iq_result(self, request, payload=None, **attrs):
-        if not request.has_attrs("id"):
+        if not request.with_attrs("id"):
             raise XMPPError("request did not have 'id' attribute")
-        if not request.has_attrs("from"):
+        if not request.with_attrs("from"):
             raise XMPPError("request did not have 'from' attribute")
 
         attrs["type"] = "result"
@@ -262,9 +262,9 @@ class Core(object):
         self.xmpp.send(iq)
         
     def iq_error(self, request, error, **attrs):
-        if not request.has_attrs("id"):
+        if not request.with_attrs("id"):
             raise XMPPError("request did not have 'id' attribute")
-        if not request.has_attrs("from"):
+        if not request.with_attrs("from"):
             raise XMPPError("request did not have 'from' attribute")
 
         attrs["type"] = "error"        
