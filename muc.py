@@ -12,6 +12,9 @@ ROOMS_NODE = "http://jabber.org/protocol/muc#rooms"
 class MUCError(XMPPError):
     pass
 
+def gen_random():
+    return uuid.uuid4().hex[:8]
+
 def parse_presence(elements, own_jid):
     presences = elements.named("presence", STANZA_NS)
 
@@ -194,7 +197,7 @@ class MUC(object):
             raise MUCError("illegal room JID (contains a resource)")
         if jid.node is None:
             jid = JID(room + "@conference." + self.xmpp.jid.domain)
-        jid.resource = nick or uuid.uuid4().hex[:8]
+        jid = JID(jid.node, jid.domain, nick or gen_random())
 
         info = yield inner.sub(self.xmpp.disco.info(jid.domain))
         if MUC_NS not in info.features:
@@ -202,7 +205,7 @@ class MUC(object):
         if not any(x for x in info.identities if x.category == "conference"):
             raise MUCError("'%s' is not a multi-user chat service" % jid.domain)
 
-        original_resource = jid.resource
+        resource = jid.resource
         while True:
             stream = threado.Channel()
             room = MUCRoom(self, self.xmpp, stream, jid)
@@ -212,6 +215,6 @@ class MUC(object):
             except MUCError, me:
                 if (me.type, me.condition) != ("cancel", "conflict"):
                     raise
-                jid.resource = original_resource + "-" + uuid.uuid4().hex[:8]
+                jid = JID(jid.node, jid.domain, resource + "-" + gen_random())
             else:
-                inner.finish(room)    
+                inner.finish(room)

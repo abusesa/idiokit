@@ -75,17 +75,11 @@ def resourceprep(string):
     return string
 
 JID_REX = re.compile("^(?:(.*?)@)?([^\.\/]+(?:\.[^\.\/]+)*)(?:/(.*))?$", re.U)
-def prep_unicode_jid(jid):
+def split_jid(jid):
     match = JID_REX.match(jid)
     if not match:
         raise JIDError("not a valid JID")
-
-    node, domain, resource = match.groups()
-    node = prep_node(node)
-    domain = prep_domain(domain)
-    resource = prep_resource(resource)
-
-    return node, domain, resource
+    return match.groups()
 
 def check_length(identifier, value):    
     if len(value) > 1023:
@@ -116,26 +110,56 @@ def prep_domain(domain):
 
     return check_length("domain", domain)
 
+def unicodify(item):
+    if item is None:
+        return None
+    return unicode(item)
+
 class JID(object):
     cache = dict()
+    cache_size = 2**14
 
-    def __init__(self, jid):
-        if not isinstance(jid, unicode):
-            jid = unicode(jid)
-        if jid not in self.cache:
-            self.cache[jid] = prep_unicode_jid(jid)
-        self.node, self.domain, self.resource = self.cache[jid]
+    __slots__ = "_node", "_domain", "_resource"
+
+    node = property(lambda x: x._node)
+    domain = property(lambda x: x._domain)
+    resource = property(lambda x: x._resource)
+
+    def __new__(cls, node=None, domain=None, resource=None):
+        cache_key = node, domain, resource
+        if cache_key in cls.cache:
+            return cls.cache[cache_key]
+
+        if node is None and domain is None:
+            raise JIDError("either a full JID or at least a domain expected")
+        elif domain is None:
+            if resource is not None:
+                raise JIDError("resource not expected with a full JID")
+            node, domain, resource = split_jid(unicodify(node))
+        else:
+            node, domain, resource = map(unicodify, (node, domain, resource))
+
+        obj = super(JID, cls).__new__(cls)
+        obj._node = prep_node(node)
+        obj._domain = prep_domain(domain)
+        obj._resource = prep_resource(resource)
+
+        if len(cls.cache) >= cls.cache_size:
+            cls.cache.clear()                  
+        cls.cache[cache_key] = obj
+
+        return obj
 
     def bare(self):
-        jid = self.domain
-        if self.node is not None:
-            jid = self.node + "@" + jid
-        return JID(jid)
+        return JID(self.node, self.domain)
+
+    def __reduce__(self):
+        return JID, (self.node, self.domain, self.resource)
 
     def __eq__(self, other):
         if not isinstance(other, JID):
             return NotImplemented
-        return unicode(self) == unicode(other)
+        return self is other or unicode(self) == unicode(other)
 
     def __ne__(self, other):
         result = self.__eq__(other)
@@ -153,7 +177,7 @@ class JID(object):
         jid = self.domain
 
         if self.node is not None:
-            jid = self.node + u"@" + jid
+            jid = self.node + "@" + jid
         if self.resource is not None:
             jid = jid + "/" + self.resource
 
@@ -162,28 +186,53 @@ class JID(object):
 import unittest
 
 class TestJID(unittest.TestCase):
-    def test_basic(self):
-        jid_string = u"node@domain/resource"
+    def test_copy(self):
+        import copy
+
+        jid = JID("a", "b", "c")
+        assert copy.copy(jid) == jid
+        assert copy.deepcopy(jid) == jid
+
+    def test_pickling(self):
+        import pickle
+
+        jid = JID("a", "b", "c")
+        assert pickle.loads(pickle.dumps(jid)) == jid
+
+    def test_caching(self):
+        assert JID("a", "b") is JID("a", "b")
+
+    def test_unicode(self):
+        jid_string = "node@domain/resource"
         assert unicode(JID(jid_string)) == jid_string
 
+    def test_read_only_attributes(self):
+        jid = JID("a", "b", "c")
+        self.assertRaises(AttributeError, setattr, jid, "node", "x")
+        self.assertRaises(AttributeError, setattr, jid, "domain", "y")
+        self.assertRaises(AttributeError, setattr, jid, "resource", "z")
+
     def test_eq_and_neq(self):
-        jid1 = JID(u"n1@d1/r1")
-        jid2 = JID(u"n2@d2/r2")
+        assert JID("a@b/c") == JID("a@b/c")
+        assert JID("a", "b", "c") == JID("a", "b", "c")
+        assert JID("a@b/c") == JID("a", "b", "c")
 
-        assert jid1 == jid1
-        assert jid2 == jid2
-        assert jid1 != jid2
+        assert JID("x", "y", "z") != JID("a", "b", "c")
+        assert JID("x@y/z") != JID("a", "b", "c")
+        assert JID("x", "y", "z") != JID("a@b/c")
+        assert JID("x@y/z") != JID("a@b/c")
 
-class TestDomain(unittest.TestCase):
-    def test_invalid(self):
+    def test_invalid_domain(self):
         self.assertRaises(JIDError, JID, "")
         self.assertRaises(JIDError, JID, ".")
         self.assertRaises(JIDError, JID, "root.")
         self.assertRaises(JIDError, JID, ".sub")
         self.assertRaises(JIDError, JID, u"\xe4"*63)
 
-    def test_length(self):
         self.assertRaises(JIDError, JID, ".".join([u"\xe4"]*1024))
 
+    def test_invalid_node(self):
+        self.assertRaises(JIDError, JID, "@", "domain", "resource")
+        
 if __name__ == "__main__":
     unittest.main()
