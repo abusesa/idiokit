@@ -4,12 +4,20 @@ import socket
 import select
 import os
 import errno
-import threading
 
 from socket import error
 
+def do_select(*args, **keys):
+    while True:
+        try:
+            return select.select(*args, **keys)
+        except select.error, se:
+            if se.args[0] == errno.EINTR:
+                continue
+            raise se
+
 def check_connection(sock):
-    ifd, _, _ = select.select([sock], [], [], 0.0)
+    ifd, _, _ = do_select([sock], [], [], 0.0)
     if ifd and not sock.recv(1, socket.MSG_PEEK):
         raise socket.error(errno.ECONNRESET, os.strerror(errno.ECONNRESET))
 
@@ -19,9 +27,9 @@ def ssl_wrapper(sock, func, *args, **keys):
             return func(*args, **keys)
         except socket.sslerror, se:
             if se.args[0] == socket.SSL_ERROR_WANT_WRITE:
-                select.select([], [sock], [])
+                do_select([], [sock], [])
             elif se.args[0] == socket.SSL_ERROR_WANT_READ:
-                select.select([sock], [], [])
+                do_select([sock], [], [])
                 check_connection(sock)
             else:
                 raise
@@ -156,7 +164,7 @@ class Socket(threado.GeneratorStream):
             ifd = [rfd, self.socket] if self._read else [rfd]
             ofd = [self.socket] if (self._write and data is not None) else []
 
-            ifd, ofd, _ = select.select(ifd, ofd, [])
+            ifd, ofd, _ = do_select(ifd, ofd, [])
             if rfd in ifd:
                 os.read(rfd, chunk_size)
                 
