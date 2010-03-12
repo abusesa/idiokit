@@ -1,5 +1,5 @@
-from __future__ import with_statement
 import sys
+import timer
 import threado
 import socket
 import sockets
@@ -9,6 +9,7 @@ from jid import JID
 import core
 import disco
 import muc
+import ping
 from xmlcore import Element, ElementParser
 from core import STREAM_NS, STANZA_NS
 
@@ -109,7 +110,7 @@ class Resolver(object):
 
 class XMPP(threado.GeneratorStream):
     def __init__(self, jid, password, host=None, port=None):
-        threado.GeneratorStream.__init__(self, fast=True)
+        threado.GeneratorStream.__init__(self)
 
         self.elements = None
         self.listeners = set()
@@ -158,29 +159,36 @@ class XMPP(threado.GeneratorStream):
         self.core = core.Core(self)
         self.disco = disco.Disco(self)
         self.muc = muc.MUC(self)
+        self.ping = ping.Ping(self)
         self.start()
 
     def run(self):
+        yield self.inner.sub(self.elements 
+                             | self._distribute() 
+                             | self._keepalive())
+
+    @threado.stream
+    def _keepalive(inner, self, interval=60.0):
+        while True:
+            yield inner.sub(self.ping.ping(self.jid.bare()))
+            yield inner, timer.sleep(interval)
+
+    @threado.stream_fast
+    def _distribute(inner, self):
         try:
             while True:
-                yield self.inner, self.elements
+                yield inner
 
-                for element in self.inner:
-                    self.elements.send(element)
-
-                for elements in self.elements:
+                for elements in inner:
                     for callback in self.listeners:
                         callback(True, elements)
         except:
-            self.elements.rethrow()
-
             _, exc, tb = sys.exc_info()
             self.final_event = False, (exc, tb)
 
             for callback in self.listeners:
                 callback(*self.final_event)
             self.listeners.clear()
-
             raise
 
     def add_listener(self, func, *args, **keys):
