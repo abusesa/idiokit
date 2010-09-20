@@ -7,6 +7,7 @@ from jid import JID
 
 MUC_NS = "http://jabber.org/protocol/muc"
 USER_NS = MUC_NS + "#user"
+OWNER_NS = MUC_NS + "#owner"
 ROOMS_NODE = "http://jabber.org/protocol/muc#rooms"
 
 class MUCError(XMPPError):
@@ -80,6 +81,12 @@ class MUCRoom(threado.GeneratorStream):
 
                 participant, codes = parsed
                 self.participants.append(participant)
+
+                if "201" in codes:
+                    submit = Element("x", xmlns="jabber:x:data", type="submit")
+                    query = Element("query", xmlns=OWNER_NS)
+                    query.add(submit)
+                    self.xmpp.core.iq_set(query, to=self.room_jid)
 
                 if participant.name == self.nick_jid or "110" in codes:
                     nick_jid = participant.name
