@@ -104,7 +104,7 @@ def prep_domain(domain):
         labels = map(idna.nameprep, labels)
         labels = map(idna.ToASCII, labels)
     except UnicodeError, ue:
-        raise JIDError("not an intenationalized label: %s" % ue)
+        raise JIDError("not an internationalized label: %s" % ue)
     labels = map(idna.ToUnicode, labels)
     domain = ".".join(labels)
 
