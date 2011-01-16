@@ -5,6 +5,22 @@ import select
 import os
 import errno
 
+try:
+    # Try to use the new ssl module included by default from Python
+    # 2.6 onwards.
+    import ssl
+except ImportError:
+    def ssl_wrap_socket(sock):
+        return sock.ssl
+    SSLError = socket.sslerror
+    SSL_ERROR_WANT_WRITE = socket.SSL_ERROR_WANT_WRITE
+    SSL_ERROR_WANT_READ = socket.SSL_ERROR_WANT_READ
+else:
+    ssl_wrap_socket = ssl.wrap_socket
+    SSLError = ssl.SSLError
+    SSL_ERROR_WANT_WRITE = ssl.SSL_ERROR_WANT_WRITE
+    SSL_ERROR_WANT_READ = ssl.SSL_ERROR_WANT_READ
+
 from socket import error
 
 def do_select(*args, **keys):
@@ -25,10 +41,10 @@ def ssl_wrapper(sock, func, *args, **keys):
     while True:
         try:
             return func(*args, **keys)
-        except socket.sslerror, se:
-            if se.args[0] == socket.SSL_ERROR_WANT_WRITE:
+        except SSLError, se:
+            if se.args[0] == SSL_ERROR_WANT_WRITE:
                 do_select([], [sock], [])
-            elif se.args[0] == socket.SSL_ERROR_WANT_READ:
+            elif se.args[0] == SSL_ERROR_WANT_READ:
                 do_select([sock], [], [])
                 check_connection(sock)
             else:
@@ -103,13 +119,13 @@ class Socket(threado.GeneratorStream):
     def ssl(self):
         def _ssl_read(amount):
             return socket_wrapper(self.socket, True, ssl_wrapper, 
-                                  self.socket, ssl.read, amount)
+                                  self.socket, wrapped.read, amount)
         def _ssl_write(data):
             return socket_wrapper(self.socket, True, ssl_wrapper, 
-                                  self.socket, ssl.write, data)
+                                  self.socket, wrapped.write, data)
             
         self.socket.setblocking(True)
-        ssl = socket.ssl(self.socket)
+        wrapped = ssl_wrap_socket(self.socket)
         self.socket.setblocking(False)
         self._read = _ssl_read
         self._write = _ssl_write
