@@ -10,8 +10,7 @@ try:
     # 2.6 onwards.
     import ssl
 except ImportError:
-    def ssl_wrap_socket(sock):
-        return sock.ssl
+    ssl_wrap_socket = socket.ssl
     SSLError = socket.sslerror
     SSL_ERROR_WANT_WRITE = socket.SSL_ERROR_WANT_WRITE
     SSL_ERROR_WANT_READ = socket.SSL_ERROR_WANT_READ
