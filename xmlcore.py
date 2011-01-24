@@ -51,9 +51,10 @@ def quoteattr(attr):
     return value
 
 def escape(text):
-    if "]]>" not in text:
+    escaped = _escape(text)
+    if len(escaped) - len(text) > 12 and "]]>" not in text:
         return "<![CDATA[" + text + "]]>"
-    return _escape(text)
+    return escaped
 
 class _Element(object):
     @property
