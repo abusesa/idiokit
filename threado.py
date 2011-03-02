@@ -159,16 +159,18 @@ class Reg(object):
             raise Finished(*args)
         return peel_args(args)
 
-    def result(self):
+    def result_raw(self):
         with self.lock:
             if self._result is None:
                 raise NotFinished()
+            return self._result
 
-            throw, args = self._result
-            if not throw:
-                return peel_args(args)
-            type, exc, tb = args
-            raise type, exc, tb
+    def result(self):
+        throw, args = self.result_raw()
+        if not throw:
+            return peel_args(args)
+        type, exc, tb = args
+        raise type, exc, tb
 
     def rethrow(self):
         _, exception, traceback = sys.exc_info()
@@ -415,12 +417,12 @@ class Inner(_Pipeable):
 
     def sub(self, other):
         def _callback(channel, _):
-            try:
-                result = other.result()
-            except:
-                channel.rethrow()
+            throw, args = other.result_raw()
+            if throw:
+                _, exc, tb = args
+                channel.throw(exc, tb)
             else:
-                channel.finish(result)
+                channel.finish(*args)
 
         channel = Channel()
         other.pipe(self)
@@ -608,10 +610,7 @@ class PipePair(Reg):
         self.right.add_message_callback(self._callback)
 
     def _finish(self):
-        try:
-            self.signal_activity((False, (self.right.result(),)))
-        except:
-            self.signal_activity((True, sys.exc_info()))
+        self.signal_activity(self.right.result_raw())
 
     def _left_finish_callback(self, _):
         with self.lock:
@@ -688,11 +687,16 @@ def run(main, throw_on_signal=None):
                 while not (main.has_result() or event.isSet()):
                     event.wait(0.5)
                 event.clear()
-        return main.result()
     finally:
         if throw_on_signal is not None:
             signal.signal(signal.SIGINT, sigint)
             signal.signal(signal.SIGTERM, sigterm)
+
+    throw, args = main.result_raw()
+    if throw:
+        type, exc, tb = args
+        raise type, exc, tb
+    return peel_args(args)
 
 import unittest
 
