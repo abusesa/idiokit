@@ -1,55 +1,92 @@
 from __future__ import with_statement
+
 import sys
-import threado
 import threading
-import Queue
+import time
+import collections
+
+import threado
+import callqueue
 
 class ThreadPool(object):
+    _time = time.time
+    _sleep = time.sleep
+    _add = callqueue.add
+    _exc_info = sys.exc_info
+
     def __init__(self, idle_time=5.0):
-        self.lock = threading.Lock()
-        self.threads = list()
         self.idle_time = idle_time
 
-    def run(self, func, *args, **keys):
-        with self.lock:
-            if self.threads:
-                thread, queue = self.threads.pop()
-            else:
-                queue = Queue.Queue()
-                thread = threading.Thread(target=self._thread, args=(queue,))
-                thread.setDaemon(True)
+        self.all = set()
+        self.free = collections.deque()
+        self.lock = threading.Lock()
+        self.supervisor = None
 
-        channel = threado.Channel()    
-        queue.put((channel, func, args, keys))
-        if not thread.isAlive():
-            thread.start()
+    def run(self, func, *args, **keys):
+        channel = threado.Channel()
+
+        with self.lock:
+            if self.free:
+                lock, stack, since = self.free.pop()
+            else:
+                lock = threading.Lock()
+                lock.acquire()
+
+                stack = list()
+
+                thread = threading.Thread(target=self._thread, args=(lock, stack))
+                thread.setDaemon(True)
+                thread.start()
+
+                self.all.add(lock)
+
+            stack.append((channel, func, args, keys))
+            lock.release()
+
+            if not self.supervisor:
+                self.supervisor = threading.Thread(target=self._supervisor)
+                self.supervisor.setDaemon(True)
+                self.supervisor.start()
 
         return channel
 
-    def _thread(self, queue):
-        item = threading.currentThread(), queue
-
+    def _supervisor(self):
         while True:
-            try:
-                task = queue.get(True, self.idle_time)
-            except Queue.Empty:
-                with self.lock:
-                    if item not in self.threads:
-                        continue
-                    self.threads.remove(item)
-                    return
-            if task is None:
-                return
+            self._sleep(self.idle_time / 2.0)
 
-            channel, func, args, keys = task
+            with self.lock:
+                while self.free:
+                    lock, stack, since = self.free[0]
+                    if self._time() - since < self.idle_time:
+                        break
+
+                    self.free.popleft()
+                    self.all.discard(lock)
+                    lock.release()
+
+                if not self.all:
+                    self.supervisor = None
+                    break
+
+    def _thread(self, lock, stack):
+        while True:
+            lock.acquire()
+
+            with self.lock:
+                if lock not in self.all:
+                    break
+            
+            channel, func, args, keys = stack.pop()
             try:
                 result = func(*args, **keys)
             except:
-                self.threads.append(item)
-                channel.rethrow()
+                _, exc, tb = self._exc_info()
+                self._add(channel.throw, exc, tb)
             else:
-                self.threads.append(item)
-                channel.finish(result)
-thread_pool = ThreadPool()
+                self._add(channel.finish, result)
 
+            with self.lock:
+                self.free.append((lock, stack, self._time()))
+
+thread_pool = ThreadPool()
 run = thread_pool.run
