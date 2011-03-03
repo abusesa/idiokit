@@ -2,6 +2,7 @@ from __future__ import with_statement
 import collections
 import callqueue
 import threading
+import functools
 import weakref
 import random
 import sys
@@ -583,11 +584,13 @@ class FuncStream(GeneratorStream):
         return self.func(*args, **self.keys)
 
 def stream(func):
+    @functools.wraps(func)
     def _stream(*args, **keys):
         return FuncStream(False, func, *args, **keys)
     return _stream
 
 def stream_fast(func):
+    @functools.wraps(func)
     def _stream_fast(*args, **keys):
         return FuncStream(True, func, *args, **keys)
     return _stream_fast
