@@ -10,7 +10,7 @@ import sys
 def peel_args(args):
     if not args:
         return None
-    if len(args) == 1:
+    elif len(args) == 1:
         return args[0]
     return args
 
@@ -18,16 +18,16 @@ class Finished(Exception):
     pass
 
 class Callback(object):
+    __slots__ = "func", "args", "keys"
+
     def __init__(self, func, *args, **keys):
         self.func = func
         self.args = args
         self.keys = keys
 
-    def __call__(self, *args, **keys):
+    def __call__(self, *args):
         new_args = self.args + args
-        new_keys = dict(self.keys)
-        new_keys.update(keys)
-        return self.func(*new_args, **new_keys)
+        return self.func(*new_args, **self.keys)
 
 class Empty(Exception):
     pass
