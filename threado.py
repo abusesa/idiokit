@@ -109,11 +109,8 @@ class Reg(object):
 
     def __iter__(self):
         next = self.next
-        try:
-            while True:
-                yield next()
-        except Empty:
-            return
+        while True:
+            yield next(StopIteration)
 
     def __or__(self, other):
         return PipePair(self, other)
@@ -147,10 +144,10 @@ class Reg(object):
                     self._id = object()
         return item
 
-    def next(self):
+    def next(self, _raise_when_empty=Empty):
         item = self.next_raw()
         if item is None:
-            raise Empty()
+            raise _raise_when_empty
         final, throw, args = item
         if throw:
             type, exc, tb = args
