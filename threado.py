@@ -19,7 +19,7 @@ class Finished(Exception):
 class Callback(object):
     __slots__ = "func", "args", "keys"
 
-    def __init__(self, func, *args, **keys):
+    def __init__(self, func, args, keys):
         self.func = func
         self.args = args
         self.keys = keys
@@ -78,7 +78,7 @@ class Reg(object):
         self._update_callbacks()
 
     def add_message_callback(self, func, *args, **keys):
-        callback = Callback(func, *args, **keys)
+        callback = Callback(func, args, keys)
         with self.lock:
             if self._id is None:
                 self.message_callbacks.add(callback)
@@ -93,7 +93,7 @@ class Reg(object):
         self._update_callbacks()
 
     def add_finish_callback(self, func, *args, **keys):
-        callback = Callback(func, *args, **keys)
+        callback = Callback(func, args, keys)
         with self.lock:
             if self._result is None:
                 self.finish_callbacks.add(callback)

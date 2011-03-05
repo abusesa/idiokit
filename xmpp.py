@@ -192,7 +192,7 @@ class XMPP(threado.GeneratorStream):
             raise
 
     def add_listener(self, func, *args, **keys):
-        callback = threado.Callback(func, *args, **keys)
+        callback = threado.Callback(func, args, keys)
         def _add():
             if self.final_event:
                 callback(*self.final_event)
