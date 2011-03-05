@@ -165,16 +165,13 @@ class Socket(threado.GeneratorStream):
 
         while not self.closed:
             if data is None:
-                try:
-                    next = inner.next()
-                except threado.Empty:
-                    inner.add_message_callback(self._socket_callback, wfd)
-                else:
+                for next in inner:
                     if not callable(next):
                         data = next
-                    else:
-                        next()
-                        continue
+                        break
+                    next()
+                else:
+                    inner.add_message_callback(self._socket_callback, wfd)
 
             ifd = [rfd, self.socket] if self._read else [rfd]
             ofd = [self.socket] if (self._write and data is not None) else []

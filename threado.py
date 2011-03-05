@@ -108,9 +108,21 @@ class Reg(object):
         self._update_callbacks()
 
     def __iter__(self):
-        next = self.next
+        next_raw = self.next_raw
+
         while True:
-            yield next(StopIteration)
+            item = next_raw()
+            if item is None:
+                return
+
+            final, throw, args = item
+            if throw:
+                type, exc, tb = args
+                raise type, exc, tb
+            if final:
+                raise Finished(*args)
+
+            yield peel_args(args)
 
     def __or__(self, other):
         return PipePair(self, other)
@@ -143,18 +155,6 @@ class Reg(object):
                 if self._id is None:
                     self._id = object()
         return item
-
-    def next(self, _raise_when_empty=Empty):
-        item = self.next_raw()
-        if item is None:
-            raise _raise_when_empty
-        final, throw, args = item
-        if throw:
-            type, exc, tb = args
-            raise type, exc, tb
-        if final:
-            raise Finished(*args)
-        return peel_args(args)
 
     def result_raw(self):
         with self.lock:
