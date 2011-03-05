@@ -196,7 +196,6 @@ class Reg(object):
 class Channel(Reg):
     def __init__(self):
         Reg.__init__(self)
-        self.queue_lock = threading.Lock()
         self.queue = collections.deque()
 
     def send(self, *values):
@@ -209,7 +208,7 @@ class Channel(Reg):
         self._push(True, False, args)
 
     def _push(self, final, throw, args):
-        with self.queue_lock:
+        with self.lock:
             if self.queue and self.queue[-1][0]:
                 return
             self.queue.append((final, throw, args))
@@ -222,13 +221,13 @@ class Channel(Reg):
         self.signal_activity(result)
 
     def next_is_final(self):
-        with self.queue_lock:
+        with self.lock:
             if self.queue and self.queue[0][0]:
                 return True
             return False
 
     def _next_raw(self):
-        with self.queue_lock:
+        with self.lock:
             if not self.queue:
                 return None
 
@@ -241,13 +240,12 @@ class _Pipeable(Reg):
     def __init__(self):
         Reg.__init__(self)
 
-        self.pipe_lock = threading.Lock()
         self.pipes = dict()
         self.pipes_pending = collections.deque()
         self.final = None
 
     def _pipe_callback(self, other):
-        with self.pipe_lock:
+        with self.lock:
             if other not in self.pipes:
                 return
             self.pipes[other] = None
@@ -258,7 +256,7 @@ class _Pipeable(Reg):
         self.signal_activity()
 
     def _finish(self, throw, args):
-        with self.pipe_lock:
+        with self.lock:
             if self.final is not None:
                 return
             self.final = True, throw, args
@@ -271,7 +269,7 @@ class _Pipeable(Reg):
         self.signal_activity((throw, args))
 
     def _pipe(self, other):
-        with self.pipe_lock:
+        with self.lock:
             if self.final is not None:
                 return
             if other in self.pipes:
@@ -284,7 +282,7 @@ class _Pipeable(Reg):
 
     def _next_raw(self):
         while True:
-            with self.pipe_lock:
+            with self.lock:
                 if self.final:
                     return self.final
                 if not self.pipes_pending:
@@ -293,11 +291,11 @@ class _Pipeable(Reg):
 
             item = other.next_raw()
             if item is None:
-                with self.pipe_lock:
+                with self.lock:
                     _id = object()
                     self.pipes[other] = _id
                 callback = other.add_message_callback(self._pipe_callback)
-                with self.pipe_lock:
+                with self.lock:
                     if self.pipes.get(other, None) is _id:
                         self.pipes[other] = callback
                         continue
@@ -305,31 +303,30 @@ class _Pipeable(Reg):
             else:
                 final, throw, args = item
                 if final:
-                    with self.pipe_lock:
+                    with self.lock:
                         callback = self.pipes.pop(other, None)
                     other.discard_message_callback(callback)
                     if not throw:
                         throw = True
                         args = Finished, Finished(*args), None
                 else:
-                    with self.pipe_lock:
+                    with self.lock:
                         self.pipes_pending.append(other)
                 return False, throw, args
 
     def next_is_final(self):
-        with self.pipe_lock:
+        with self.lock:
             return self.final is not None
 
 class _Stackable(Reg):
     def __init__(self):
         Reg.__init__(self)
 
-        self.stack_lock = threading.Lock()
         self.stack = collections.deque()
         self.final = None
 
     def _stack_callback(self, other):
-        with self.stack_lock:
+        with self.lock:
             if self.final is not None:
                 return
             if not self.stack:
@@ -339,7 +336,7 @@ class _Stackable(Reg):
         self.signal_activity()
 
     def _stack(self, other):
-        with self.stack_lock:
+        with self.lock:
             if self.final is not None:
                 return
             self.stack.append(other)
@@ -347,7 +344,7 @@ class _Stackable(Reg):
         self.signal_activity()
             
     def _finish(self, throw, args):
-        with self.stack_lock:
+        with self.lock:
             if self.final is not None:
                 return
             self.final = True, throw, args
@@ -356,7 +353,7 @@ class _Stackable(Reg):
         
     def _next_raw(self):
         while True:
-            with self.stack_lock:
+            with self.lock:
                 if self.stack:
                     other = self.stack[0]
                 elif self.final:
@@ -373,13 +370,13 @@ class _Stackable(Reg):
             if not final:
                 return item
 
-            with self.stack_lock:
+            with self.lock:
                 if self.stack and other is self.stack[0]:
                     self.stack.popleft()
 
     def next_is_final(self):
         while True:
-            with self.stack_lock:
+            with self.lock:
                 if not self.stack:
                     return self.final is not None
                 other = self.stack[0]
@@ -387,7 +384,7 @@ class _Stackable(Reg):
             if not other.next_is_final():
                 return False
 
-            with self.stack_lock:
+            with self.lock:
                 if self.stack and other is self.stack[0]:
                     self.stack.popleft()
 
@@ -544,7 +541,7 @@ class GeneratorStream(_Stackable):
             self.output.finish(*args)
 
     def inner_sub(self, other):
-        with self.stack_lock:
+        with self.lock:
             old_output = self.output
             self.output = Channel()
         old_output.finish()
