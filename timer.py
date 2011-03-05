@@ -34,6 +34,9 @@ class _Timer(threado.GeneratorStream):
 
     @threado.stream
     def sleep(inner, self, delay):
+        if delay <= 0:
+            inner.finish()
+
         expire_time = time.time() + delay
         channel = threado.Channel()
 
