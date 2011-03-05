@@ -441,54 +441,53 @@ class NullSource(Reg):
 null_source = NullSource()
 
 class GeneratorStream(_Stackable):
-    @classmethod
-    def step(cls, gen, inner, callbacks, fast, source):
+    def cleanup(self):
+        for source, callback in self.callbacks.iteritems():
+            source.discard_message_callback(callback)
+        self.callbacks.clear()
+
+        self.gen = None
+        self.inner = None
+
+    def step(self, source):
+        callbacks = self.callbacks
         if source not in callbacks:
             return
         del callbacks[source]
 
-        if not source:
-            callback = source.add_message_callback(callqueue.add, cls.step, 
-                                                   gen, inner, callbacks, 
-                                                   fast)
-            callbacks[source] = callback
-            return
-        elif not fast:
+        if not self._fast:
             item = source.next_raw()
-
             if item is None:
-                callback = source.add_message_callback(callqueue.add, cls.step, 
-                                                       gen, inner, callbacks, 
-                                                       fast)
+                callback = source.add_message_callback(callqueue.add, self.step)
                 callbacks[source] = callback
                 return
 
             final, throw, args = item
-            cls._local.source = source
+            self._local.source = source
+        elif not source:
+            callback = source.add_message_callback(callqueue.add, self.step)
+            callbacks[source] = callback
+            return
 
         try:
-            if fast:
-                next = gen.next()
+            if self._fast:
+                next = self.gen.next()
             else:
                 if throw:
-                    next = gen.throw(*args)
+                    next = self.gen.throw(*args)
                 else:
-                    next = gen.send(peel_args(args))
+                    next = self.gen.send(peel_args(args))
         except (StopIteration, Finished), exc:
-            inner._finish(False, exc.args)
-            for source, callback in callbacks.items():
-                source.discard_message_callback(callback)
-            callbacks.clear()
+            self.inner._finish(False, exc.args)
+            self.cleanup()
         except:
-            inner._finish(True, sys.exc_info())
-            for source, callback in callbacks.items():
-                source.discard_message_callback(callback)
-            callbacks.clear()
+            self.inner._finish(True, sys.exc_info())
+            self.cleanup()
         else:
             if next is None:
-                next = [null_source]
+                next = (null_source,)
             elif isinstance(next, Reg):
-                next = [next]
+                next = (next,)
             else:
                 next = list(set(next))
                 random.shuffle(next)
@@ -498,8 +497,9 @@ class GeneratorStream(_Stackable):
                 if other in callbacks:
                     old_callbacks.discard(other)
                 else:
-                    callqueue.add(cls.step, gen, inner, callbacks, fast, other)
                     callbacks[other] = None
+                    callqueue.add(self.step, other)
+
             for other in old_callbacks:
                 callback = callbacks.pop(other, None)
                 other.discard_message_callback(callback)
@@ -508,6 +508,9 @@ class GeneratorStream(_Stackable):
         _Stackable.__init__(self)
 
         self.inner = Inner(self)
+        self.gen = None
+        self.callbacks = dict()
+
         self.input = Channel()
         self.output = Channel()
 
@@ -554,16 +557,14 @@ class GeneratorStream(_Stackable):
                 return
             self._started = True
 
-        gen = self.run()
-        callbacks = dict()
-        callbacks[null_source] = None
-        callqueue.add(self.step, gen, self.inner, callbacks, 
-                      self._fast, null_source)
+        self.gen = self.run()
+        self.callbacks[null_source] = None
+        callqueue.add(self.step, null_source)
 
     def run(self):
         while True:
             yield self.inner
-            list(self.inner)
+            tuple(self.inner)
 
 class FuncStream(GeneratorStream):
     def __init__(self, fast, func, *args, **keys):
