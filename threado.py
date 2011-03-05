@@ -3,7 +3,6 @@ import collections
 import callqueue
 import threading
 import functools
-import weakref
 import random
 import sys
 
@@ -395,12 +394,11 @@ class _Stackable(Reg):
 class Inner(_Pipeable):
     def __init__(self, outer):
         _Pipeable.__init__(self)
-        self.outer_ref = weakref.ref(outer)
+        self.outer = outer
 
     def send(self, *values):
-        outer = self.outer_ref()
-        if outer is not None:
-            outer.inner_send(*values)
+        if self.outer is not None:
+            self.outer.inner_send(*values)
 
     def finish(self, *values):
         raise Finished(*values)
@@ -408,9 +406,9 @@ class Inner(_Pipeable):
     def _finish(self, throw, args):
         _Pipeable._finish(self, throw, args)
 
-        outer = self.outer_ref()
-        if outer is not None:
-            outer.inner_finish(throw, args)
+        if self.outer is not None:
+            self.outer.inner_finish(throw, args)
+            self.outer = None
 
     def thread(self, func, *args, **keys):
         import threadpool
@@ -429,9 +427,8 @@ class Inner(_Pipeable):
         other.pipe(self)
         other.add_finish_callback(_callback, channel)
 
-        outer = self.outer_ref()
-        if outer is not None:        
-            outer.inner_sub(other)
+        if self.outer is not None:        
+            self.outer.inner_sub(other)
         return channel
 
 class BrokenPipe(Exception):
