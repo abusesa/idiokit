@@ -28,9 +28,6 @@ class Callback(object):
         new_args = self.args + args
         return self.func(*new_args, **self.keys)
 
-class Empty(Exception):
-    pass
-
 class NotFinished(Exception):
     pass
 
@@ -707,9 +704,6 @@ class StreamTests(object):
     def test_new_stream_starts_empty(self):
         assert not self.stream
 
-    def test_new_stream_raises_empty(self):
-        self.assertRaises(Empty, self.stream.next)
-
     def test_new_stream_next_is_not_final(self):
         assert not self.stream.next_is_final()
 
@@ -718,13 +712,8 @@ class TestChannel(StreamTests, unittest.TestCase):
 
     def test_becomes_empty(self):
         self.stream.send()
-        self.stream.next()
+        for _ in self.stream: break
         assert not self.stream
-
-    def test_raises_empty_after_next(self):
-        self.stream.send()
-        self.stream.next()
-        self.assertRaises(Empty, self.stream.next)
 
     def test_next_is_final(self):
         self.stream.finish()
@@ -738,7 +727,7 @@ class TestChannel(StreamTests, unittest.TestCase):
     def test_next_becomes_final(self):
         self.stream.send()
         self.stream.finish()
-        self.stream.next()
+        for _ in self.stream: break
         assert self.stream.next_is_final()
 
     def test_finishing(self):
@@ -759,16 +748,8 @@ class AggregateTests(object):
         channel.send()
 
         self.aggregate_method(self.stream, channel)
-        self.stream.next()
+        for _ in self.stream: break
         assert not self.stream
-
-    def test_aggregate_raises_empty_after_next(self):
-        channel = Channel()
-        channel.send()
-
-        self.aggregate_method(self.stream, channel)
-        self.stream.next()
-        self.assertRaises(Empty, self.stream.next)
 
     def test_finishing(self):
         unique = object()
