@@ -181,13 +181,13 @@ class XMPP(threado.GeneratorStream):
 
                 for elements in inner:
                     for callback in self.listeners:
-                        callback(True, elements)
+                        callback.call(True, elements)
         except:
             _, exc, tb = sys.exc_info()
             self.final_event = False, (exc, tb)
 
             for callback in self.listeners:
-                callback(*self.final_event)
+                callback.call(*self.final_event)
             self.listeners.clear()
             raise
 
@@ -195,7 +195,7 @@ class XMPP(threado.GeneratorStream):
         callback = threado.Callback(func, args, keys)
         def _add():
             if self.final_event:
-                callback(*self.final_event)
+                callback.call(*self.final_event)
             else:
                 self.listeners.add(callback)
         callqueue.add(_add)

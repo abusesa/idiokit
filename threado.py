@@ -24,7 +24,7 @@ class Callback(object):
         self.args = args
         self.keys = keys
 
-    def __call__(self, *args):
+    def call(self, *args):
         new_args = self.args + args
         return self.func(*new_args, **self.keys)
 
@@ -66,14 +66,14 @@ class Reg(object):
             callbacks = self.message_callbacks
             self.message_callbacks = set()
         for callback in callbacks:
-            callback(self)
+            callback.call(self)
 
         if result is not None:
             with self.lock:
                 callbacks = self.finish_callbacks
                 self.finish_callbacks = set()
             for callback in callbacks:
-                callback(self)
+                callback.call(self)
 
         self._update_callbacks()
 
@@ -84,7 +84,7 @@ class Reg(object):
                 self.message_callbacks.add(callback)
                 self._update_callbacks()
                 return callback
-        callback(self)
+        callback.call(self)
         return callback
 
     def discard_message_callback(self, callback):
@@ -99,7 +99,7 @@ class Reg(object):
                 self.finish_callbacks.add(callback)
                 self._update_callbacks()
                 return callback
-        callback(self)
+        callback.call(self)
         return callback
 
     def discard_finish_callback(self, callback):
