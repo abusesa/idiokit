@@ -536,7 +536,8 @@ class GeneratorStream(_Stackable):
     def run(self):
         while True:
             yield self.inner
-            tuple(self.inner)
+            for _ in self.inner:
+                pass
 
 class FuncStream(GeneratorStream):
     def __init__(self, fast, func, *args, **keys):
@@ -635,7 +636,8 @@ def pipe(first, *rest):
 def dev_null(inner):
     while True:
         yield inner
-        list(inner)
+        for _ in inner:
+            pass
 
 def run(main, throw_on_signal=None):
     import signal
