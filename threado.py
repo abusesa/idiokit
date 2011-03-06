@@ -426,7 +426,7 @@ class GeneratorStream(_Stackable):
             if self._started:
                 return
             self._started = True
-        self._gen = self.run()
+        self._gen = iter(self.run())
         callqueue.add(self._begin)
 
     def _begin(self):
@@ -439,20 +439,20 @@ class GeneratorStream(_Stackable):
         self._running_streams.discard(self)
         self.inner._finish(throw, args)
 
+    def _next_input(self, source):
+        if not self._fast:
+            return source.next_raw()
+        elif source:
+            return False, False, ()
+        return None
+
     def _step(self, source):
         callbacks = self._callbacks
         if source not in callbacks:
             return
 
-        if not self._fast:
-            item = source.next_raw()
-            if item is None:
-                cb = source.add_message_callback(callqueue.add, self._step)
-                callbacks[source] = cb
-                return
-            final, throw, args = item
-            self._local.source = source
-        elif not source:
+        item = self._next_input(source)
+        if item is None:
             cb = source.add_message_callback(callqueue.add, self._step)
             callbacks[source] = cb
             return
@@ -461,14 +461,13 @@ class GeneratorStream(_Stackable):
             other.discard_message_callback(callback)
         callbacks.clear()
 
+        final, throw, args = item
+        self._local.source = source
         try:
-            if self._fast:
-                next = self._gen.next()
+            if throw:
+                next = self._gen.throw(*args)
             else:
-                if throw:
-                    next = self._gen.throw(*args)
-                else:
-                    next = self._gen.send(peel_args(args))
+                next = self._gen.send(peel_args(args))
         except (StopIteration, Finished), exc:
             self._end(False, exc.args)
         except:
@@ -485,6 +484,8 @@ class GeneratorStream(_Stackable):
             for other in next:
                 callbacks[other] = None
                 callqueue.add(self._step, other)
+        finally:
+            self._local.source = None
 
     def __init__(self, fast=False):
         _Stackable.__init__(self)
