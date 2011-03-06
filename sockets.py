@@ -58,7 +58,7 @@ def socket_wrapper(sock, read, func, *args, **keys):
         if read and not data:
             check_connection(sock)
         return data
-    except socket.sslerror:
+    except SSLError:
         raise
     except socket.error, se:
         if se.args[0] not in ALLOWED_SOCKET_ERRNOS:
