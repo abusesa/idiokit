@@ -1,7 +1,10 @@
 from __future__ import with_statement
+
 import uuid
-import threado
+import base64
 import contextlib
+
+import threado
 from jid import JID
 from xmlcore import Query, Element
 
@@ -128,9 +131,8 @@ def starttls(inner, stream):
 
 @threado.stream
 def sasl_plain(inner, stream, jid, password):
-    import base64
-
-    data = u"%s\x00%s\x00%s" % (jid.bare(), jid.node, password)
+    password = unicode(password).encode("utf-8")
+    data = "\x00" + jid.node.encode("utf-8") + "\x00" + password
 
     auth = Element("auth", xmlns=SASL_NS, mechanism="PLAIN")
     auth.text = base64.b64encode(data)
