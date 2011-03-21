@@ -1,7 +1,7 @@
 import getpass
-import threado
-from xmpp import connect
-from jid import JID
+from idiokit import threado
+from idiokit.xmpp import connect
+from idiokit.jid import JID
 
 @threado.stream
 def main(inner):

@@ -1,8 +1,8 @@
-from xmpp import connect, Element
-from irc import IRC
-from jid import JID
-from util import guess_encoding
-import threado
+from idiokit.xmpp import connect, Element
+from idiokit.irc import IRC
+from idiokit.jid import JID
+from idiokit.util import guess_encoding
+from idiokit import threado
 
 @threado.stream
 def xmpp_to_irc(inner, own_jid, channel, encoding="latin-1"):
