@@ -1,3 +1,4 @@
+import codecs
 import xml.parsers.expat
 from xml.sax.saxutils import escape as _escape, quoteattr as _quoteattr
 
@@ -32,6 +33,14 @@ class Query(object):
     def __nonzero__(self):
         return len(self.elements) > 0
 
+_utf8encoder = codecs.getencoder("utf-8")
+def _encode(string):
+    return _utf8encoder(string)[0]
+
+_utf8decoder = codecs.getdecoder("utf-8")
+def _decode(string):
+    return _utf8decoder(string)[0]    
+
 def namespace_split(name):
     if ":" not in name:
         return "xmlns", name
@@ -39,15 +48,25 @@ def namespace_split(name):
     return "xmlns:"+split[0], split[1]
 
 _quoteattr_cache = dict()
-_quoteattr_cache_size = 10000
+_quoteattr_cache_size = 0
+_quoteattr_cache_max_size = 2**16
 def quoteattr(attr):
+    global _quoteattr_cache_size
+
     value = _quoteattr_cache.get(attr, None)
     if value is not None:
         return value
-    if len(_quoteattr_cache) > _quoteattr_cache_size:
-        _quoteattr_cache.clear()
+
     value = _quoteattr(attr)
+    length = len(value) if attr is value else len(value) + len(attr)
+    if length >= _quoteattr_cache_max_size:
+        return value
+
+    if _quoteattr_cache_max_size - _quoteattr_cache_size < length:
+        _quoteattr_cache_size = 0
+        _quoteattr_cache.clear()
     _quoteattr_cache[attr] = value
+    _quoteattr_cache_size += length
     return value
 
 def escape(text):
@@ -58,26 +77,45 @@ def escape(text):
 
 class _Element(object):
     @property
+    def name(self):
+        return _decode(self._name)
+
+    @property
     def ns(self):
-        attrs = self.attrs
+        attrs = self._attrs
         ns_name = self._ns_name
         
         while attrs is not None:
             if ns_name in attrs:
-                return attrs[ns_name]
+                return _decode(attrs[ns_name])
             attrs = attrs.get(None, None)
+        return None
 
-    def __init__(self, name, _text="", _tail="", _attrs=dict(), **keys):
-        self._children = list()
+    def _get_text(self):
+        return _decode(self._text)
+    def _set_text(self, text):
+        self._text = _encode(text)
+    text = property(_get_text, _set_text)
 
-        self._original_name = name
-        self._ns_name, self.name = namespace_split(name)
+    def _get_tail(self):
+        return _decode(self._tail)
+    def _set_tail(self, tail):
+        self._tail = _encode(tail)
+    tail = property(_get_tail, _set_tail)
 
-        self.attrs = dict(_attrs)
-        self.text = _text
-        self.tail = _tail
+    def __init__(self, _name, _text="", _tail="", **keys):
+        _name = _encode(_name)
+        _text = _encode(_text)
+        _tail = _encode(_tail)
 
-        for key, value in keys.items():
+        self._full_name = _name
+        self._ns_name, self._name = namespace_split(_name)
+        self._text = _text
+        self._tail = _tail
+
+        self._children = None
+        self._attrs = dict()
+        for key, value in keys.iteritems():
             self.set_attr(key, value)
 
     def named(self, name=None, ns=None):
@@ -88,35 +126,46 @@ class _Element(object):
         return self
 
     def add(self, *children):
-        for child in children:            
-            child.attrs[None] = self.attrs
+        for child in children:
+            if self._children is None:
+                self._children = list()
+            child._attrs[None] = self._attrs
         self._children.extend(children)
 
     def children(self, *args, **keys):
         children = list()
-        for child in self._children:
+        for child in (self._children or ()):
             children.extend(child.named(*args, **keys))
         return Query(*children)
-        
+
     def with_attrs(self, *args, **keys):
         for key in args:
-            key = key.lower()
-            if key not in self.attrs:
+            key = _encode(key.lower())
+            if key not in self._attrs:
                 return Query()
+
         for key, value in keys.iteritems():
-            key = key.lower()
-            other = self.attrs.get(key, None)
-            if other != value:
+            key = _encode(key.lower())
+            if value is None and key not in self._attrs:
+                return 
+
+            other = self._attrs.get(key, None)
+            if value is None and other is not None:
+                return Query()
+            if value is not None and other != _encode(value):
                 return Query()
         return self
 
     def get_attr(self, key, default=None):
-        return self.attrs.get(key, default)
+        key = _encode(key.lower())
+        if key not in self._attrs:
+            return default
+        return _decode(self._attrs[key])
 
     def set_attr(self, key, value):
-        key = unicode(key.lower())
-        value = unicode(value)
-        self.attrs[key] = value
+        key = _encode(unicode(key.lower()))
+        value = _encode(unicode(value))
+        self._attrs[key] = value
 
     def __iter__(self):
         yield self
@@ -128,8 +177,8 @@ class _Element(object):
         return 1
 
     def _serialize_open(self, append, close=False):
-        append("<" + self._original_name)
-        for key, value in self.attrs.iteritems():
+        append("<" + self._full_name)
+        for key, value in self._attrs.iteritems():
             if key is None:
                 continue
             append(" " + key + "=" + quoteattr(value))
@@ -142,34 +191,34 @@ class _Element(object):
     def serialize_open(self):
         bites = list()
         self._serialize_open(bites.append)
-        return "".join(bites).encode("utf-8")
+        return "".join(bites)
 
     def _serialize_close(self, append):
-        append("</" + self._original_name + ">")
+        append("</" + self._full_name + ">")
 
     def serialize_close(self):
         bites = list()
         self._serialize_close(bites.append)
-        return "".join(bites).encode("utf-8")
+        return "".join(bites)
 
     def _serialize(self, append):
-        if not (self.text or self._children):
+        if not (self._text or self._children):
             self._serialize_open(append, close=True)
         else:
             self._serialize_open(append, close=False)
-            if self.text:
-                append(escape(self.text))
-            for child in self._children:
+            if self._text:
+                append(escape(self._text))
+            for child in (self._children or ()):
                 child._serialize(append)
             self._serialize_close(append)
 
-        if self.tail:
-            append(escape(self.tail))
+        if self._tail:
+            append(escape(self._tail))
 
     def serialize(self):
         bites = list()
         self._serialize(bites.append)
-        return "".join(bites).encode("utf-8")
+        return "".join(bites)
 
 _example = _Element("_example")
 class Element(_Element):
@@ -186,7 +235,9 @@ class ElementParser(object):
         self.collected = list()
         
     def start_element(self, name, attrs):
-        element = Element(name, _attrs=attrs)
+        element = Element(name)
+        for key, value in attrs.iteritems():
+            element.set_attr(key, value)
         if self.stack:
             self.stack[-1].add(element)
         self.stack.append(element)
