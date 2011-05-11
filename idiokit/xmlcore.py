@@ -127,9 +127,9 @@ class _Element(object):
 
     def add(self, *children):
         for child in children:
-            if self._children is None:
-                self._children = list()
             child._attrs[None] = self._attrs
+        if self._children is None:
+            self._children = list()
         self._children.extend(children)
 
     def children(self, *args, **keys):
