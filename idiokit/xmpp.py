@@ -109,8 +109,13 @@ class Resolver(object):
                 yield result
 
 class XMPP(threado.GeneratorStream):
-    def __init__(self, jid, password, host=None, port=None):
+    def __init__(self, jid, password, 
+                 host=None, port=None, 
+                 ssl_verify_cert=True, ssl_ca_certs=None):
         threado.GeneratorStream.__init__(self)
+
+        self.ssl_verify_cert = ssl_verify_cert
+        self.ssl_ca_certs = ssl_ca_certs
 
         self.elements = None
         self.listeners = set()
@@ -147,7 +152,8 @@ class XMPP(threado.GeneratorStream):
         self.elements = element_stream(sock, self.jid.domain)
 
         yield inner.sub(core.require_tls(self.elements))
-        yield inner.sub(sock.ssl())
+        yield inner.sub(sock.ssl(verify_cert=self.ssl_verify_cert,
+                                 ca_certs=self.ssl_ca_certs))
         self.elements.send(RESTART)
 
         yield inner.sub(core.require_sasl(self.elements, self.jid, 

@@ -1,6 +1,7 @@
+import re
+import util
 import threado
 import sockets
-import util
 
 class IRCError(Exception):
     pass
@@ -47,8 +48,6 @@ def format_message(command, *params):
     message = [command] + list(params[:-1]) + [":" + "".join(params[-1:])]
     return " ".join(message) + "\r\n"
 
-import re
-
 ERROR_REX = re.compile("^(4|5)\d\d$")
 
 class NickAlreadyInUse(IRCError):
@@ -68,11 +67,16 @@ def mutations(*nicks):
             yield nick[:9-len(suffix)] + suffix
 
 class IRC(threado.GeneratorStream):
-    def __init__(self, server, port, ssl=False):
+    def __init__(self, server, port, 
+                 ssl=False, ssl_verify_cert=True, ssl_ca_certs=None):
         threado.GeneratorStream.__init__(self)
-        self.ssl = ssl
+
         self.server = server
         self.port = port
+
+        self.ssl = ssl
+        self.ssl_verify_cert = ssl_verify_cert
+        self.ssl_ca_certs = ssl_ca_certs
 
         self.parser = None
         self.socket = None
@@ -85,8 +89,9 @@ class IRC(threado.GeneratorStream):
         yield inner.sub(self.socket.connect((self.server, self.port)))
 
         if self.ssl:
-            yield inner.sub(self.socket.ssl())
-        
+            yield inner.sub(self.socket.ssl(verify_cert=self.ssl_verify_cert,
+                                            ca_certs=self.ssl_ca_certs))
+
         nicks = mutations(nick)
         if password is not None:
             self.socket.send(format_message("PASS", password))
