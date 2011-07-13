@@ -503,7 +503,7 @@ class PipePair(Stream):
             message_head.set(None)
             return
 
-        if throw:
+        if not throw:
             args = StopIteration, StopIteration(*args), None
         message_head.set((NULL, Value((True, args)), NULL))
 
