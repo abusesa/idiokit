@@ -32,7 +32,11 @@ def element_stream(socket, domain):
     def write():
         while True:
             element = yield idiokit.next()
-            yield socket.write(element.serialize())
+
+            index = 0
+            data = element.serialize()
+            while index < len(data):
+                index += yield socket.write(data[index:])
 
     @idiokit.stream
     def read():
