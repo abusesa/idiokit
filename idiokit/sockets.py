@@ -226,7 +226,7 @@ class Socket(threado.GeneratorStream):
     def _run(self, inner, rfd, wfd, chunk_size=2**16):
         data = ""
 
-        while not self._closed:
+        while True:
             if not data:
                 for next in inner:
                     if callable(next):
@@ -236,6 +236,9 @@ class Socket(threado.GeneratorStream):
                         break
                 else:
                     inner.add_message_callback(self._socket_callback, wfd)
+
+            if self._closed:
+                return
 
             wrapped = self._wrapped
 
