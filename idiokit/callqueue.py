@@ -2,6 +2,16 @@ import threading
 import functools
 import contextlib
 
+class CallNode(object):
+    __slots__ = "func", "args", "keys", "next"
+
+    def __init__(self, func, args, keys):
+        self.func = func
+        self.args = args
+        self.keys = keys
+
+        self.next = None
+
 class CallQueue(object):
     def __init__(self):
         self.exclusive_lock = threading.Lock()
@@ -9,32 +19,38 @@ class CallQueue(object):
         queue_lock = threading.Lock()
         self.queue_acquire = queue_lock.acquire
         self.queue_release = queue_lock.release
-        
-        self.queue = None
-        self.callback = None        
+
+        self.head = None
+        self.tail = None
+        self.callback = None
 
     def iterate(self):
         self.queue_acquire()
 
-        queue = self.queue
-        self.queue = None
+        head = self.head
+        self.head = None
+        self.tail = None
 
         self.queue_release()
 
-        while queue is not None:
-            func, args, keys, queue = queue
-            func(*args, **keys)
+        while head is not None:
+            head.func(*head.args, **head.keys)
+            head = head.next
         
     def add(self, func, *args, **keys):
+        new_tail = CallNode(func, args, keys)
+
         self.queue_acquire()
 
-        queue = self.queue
-        self.queue = (func, args, keys, queue)
+        old_tail = self.tail
+        self.tail = new_tail
 
-        if queue is not None:
+        if old_tail is not None:
+            old_tail.next = new_tail
             self.queue_release()
             return
 
+        self.head = new_tail
         callback = self.callback
         self.queue_release()
 
@@ -48,21 +64,21 @@ class CallQueue(object):
             self.queue_acquire()
             old_callback = self.callback
             self.callback = callback
-            queue = self.queue
+            tail = self.tail
             self.queue_release()
 
-            if queue is not None:
+            if tail is not None:
                 callback()
 
             try:
-                yield
+                yield self.iterate
             finally:
                 self.queue_acquire()
                 self.callback = old_callback
-                queue = self.queue
+                tail = self.tail
                 self.queue_release()
 
-                if old_callback is not None and queue is not None:
+                if old_callback is not None and tail is not None:
                     old_callback()
         finally:
             self.exclusive_lock.release()
