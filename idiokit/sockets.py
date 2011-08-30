@@ -19,23 +19,19 @@ def _read(func):
             idiokit.stop("")
 
         while True:
-            yield select.async_select((self._socket,), (), ())
-
             try:
                 data = func(self, max_amount)
                 if data:
                     idiokit.stop(data)
-
+                
                 ifd, _, _ = select.select((self._socket,), (), (), 0.0)
-                if not ifd:
-                    continue
+                if ifd:
+                    data = func(self, max_amount)
+                    if data:
+                        idiokit.stop(data)
 
-                data = func(self, max_amount)
-                if data:
-                    idiokit.stop(data)
-
-                msg = os.strerror(errno.ECONNRESET)
-                raise socket.error(errno.ECONNRESET, msg)
+                    msg = os.strerror(errno.ECONNRESET)
+                    raise socket.error(errno.ECONNRESET, msg)
             except ssl.SSLError, sslerror:
                 if sslerror.args[0] == ssl.SSL_ERROR_WANT_WRITE:
                     yield select.async_select((), (self._socket,), ())
@@ -46,18 +42,23 @@ def _read(func):
             except socket.error, error:
                 if error.args[0] not in ALLOWED_SOCKET_ERRNOS:
                     raise
+
+            yield select.async_select((self._socket,), (), ())
+
     return wrapped
 
 def _write(func):
     @idiokit.stream
     @functools.wraps(func)
     def wrapped(self, data):
-        while True:
-            yield select.async_select((), (self._socket,), ())
+        if not data:
+            idiokit.stop(0)
 
+        while True:
             try:
                 amount = func(self, data)
-                idiokit.stop(amount)
+                if amount > 0:
+                    idiokit.stop(amount)
             except ssl.SSLError, sslerror:
                 if sslerror.args[0] == ssl.SSL_ERROR_WANT_WRITE:
                     yield select.async_select((), (self._socket,), ())
@@ -68,6 +69,9 @@ def _write(func):
             except socket.error, error:
                 if error.args[0] in ALLOWED_SOCKET_ERRNOS:
                     raise
+
+            yield select.async_select((), (self._socket,), ())
+
     return wrapped
 
 def _close(sock):
