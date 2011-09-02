@@ -2,8 +2,9 @@ from __future__ import with_statement, absolute_import
 
 import time
 import threading
+import functools
 
-from . import threadpool
+from . import threadpool, values
 
 class Node(object):
     __slots__ = "index", "value"
@@ -89,7 +90,11 @@ class Heap(object):
     def __nonzero__(self):
         return not not self._heap
 
-class _Timer(object):
+class TimerValue(values._ValueBase):
+    def cancel(self, value=None):
+        return self._set(value=None)
+
+class Timer(object):
     def __init__(self):
         self._heap = Heap()
         self._lock = threading.Lock()
@@ -103,11 +108,11 @@ class _Timer(object):
             with self._lock:
                 now = time.time()
                 while self._heap and self._heap.peek()[0] <= now:
-                    _, func, args, keys = self._heap.pop()
-                    calls.append((func, args, keys))
+                    _, value, args = self._heap.pop()
+                    calls.append((value, args))
 
-            for func, args, keys in calls:
-                func(*args, **keys)
+            for value, args in calls:
+                value.cancel(args)
 
             calls = None
 
@@ -121,25 +126,25 @@ class _Timer(object):
 
             self._event.wait(timeout)
 
-    def set(self, delay, func, *args, **keys):
-        with self._lock:
-            node = self._heap.push((time.time() + delay, func, args, keys))
-            self._event.set()
-
-            if not self._running:
-                self._running = True
-                threadpool.run(self._run)
-        return node
-
-    def cancel(self, node):
+    def _handle(self, node, _):
         with self._lock:
             try:
                 self._heap.pop(node)
             except HeapError:
                 return False
-            return True
+            return True        
 
-global_timer = _Timer()
+    def set(self, delay, args=None):
+        value = TimerValue()
+        value.listen(functools.partial(self._handle, node))
 
-set = global_timer.set
-cancel = global_timer.cancel
+        with self._lock:
+            node = self._heap.push((time.time() + delay, value, args))
+            self._event.set()
+
+            if not self._running:
+                self._running = True
+                threadpool.run(self._run)
+        return value
+
+set = Timer().set

@@ -1,10 +1,13 @@
-from __future__ import with_statement
+from __future__ import with_statement, absolute_import
 
 import time
 import threading
 import collections
 
+from . import values
+
 class ThreadPool(object):
+    _Value = staticmethod(values.Value)
     _time = staticmethod(time.time)
     _sleep = staticmethod(time.sleep)
     _deque = staticmethod(collections.deque)
@@ -33,14 +36,16 @@ class ThreadPool(object):
         return self.elapsed_time
 
     def run(self, func, *args, **keys):
+        value = self._Value()
+
         with self.lock:
             if self.threads:
                 _, lock, queue = self.threads.pop()
-                queue.append((func, args, keys))
+                queue.append((value, func, args, keys))
                 lock.release()
             else:
                 lock = self._Lock()
-                queue = [(func, args, keys)]
+                queue = [(value, func, args, keys)]
 
                 thread = self._Thread(target=self._thread, args=(lock, queue))
                 thread.setDaemon(True)
@@ -52,6 +57,8 @@ class ThreadPool(object):
                 self.supervisor = self._Thread(target=self._supervisor)
                 self.supervisor.setDaemon(True)
                 self.supervisor.start()
+
+        return value
 
     def _supervisor(self):
         while True:
@@ -84,10 +91,18 @@ class ThreadPool(object):
                     self.alive -= 1
                 return
 
-            func, args, keys = item
-            func(*args, **keys)
+            value, func, args, keys = item
+
+            try:
+                throw = False
+                args = (func(*args, **keys),)
+            except:
+                throw = True
+                args = self._exc_info()
 
             with self.lock:
                 self.threads.append((self._elapsed(), lock, queue))
+
+            value.set((throw, args))
 
 run = ThreadPool().run

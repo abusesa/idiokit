@@ -146,19 +146,14 @@ class Socket(object):
 
     @idiokit.stream
     def ssl(self, *args, **keys):
-        event = idiokit.Event()
-
-        def _wrap():
-            try:
-                result = ssl.wrap_socket(self._socket, *args, **keys)
-            except:
-                event.fail(*sys.exc_info())
-            else:
-                event.succeed(result)
-
         self._socket.setblocking(True)
+
+        value = threadpool.run(ssl.wrap_socket, self._socket, *args, **keys)
+
+        event = idiokit.Event()
+        value.listen(event.set)
+
         try:
-            threadpool.run(_wrap)
             ssl_socket = yield event
         finally:
             self._socket.setblocking(False)

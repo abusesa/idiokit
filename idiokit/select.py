@@ -1,4 +1,4 @@
-from __future__ import with_statement, absolute_import
+from __future__ import absolute_import
 
 import os
 import sys
@@ -17,24 +17,13 @@ def select(*args, **keys):
                 continue
             raise se
 
-_pipes = list()
-
-def _select_in_thread(value, read, write, error, timeout):
-    try:
-        result = select(read, write, error, timeout)
-    except:
-        value.set((True, sys.exc_info()))
-    else:
-        value.set((False, (result,)))
-
 class _ValueStream(idiokit.Stream):
     _head = values.Value(None)
 
     def __init__(self, value):
         idiokit.Stream.__init__(self)
 
-        self._result = values.Value()
-        value.listen(self._set)
+        self._value = value
 
     def pipe_left(self, *args, **keys):
         pass
@@ -43,11 +32,10 @@ class _ValueStream(idiokit.Stream):
     def message_head(self):
         return self._head
 
-    def _set(self, _):
-        self._result.set((False, ()))
-
     def result(self):
-        return self._result
+        return self._value
+
+_pipes = list()
 
 @idiokit.stream
 def async_select(read, write, error, timeout=None):
@@ -59,7 +47,7 @@ def async_select(read, write, error, timeout=None):
 
     try:
         read = (rfd,) + tuple(read)
-        threadpool.run(_select_in_thread, value, read, write, error, timeout)
+        value = threadpool.run(select, read, write, error, timeout)
 
         event = idiokit.Event()
         value.listen(event.set)
