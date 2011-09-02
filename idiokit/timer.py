@@ -90,7 +90,7 @@ class Heap(object):
     def __nonzero__(self):
         return not not self._heap
 
-class TimerValue(values._ValueBase):
+class TimerValue(values.ValueBase):
     def cancel(self, value=None):
         return self._set(value=None)
 
