@@ -81,33 +81,12 @@ class Reg(object):
         with self.lock:
             self.finish_callbacks.discard(callback)
 
-    def __iter__(self):
-        next_raw = self.next_raw
-
-        while True:
-            item = next_raw()
-            if item is None:
-                return
-
-            final, throw, args = item
-            if throw:
-                type, exc, tb = args
-                raise type, exc, tb
-            if final:
-                raise Finished(*args)
-
-            yield peel_args(args)
-
     def __or__(self, other):
         return PipePair(self, other)
 
     def has_result(self):
         with self.lock:
             return self._result is not None
-
-    def __nonzero__(self):
-        with self.lock:
-            return self._id is not None
 
     def next_raw(self):
         with self.lock:
@@ -181,6 +160,11 @@ class Reg(object):
 
     def throw(self, exc, tb=None):
         return
+
+    # deprecated
+
+    def __iter__(self):
+        raise NotImplementedError("this stream is not iterable")
 
 class Channel(Reg):
     def __init__(self):
@@ -709,65 +693,3 @@ class Any(Reg):
 
 def any(first, *rest):
     return Any(True, first, *rest)
-
-# stream_fast compatibility, to be deprecated.
-
-class _Fast(Reg):
-    def __init__(self, first, *rest):
-        Reg.__init__(self)
-
-        self._callbacks = set()
-
-        for obj in (first,) + rest:
-            cb = obj.add_message_callback(self._finish)
-
-            with self.lock:
-                if self._callbacks is not None:
-                    self._callbacks.add((obj, cb))
-                    continue
-
-            obj.discard_message_callback(cb)
-            break
-
-    def _finish(self, _):
-        with self.lock:
-            if self._callbacks is None:
-                return
-            callbacks = self._callbacks
-            self._callbacks = None
-
-        self.signal_activity((False, ()))
-
-        for other, callback in callbacks:
-            other.discard_message_callback(callback)
-
-    def next_is_final(self):
-        with self.lock:
-            if self._callbacks is None:
-                return True
-            return False
-
-    def _next_raw(self):
-        with self.lock:
-            if self._callbacks is None:
-                return True, False, ()
-            return None
-
-    def pipe(self, other):
-        raise NotImplementedError("not allowed for this stream")
-    send = pipe
-    throw = pipe
-
-def stream_fast(func):
-    @stream
-    @functools.wraps(func)
-    def wrapped(inner, *args, **keys):
-        gen = func(inner, *args, **keys)
-        for obj in gen:
-            if obj is None:
-                yield None
-            elif isinstance(obj, Reg):
-                yield _Fast(obj)
-            else:
-                yield _Fast(*obj)
-    return wrapped
