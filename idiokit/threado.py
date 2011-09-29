@@ -458,13 +458,7 @@ class GeneratorStream(_Stackable):
             source = marked.pop()
             del callbacks[source]
 
-            if not self._fast:
-                item = source.next_raw()
-            elif source:
-                item = False, False, ()
-            else:
-                item = None
-
+            item = source.next_raw()
             if item is not None:
                 return source, item
 
@@ -513,7 +507,7 @@ class GeneratorStream(_Stackable):
         finally:
             self._local.source = None
 
-    def __init__(self, fast=False):
+    def __init__(self):
         _Stackable.__init__(self)
 
         self.inner = Inner(self)
@@ -522,7 +516,6 @@ class GeneratorStream(_Stackable):
         self._marked = set()
 
         self._started = False
-        self._fast = fast
 
         self.input = Channel()
         self.output = Channel()
@@ -568,8 +561,8 @@ class GeneratorStream(_Stackable):
                 pass
 
 class FuncStream(GeneratorStream):
-    def __init__(self, fast, func, *args, **keys):
-        GeneratorStream.__init__(self, fast)
+    def __init__(self, func, *args, **keys):
+        GeneratorStream.__init__(self)
         self.func = func
         self.args = args
         self.keys = keys
@@ -582,14 +575,8 @@ class FuncStream(GeneratorStream):
 def stream(func):
     @functools.wraps(func)
     def _stream(*args, **keys):
-        return FuncStream(False, func, *args, **keys)
+        return FuncStream(func, *args, **keys)
     return _stream
-
-def stream_fast(func):
-    @functools.wraps(func)
-    def _stream_fast(*args, **keys):
-        return FuncStream(True, func, *args, **keys)
-    return _stream_fast
 
 class PipePair(Reg):
     def __init__(self, left, right):
@@ -697,3 +684,65 @@ def run(main, throw_on_signal=None):
         type, exc, tb = args
         raise type, exc, tb
     return peel_args(args)
+
+# stream_fast compatibility, to be deprecated.
+
+class _Fast(Reg):
+    def __init__(self, first, *rest):
+        Reg.__init__(self)
+
+        self._callbacks = set()
+
+        for obj in (first,) + rest:
+            cb = obj.add_message_callback(self._finish)
+
+            with self.lock:
+                if self._callbacks is not None:
+                    self._callbacks.add((obj, cb))
+                    continue
+
+            obj.discard_message_callback(cb)
+            break
+
+    def _finish(self, _):
+        with self.lock:
+            if self._callbacks is None:
+                return
+            callbacks = self._callbacks
+            self._callbacks = None
+
+        self.signal_activity((False, ()))
+
+        for other, callback in callbacks:
+            other.discard_message_callback(callback)
+
+    def next_is_final(self):
+        with self.lock:
+            if self._callbacks is None:
+                return True
+            return False
+
+    def _next_raw(self):
+        with self.lock:
+            if self._callbacks is None:
+                return True, False, ()
+            return None
+
+    def pipe(self, other):
+        raise NotImplementedError("not allowed for this stream")
+    send = pipe
+    throw = pipe
+
+def stream_fast(func):
+    @stream
+    @functools.wraps(func)
+    def wrapped(inner, *args, **keys):
+        gen = func(inner, *args, **keys)
+        for obj in gen:
+            if obj is None:
+                yield None
+            elif isinstance(obj, Reg):
+                yield _Fast(obj)
+            else:
+                yield _Fast(*obj)
+    return wrapped

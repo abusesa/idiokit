@@ -40,15 +40,15 @@ def parse_presence(elements, own_jid):
 
             affiliation = item.get_attr("affiliation")
             role = item.get_attr("role")
-            participant = MUCParticipant(other_jid, affiliation, role, 
+            participant = MUCParticipant(other_jid, affiliation, role,
                                          presence.children(), jid)
             return participant, codes
     return None
 
 class MUCRoom(threado.GeneratorStream):
     def __init__(self, muc, xmpp, stream, jid):
-        threado.GeneratorStream.__init__(self, fast=True)
-        
+        threado.GeneratorStream.__init__(self)
+
         self.room_jid = JID(jid).bare()
         self.nick_jid = JID(jid)
         self.exit_done = threado.Channel()
@@ -104,15 +104,16 @@ class MUCRoom(threado.GeneratorStream):
 
         yield self.exit_done
 
-    def run(self):
+    @threado.stream_fast
+    def _run(inner, self):
         exit_sent = False
 
         try:
             while True:
-                yield self.inner, self.stream
+                yield inner, self.stream
 
                 try:
-                    for elements in self.inner:
+                    for elements in inner:
                         if exit_sent:
                             continue
                         if elements is None:
@@ -136,7 +137,7 @@ class MUCRoom(threado.GeneratorStream):
                         if from_jid.bare() != self.room_jid:
                             continue
 
-                        self.inner.send(element)
+                        inner.send(element)
 
                         for presence in element.named("presence"):
                             if presence.get_attr("type", None) != "unavailable":
@@ -149,6 +150,9 @@ class MUCRoom(threado.GeneratorStream):
         finally:
             self.muc._exit_room(self)
             self.exit_done.finish()
+
+    def run(self):
+        yield self.inner.sub(self._run())
 
 class MUCParticipant(object):
     def __init__(self, name, affiliation, role, payload, jid=None):
