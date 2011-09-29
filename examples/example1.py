@@ -10,8 +10,6 @@ def main(inner):
 
     while True:
         elements = yield inner, room
-        if inner.was_source:
-            continue
 
         for message in elements.named("message").with_attrs("from"):
             sender = JID(message.get_attr("from"))
@@ -21,4 +19,4 @@ def main(inner):
                 room.send(body)
 
 if __name__ == "__main__":
-    threado.run(main())
+    threado.run(threado.dev_null() | main())

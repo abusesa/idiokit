@@ -53,8 +53,8 @@ def _iq(inner, send, stream, type, query, **attrs):
     send(iq)
 
     while True:
-        elements = yield inner, stream
-        if inner.was_source:
+        source, elements = yield threado.any(inner, stream)
+        if inner is source:
             continue
 
         for element in elements.named("iq").with_attrs(id=uid):
@@ -70,8 +70,8 @@ def _iq(inner, send, stream, type, query, **attrs):
 @threado.stream
 def require_features(inner, stream):
     while True:
-        elements = yield inner, stream
-        if stream.was_source:
+        source, elements = yield threado.any(inner, stream)
+        if stream is source:
             break
 
     features = elements.named("features", STREAM_NS)
@@ -119,8 +119,8 @@ def starttls(inner, stream):
     stream.send(starttls)
 
     while True:
-        elements = yield inner, stream
-        if inner.was_source:
+        source, elements = yield threado.any(inner, stream)
+        if inner is source:
             continue
 
         if elements.named("failure", STARTTLS_NS):
@@ -138,8 +138,8 @@ def sasl_plain(inner, stream, jid, password):
     stream.send(auth)
 
     while True:
-        elements = yield inner, stream
-        if inner.was_source:
+        source, elements = yield threado.any(inner, stream)
+        if inner is source:
             continue
 
         if elements.named("failure", SASL_NS):

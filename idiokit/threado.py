@@ -31,12 +31,6 @@ class NotFinished(Exception):
     pass
 
 class Reg(object):
-    _local = threading.local()
-
-    @property
-    def was_source(self):
-        return getattr(self._local, "source", None) is self
-
     def __init__(self):
         self.lock = threading.Lock()
         self.message_callbacks = set()
@@ -430,50 +424,20 @@ class GeneratorStream(_Stackable):
 
     def _begin(self):
         self._running_streams.add(self)
-        self._callbacks[null_source] = None
-        self._mark(null_source)
+        self._step(null_source)
 
     def _end(self, throw, args):
         self._gen = None
         self._running_streams.discard(self)
         self.inner._finish(throw, args)
 
-        for other, callback in self._callbacks.iteritems():
-            other.discard_message_callback(callback)
-        self._callbacks.clear()
-        self._marked.clear()
-
-    def _mark(self, source):
-        if source not in self._callbacks:
-            return
-        if not self._marked:
-            callqueue.add(self._step)
-        self._marked.add(source)
-
-    def _pick(self):
-        marked = self._marked
-        callbacks = self._callbacks
-
-        while marked:
-            source = marked.pop()
-            del callbacks[source]
-
-            item = source.next_raw()
-            if item is not None:
-                return source, item
-
-            callback = source.add_message_callback(callqueue.add, self._mark)
-            callbacks[source] = callback
-
-        return None
-
-    def _step(self):
-        picked = self._pick()
-        if picked is None:
+    def _step(self, source):
+        item = source.next_raw()
+        if item is None:
+            source.add_message_callback(callqueue.add, self._step)
             return
 
-        source, (final, throw, args) = picked
-        self._local.source = source
+        final, throw, args = item
         try:
             if throw:
                 next = self._gen.throw(*args)
@@ -485,27 +449,11 @@ class GeneratorStream(_Stackable):
             self._end(True, sys.exc_info())
         else:
             if next is None:
-                next = (null_source,)
-            elif isinstance(next, Reg):
-                next = (next,)
-            else:
-                next = frozenset(next)
+                next = null_source
+            elif not isinstance(next, Reg):
+                next = Any(False, *next)
 
-            for other, callback in self._callbacks.items():
-                if other in next:
-                    continue
-                other.discard_message_callback(callback)
-                self._marked.discard(other)
-                del self._callbacks[other]
-
-            for other in next:
-                self._callbacks.setdefault(other, None)
-            self._marked.update(next)
-
-            if self._marked:
-                callqueue.add(self._step)
-        finally:
-            self._local.source = None
+            next.add_message_callback(callqueue.add, self._step)
 
     def __init__(self):
         _Stackable.__init__(self)
@@ -684,6 +632,68 @@ def run(main, throw_on_signal=None):
         type, exc, tb = args
         raise type, exc, tb
     return peel_args(args)
+
+# Any
+
+class Any(Reg):
+    def __init__(self, include_source, first, *rest):
+        Reg.__init__(self)
+
+        self._callbacks = dict()
+        self._include_source = include_source
+        self._final = None
+
+        callqueue.add(self._init, set((first,) + rest))
+
+    def _init(self, sources):
+        callbacks = self._callbacks
+
+        for source in sources:
+            callbacks[source] = source.add_message_callback(callqueue.add, self._callback)
+
+    def _callback(self, source):
+        if self._callbacks is None:
+            return
+
+        item = source.next_raw()
+        if item is None:
+            self._callbacks[source] = source.add_message_callback(callqueue.add, self._callback)
+            return
+
+        callbacks = self._callbacks
+        self._callbacks = None
+
+        for other, callback in callbacks.iteritems():
+            if other is not source:
+                other.discard_message_callback(callback)
+
+        _, throw, args = item
+        if not throw and self._include_source:
+            args = (source, peel_args(args))
+
+        with self.lock:
+            self._final = True, throw, args
+        self.signal_activity((throw, args))
+
+    def next_is_final(self):
+        with self.lock:
+            return self._final is not None
+
+    def _next_raw(self):
+        with self.lock:
+            return self._final
+
+    def pipe(self, other):
+        raise NotImplementedError("piping not allowed for this stream")
+
+    def send(self, *values):
+        raise NotImplementedError("send not allowed for this stream")
+
+    def throw(self, exc, tb=None):
+        raise NotImplementedError("throwing not allowed for this stream")
+
+def any(first, *rest):
+    return Any(True, first, *rest)
 
 # stream_fast compatibility, to be deprecated.
 

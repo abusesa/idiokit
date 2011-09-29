@@ -67,7 +67,7 @@ def mutations(*nicks):
             yield nick[:9-len(suffix)] + suffix
 
 class IRC(threado.GeneratorStream):
-    def __init__(self, server, port, 
+    def __init__(self, server, port,
                  ssl=False, ssl_verify_cert=True, ssl_ca_certs=None):
         threado.GeneratorStream.__init__(self)
 
@@ -99,8 +99,8 @@ class IRC(threado.GeneratorStream):
         self.socket.send(format_message("USER", nick, nick, "-", nick))
 
         while True:
-            data = yield inner, self.socket
-            if inner.was_source:
+            source, data = yield threado.any(inner, self.socket)
+            if inner is source:
                 continue
 
             for prefix, command, params in self.parser.feed(data):
@@ -111,7 +111,7 @@ class IRC(threado.GeneratorStream):
                 if command == "001":
                     self.start()
                     inner.finish(nick)
-                    
+
                 if command == "433":
                     for nick in nicks:
                         self.socket.send(format_message("NICK", nick))
@@ -131,7 +131,7 @@ class IRC(threado.GeneratorStream):
             self.send("QUIT")
         else:
             self.send("QUIT", message)
-    
+
     def join(self, channel, key=None):
         if key is None:
             self.send("JOIN", channel)
@@ -145,9 +145,9 @@ class IRC(threado.GeneratorStream):
             self.inner.send(prefix, command, params)
 
         while True:
-            data = yield self.inner, self.socket
+            source, data = yield threado.any(self.inner, self.socket)
 
-            if self.inner.was_source:
+            if self.inner is source:
                 self.socket.send(format_message(*data))
                 continue
 

@@ -10,7 +10,7 @@ from socket import error
 from . import ssl, threado
 
 ALLOWED_SOCKET_ERRNOS = frozenset([errno.EINTR,
-                                   errno.ENOBUFS, 
+                                   errno.ENOBUFS,
                                    errno.EAGAIN,
                                    errno.EWOULDBLOCK])
 
@@ -88,7 +88,7 @@ class _PlainSocket(_Base):
 
     def fileno(self):
         return self._socket.fileno()
-        
+
     def can_read(self):
         return True
     can_write = can_read
@@ -112,7 +112,7 @@ class _SSLSocket(_Base):
 
     def fileno(self):
         return self._socket.fileno()
-        
+
     def can_read(self):
         return True
     can_write = can_read
@@ -129,7 +129,7 @@ class _SSLSocket(_Base):
         try:
             return self._ssl.read(amount)
         except ssl.SSLError, e:
-            if e.args[0] in (ssl.SSL_ERROR_WANT_WRITE, 
+            if e.args[0] in (ssl.SSL_ERROR_WANT_WRITE,
                              ssl.SSL_ERROR_WANT_READ):
                 self._needs = e.args[0]
                 return ""
@@ -141,7 +141,7 @@ class _SSLSocket(_Base):
         try:
             return self._ssl.write(data)
         except ssl.SSLError, e:
-            if e.args[0] in (ssl.SSL_ERROR_WANT_WRITE, 
+            if e.args[0] in (ssl.SSL_ERROR_WANT_WRITE,
                              ssl.SSL_ERROR_WANT_READ):
                 self._needs = e.args[0]
                 return 0
@@ -164,7 +164,7 @@ def _blocking(func):
         self.start()
 
         result = yield channel, self._stop_channel
-        if self._stop_channel.was_source:
+        if self._stop_channel.has_result():
             if channel.has_result():
                 result = channel.result()
             else:
@@ -209,7 +209,7 @@ class Socket(threado.GeneratorStream):
             self._stop_channel.finish()
 
             with self.lock:
-                os.write(wfd, "\x00")        
+                os.write(wfd, "\x00")
                 os.close(rfd)
                 os.close(wfd)
 
@@ -242,7 +242,7 @@ class Socket(threado.GeneratorStream):
 
             wrapped = self._wrapped
 
-            if (wrapped.needs_read() or 
+            if (wrapped.needs_read() or
                 (wrapped.can_read() and not wrapped.needs_write())):
                 ifd = (rfd, self._wrapped)
             else:
@@ -257,11 +257,11 @@ class Socket(threado.GeneratorStream):
             ifd, ofd, _ = _do_select(ifd, ofd, ())
             if rfd in ifd:
                 os.read(rfd, chunk_size)
-                
+
             if self._wrapped in ifd:
                 output = self._wrapped.read(chunk_size)
                 inner.send(output)
-                    
+
             if self._wrapped in ofd:
                 amount = self._wrapped.write(data)
                 data = data[amount:]

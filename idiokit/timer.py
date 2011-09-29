@@ -43,7 +43,7 @@ class _Timer(threado.GeneratorStream):
         self.send(expire_time, channel)
         self.event.set()
 
-        while not channel.was_source:
+        while not channel.has_result():
             yield inner, channel
         inner.finish()
 global_timer = _Timer()

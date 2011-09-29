@@ -31,8 +31,8 @@ def element_stream(inner, socket, domain):
     parser = ElementParser()
     socket.send(stream_element.serialize_open())
     while True:
-        data = yield inner, socket
-        if inner.was_source:
+        source, data = yield threado.any(inner, socket)
+        if inner is source:
             if data is RESTART:
                 parser = ElementParser()
                 socket.send(stream_element.serialize_open())

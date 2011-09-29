@@ -71,8 +71,8 @@ class MUCRoom(threado.GeneratorStream):
         self.xmpp.core.presence(x, to=JID(self.nick_jid))
 
         while True:
-            element = yield inner, self.stream
-            if inner.was_source:
+            source, element = yield threado.any(inner, self.stream)
+            if inner is source:
                 continue
 
             parsed = parse_presence(element, self.nick_jid)
@@ -132,8 +132,6 @@ class MUCRoom(threado.GeneratorStream):
     def _receive(inner, self):
         while True:
             elements = yield inner, self.stream
-            if inner.was_source:
-                continue
 
             for element in elements.with_attrs("from"):
                 from_jid = JID(element.get_attr("from"))
