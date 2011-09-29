@@ -3,7 +3,6 @@ import collections
 import callqueue
 import threading
 import functools
-import random
 import sys
 
 def peel_args(args):
@@ -121,7 +120,7 @@ class Reg(object):
             _id = self._id
             if _id is None:
                 return None
-            
+
         item = self._next_raw()
         if item is None:
             with self.lock:
@@ -320,7 +319,7 @@ class _Stackable(Reg):
             self.stack.append(other)
         self.next_is_final()
         self.signal_activity()
-            
+
     def _finish(self, throw, args):
         with self.lock:
             if self.final is not None:
@@ -328,7 +327,7 @@ class _Stackable(Reg):
             self.final = True, throw, args
         self.next_is_final()
         self.signal_activity((throw, args))
-        
+
     def _next_raw(self):
         while True:
             with self.lock:
@@ -338,7 +337,7 @@ class _Stackable(Reg):
                     return self.final
                 else:
                     return None
-            
+
             item = other.next_raw()
             if item is None:
                 other.add_message_callback(self._stack_callback)
@@ -402,7 +401,7 @@ class Inner(_Pipeable):
         other.pipe(self)
         other.add_finish_callback(_callback, channel)
 
-        if self.outer is not None:        
+        if self.outer is not None:
             self.outer.inner_sub(other)
         return channel
 
@@ -413,7 +412,7 @@ class NullSource(Reg):
     def __init__(self):
         Reg.__init__(self)
         self.signal_activity()
-    
+
     def _next_raw(self):
         return False, False, ()
 null_source = NullSource()
@@ -530,7 +529,7 @@ class GeneratorStream(_Stackable):
 
         self.inner._pipe(self.input)
         self._stack(self.output)
-        
+
     def pipe(self, other):
         return self.inner._pipe(other)
 
@@ -629,7 +628,7 @@ class PipePair(Reg):
 
     def _callback(self, _):
         self.signal_activity()
-        
+
     def _pipe_broken(self):
         self.right._pipe_broken()
 
@@ -698,102 +697,3 @@ def run(main, throw_on_signal=None):
         type, exc, tb = args
         raise type, exc, tb
     return peel_args(args)
-
-import unittest
-
-class StreamTests(object):
-    stream_class = None
-
-    def setUp(self):
-        self.stream = self.stream_class()
-        
-    def tearDown(self):
-        self.stream = None
-    
-    def test_new_stream_starts_empty(self):
-        assert not self.stream
-
-    def test_new_stream_next_is_not_final(self):
-        assert not self.stream.next_is_final()
-
-class TestChannel(StreamTests, unittest.TestCase):
-    stream_class = Channel
-
-    def test_becomes_empty(self):
-        self.stream.send()
-        for _ in self.stream: break
-        assert not self.stream
-
-    def test_next_is_final(self):
-        self.stream.finish()
-        assert self.stream.next_is_final()
-
-    def test_next_is_not_final(self):
-        self.stream.send()
-        self.stream.finish()
-        assert not self.stream.next_is_final()
-
-    def test_next_becomes_final(self):
-        self.stream.send()
-        self.stream.finish()
-        for _ in self.stream: break
-        assert self.stream.next_is_final()
-
-    def test_finishing(self):
-        unique = object()
-        self.stream.finish(unique)
-        assert self.stream.next_raw() == (True, False, (unique,))
-
-class AggregateTests(object):
-    aggregate_method = None
-    aggregate_finish_method = None
-
-    def test_aggregate_stays_empty(self):
-        self.aggregate_method(self.stream, Channel())
-        assert not self.stream
-
-    def test_aggregate_becomes_empty(self):
-        channel = Channel()
-        channel.send()
-
-        self.aggregate_method(self.stream, channel)
-        for _ in self.stream: break
-        assert not self.stream
-
-    def test_finishing(self):
-        unique = object()
-        self.aggregate_finish_method(self.stream, False, (unique,))
-        assert self.stream.next_raw() == (True, False, (unique,))
-
-    def test_next_is_final(self):
-        self.aggregate_finish_method(self.stream, False, ())
-        assert self.stream.next_is_final()
-
-class Test_Pipeable(StreamTests, AggregateTests, unittest.TestCase):
-    stream_class = _Pipeable
-    aggregate_method = stream_class._pipe
-    aggregate_finish_method = stream_class._finish
-
-    def test_finishing_when_pending_data(self):
-        channel = Channel()
-        channel.send()
-
-        self.stream._pipe(channel)
-        self.stream._finish(False, ())
-        assert self.stream.next_is_final()
-
-class Test_Stackable(StreamTests, AggregateTests, unittest.TestCase):
-    stream_class = _Stackable
-    aggregate_method = stream_class._stack
-    aggregate_finish_method = stream_class._finish
-
-    def test_next_is_not_final(self):
-        channel = Channel()
-        channel.send()
-
-        self.stream._stack(channel)
-        self.stream._finish(False, ())
-        assert not self.stream.next_is_final()
-
-if __name__ == "__main__":
-    unittest.main()
