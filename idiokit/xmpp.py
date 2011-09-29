@@ -15,12 +15,12 @@ from core import STREAM_NS, STANZA_NS
 
 class StreamError(core.XMPPError):
     def __init__(self, element):
-        core.XMPPError.__init__(self, "stream level error", 
+        core.XMPPError.__init__(self, "stream level error",
                                 element, core.STREAM_ERROR_NS)
 
 RESTART = object()
 
-@threado.stream_fast
+@threado.stream
 def element_stream(inner, socket, domain):
     stream_element = Element("stream:stream")
     stream_element.set_attr("to", domain)
@@ -31,16 +31,14 @@ def element_stream(inner, socket, domain):
     parser = ElementParser()
     socket.send(stream_element.serialize_open())
     while True:
-        yield inner, socket
-
-        for element in inner:
-            if element is RESTART:
+        data = yield inner, socket
+        if inner.was_source:
+            if data is RESTART:
                 parser = ElementParser()
                 socket.send(stream_element.serialize_open())
             else:
-                socket.send(element.serialize())
-
-        for data in socket:
+                socket.send(data.serialize())
+        else:
             for element in parser.feed(data):
                 if element.named("error", STREAM_NS):
                     raise StreamError(element)
@@ -75,10 +73,10 @@ class Resolver(object):
 
     def _getaddrinfo(self, host_or_domain, port_or_service):
         try:
-            for result in socket.getaddrinfo(host_or_domain, 
-                                             port_or_service, 
-                                             socket.AF_INET, 
-                                             socket.SOCK_STREAM, 
+            for result in socket.getaddrinfo(host_or_domain,
+                                             port_or_service,
+                                             socket.AF_INET,
+                                             socket.SOCK_STREAM,
                                              socket.IPPROTO_TCP):
                 yield result
         except socket.gaierror:
@@ -109,8 +107,8 @@ class Resolver(object):
                 yield result
 
 class XMPP(threado.GeneratorStream):
-    def __init__(self, jid, password, 
-                 host=None, port=None, 
+    def __init__(self, jid, password,
+                 host=None, port=None,
                  ssl_verify_cert=True, ssl_ca_certs=None):
         threado.GeneratorStream.__init__(self)
 
@@ -156,11 +154,11 @@ class XMPP(threado.GeneratorStream):
                                  ca_certs=self.ssl_ca_certs))
         self.elements.send(RESTART)
 
-        yield inner.sub(core.require_sasl(self.elements, self.jid, 
+        yield inner.sub(core.require_sasl(self.elements, self.jid,
                                           self.password))
         self.elements.send(RESTART)
 
-        self.jid = yield inner.sub(core.require_bind_and_session(self.elements, 
+        self.jid = yield inner.sub(core.require_bind_and_session(self.elements,
                                                                  self.jid))
         self.core = core.Core(self)
         self.disco = disco.Disco(self)
@@ -169,8 +167,8 @@ class XMPP(threado.GeneratorStream):
         self.start()
 
     def run(self):
-        yield self.inner.sub(self.elements 
-                             | self._distribute() 
+        yield self.inner.sub(self.elements
+                             | self._distribute()
                              | self._keepalive())
 
     @threado.stream
@@ -179,15 +177,14 @@ class XMPP(threado.GeneratorStream):
             yield inner.sub(self.ping.ping(self.jid.bare()))
             yield inner, timer.sleep(interval)
 
-    @threado.stream_fast
+    @threado.stream
     def _distribute(inner, self):
         try:
             while True:
-                yield inner
+                elements = yield inner
 
-                for elements in inner:
-                    for callback in self.listeners:
-                        callback.call(True, elements)
+                for callback in self.listeners:
+                    callback.call(True, elements)
         except:
             _, exc, tb = sys.exc_info()
             self.final_event = False, (exc, tb)
