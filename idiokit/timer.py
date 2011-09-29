@@ -12,14 +12,17 @@ class _Timer(threado.GeneratorStream):
     def run(self):
         heap = list()
 
+        null = threado.Channel()
+        null.finish()
+
         while True:
             if not heap:
                 item = yield self.inner
-                heapq.heappush(heap, item)
+                source = self.inner
             else:
-                yield
+                source, item = yield threado.any(self.inner, null)
 
-            for item in self.inner:
+            if self.inner is source:
                 heapq.heappush(heap, item)
 
             current_time = time.time()

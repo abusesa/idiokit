@@ -227,15 +227,24 @@ class Socket(threado.GeneratorStream):
         data = ""
 
         while True:
-            if not data:
-                for next in inner:
-                    if callable(next):
-                        next()
-                    elif next:
-                        data = next
-                        break
-                else:
+            while not data:
+                item = inner.next_raw()
+                if item is None:
                     inner.add_message_callback(self._socket_callback, wfd)
+                    break
+
+                final, throw, args = item
+                if throw:
+                    type, exc, tb = args
+                    raise type, exc, tb
+                if final:
+                    raise Finished(*args)
+
+                next = threado.peel_args(args)
+                if callable(next):
+                    next()
+                else:
+                    data = next
 
             if self._closed:
                 return

@@ -147,6 +147,24 @@ class Reg(object):
         _, exception, traceback = sys.exc_info()
         self.throw(exception, traceback)
 
+    def flush(self):
+        @stream
+        def _flush(inner):
+            yield
+
+            while True:
+                item = self.next_raw()
+                if item is None:
+                    return
+
+                final, throw, args = item
+                if throw:
+                    type, exc, tb = args
+                    raise type, exc, tb
+                if final:
+                    raise Finished(*args)
+        return _flush()
+
     # implement these
 
     def next_is_final(self):
@@ -504,9 +522,7 @@ class GeneratorStream(_Stackable):
 
     def run(self):
         while True:
-            yield self.inner
-            for _ in self.inner:
-                pass
+            yield self.inner.flush()
 
 class FuncStream(GeneratorStream):
     def __init__(self, func, *args, **keys):
@@ -598,9 +614,7 @@ def pipe(first, *rest):
 @stream
 def dev_null(inner):
     while True:
-        yield inner
-        for _ in inner:
-            pass
+        yield inner.flush()
 
 def run(main, throw_on_signal=None):
     import signal
