@@ -614,6 +614,7 @@ def pipe(first, *rest):
 @stream
 def dev_null(inner):
     while True:
+        yield inner
         yield inner.flush()
 
 def run(main, throw_on_signal=None):
