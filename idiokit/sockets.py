@@ -6,9 +6,10 @@ import errno
 import socket
 import functools
 
-from . import idiokit, ssl, select, threadpool
+from socket import error
+from . import idiokit, ssl, select, timer, threadpool
 
-ALLOWED_SOCKET_ERRNOS = frozenset([errno.EINTR, errno.ENOBUFS, 
+ALLOWED_SOCKET_ERRNOS = frozenset([errno.EINTR, errno.ENOBUFS,
                                    errno.EAGAIN, errno.EWOULDBLOCK])
 
 def _read(func):
@@ -23,7 +24,7 @@ def _read(func):
                 data = func(self, max_amount)
                 if data:
                     idiokit.stop(data)
-                
+
                 ifd, _, _ = select.select((self._socket,), (), (), 0.0)
                 if ifd:
                     data = func(self, max_amount)
@@ -99,7 +100,7 @@ class _Base(object):
 class _PlainSocket(_Base):
     def __init__(self, socket):
         self._socket = socket
-        
+
     @_read
     def read(self, amount):
         return self._socket.recv(amount)
@@ -115,7 +116,7 @@ class _SSLSocket(_Base):
     def __init__(self, socket, ssl_socket):
         self._socket = socket
         self._ssl = ssl_socket
-        
+
     @_read
     def read(self, amount):
         return self._ssl.read(amount)
@@ -159,8 +160,20 @@ class Socket(object):
             self._socket.setblocking(False)
         self._wrapped = _SSLSocket(self._socket, ssl_socket)
 
+    @idiokit.stream
+    def close(self):
+        yield timer.sleep(0.0)
+        self._wrapped.close()
+
     def read(self, max_amount=2**16):
         return self._wrapped.read(max_amount)
 
     def write(self, data):
         return self._wrapped.write(data)
+
+    @idiokit.stream
+    def writeall(self, data):
+        amount = 0
+        while amount < len(data):
+            sent = yield self.write(data[amount:amount+4096])
+            amount += sent

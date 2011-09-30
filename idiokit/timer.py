@@ -4,7 +4,7 @@ import time
 import threading
 import functools
 
-from . import threadpool, values
+from . import idiokit, threadpool, values
 
 class Node(object):
     __slots__ = "index", "value"
@@ -16,7 +16,7 @@ class Node(object):
 def _swap(array, left, right):
     array[left.index] = right
     array[right.index] = left
-    left.index, right.index = right.index, left.index    
+    left.index, right.index = right.index, left.index
     return right, left
 
 def _up(array, node):
@@ -131,12 +131,10 @@ class Timer(object):
             try:
                 self._heap.pop(node)
             except HeapError:
-                return False
-            return True        
+                pass
 
     def set(self, delay, args=None):
         value = TimerValue()
-        value.listen(functools.partial(self._handle, node))
 
         with self._lock:
             node = self._heap.push((time.time() + delay, value, args))
@@ -145,6 +143,19 @@ class Timer(object):
             if not self._running:
                 self._running = True
                 threadpool.run(self._run)
+
+        value.listen(functools.partial(self._handle, node))
         return value
 
 set = Timer().set
+
+@idiokit.stream
+def sleep(delay):
+    event = idiokit.Event()
+    value = set(delay)
+
+    value.listen(event.succeed)
+    try:
+        yield event
+    finally:
+        value.cancel()

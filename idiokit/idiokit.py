@@ -42,7 +42,7 @@ class _Queue(object):
         with self._lock:
             self._head = head
 
-        head.listen(self._move_promise)      
+        head.listen(self._move_promise)
 
     def head(self):
         with self._lock:
@@ -84,7 +84,7 @@ class Piped(_Queue):
             consume, value, head = promise
             _, callback = self._flows[key]
             self._flows[key] = head, callback
-        
+
             out_next = Value()
             tail = self._tail
             self._tail = out_next
@@ -165,6 +165,14 @@ class Stream(object):
 
     def __or__(self, other):
         return PipePair(self, other)
+
+    # to be deprecated
+
+    def has_result(self):
+        return self.result().is_set()
+
+    def rethrow(self):
+        self.throw(*sys.exc_info())
 
 class _ForkOutput(_Queue):
     def __init__(self, head):
@@ -266,7 +274,7 @@ class _GeneratorOutput(_Queue):
         with self._lock:
             if self._closed:
                 return
-            
+
             if self._stack:
                 self._stack.append(head)
                 return
@@ -429,7 +437,7 @@ class Send(Stream):
         try:
             while True:
                 which, promise = yield Which(input_head, self._consumed)
-                
+
                 if which is self._consumed or promise is None:
                     self._value.set(message)
                     self._result.set((False, ()))
@@ -437,7 +445,7 @@ class Send(Stream):
 
                 consumed, value, input_head = promise
                 consumed.set()
-                
+
                 result = yield value
                 if value is not None:
                     self._value.set(None)
@@ -474,7 +482,7 @@ class PipePair(Stream):
 
         left_result = left.result()
         right_result = right.result()
-        
+
         message_head = Value()
         signal_head = Value()
         broken_head = Value()
@@ -483,7 +491,7 @@ class PipePair(Stream):
         left.pipe_right(broken_head)
 
         self._messages = Flow(self._message_flow(left.message_head(),
-                                                 left_result, 
+                                                 left_result,
                                                  message_head))
         Flow(self._result_flow(left_result, right_result,
                                signal_head, broken_head))
@@ -554,7 +562,7 @@ class Event(Stream):
 
                 consume, value, head = result
                 consume.set()
-                
+
                 result = yield value
                 if result is not None:
                     self._result.set(result)
@@ -607,7 +615,7 @@ def main_loop(main):
         head = _signal.head
         _signal.head = Value()
 
-        thread = threading.Thread(target=head.set, 
+        thread = threading.Thread(target=head.set,
                                   args=((consume, value, _signal.head),))
         thread.setDaemon(True)
         thread.start()

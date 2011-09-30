@@ -31,7 +31,7 @@ class ValueBase(object):
 
             self._value = value
             self._listeners = None
-    
+
         for callback in listeners:
             callback(value)
         return True
