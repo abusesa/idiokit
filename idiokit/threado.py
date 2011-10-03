@@ -169,9 +169,6 @@ class GeneratorStream(idiokit.Generator):
 
         return _any(self, *next)
 
-    def __iter__(self):
-        return _iter(values.Value(None), self.message_head(), self.result())
-
     def _wrapped(self):
         yield _ValueStream(self._started)
 
