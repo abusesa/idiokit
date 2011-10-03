@@ -1,5 +1,6 @@
 from __future__ import with_statement, absolute_import
 
+import sys
 import time
 import threading
 import collections
@@ -13,7 +14,7 @@ class ThreadPool(object):
     _deque = staticmethod(collections.deque)
     _Thread = staticmethod(threading.Thread)
     _Lock = staticmethod(threading.Lock)
-    _Condition = staticmethod(threading.Condition)
+    _exc_info = staticmethod(sys.exc_info)
 
     def __init__(self, idle_time=1.0):
         self.idle_time = idle_time
