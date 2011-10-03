@@ -6,7 +6,7 @@ import functools
 import collections
 
 from . import callqueue
-from .values import Value, Which, Flow
+from .values import Value
 
 NULL = Value(None)
 
@@ -247,29 +247,41 @@ class _ForkOutput(_Queue):
     def __init__(self, head):
         _Queue.__init__(self)
 
-        self._flow = Flow(self._main(head))
+        self._current = head
+        self._current.listen(self._promise)
 
-    def _main(self, head):
-        try:
-            while True:
-                promise = yield head
-                if promise is None:
-                    return
-
-                consume, value, head = promise
-
-                next_consume = Value()
-                next_consume.listen(consume.set)
-
-                tail = self._tail
-                self._tail = Value()
-
-                tail.set((next_consume, value, self._tail))
-        finally:
+    def _promise(self, promise):
+        if promise is None:
+            with self._lock:
+                self._current = None
             self._tail.set(None)
+            return
+
+        with self._lock:
+            if self._current is None:
+                return
+            consumed, value, current = promise
+            self._current = current
+
+            old_tail = self._tail
+            new_tail = Value()
+            self._tail = new_tail
+
+        new_consumed = Value()
+        new_consumed.listen(consumed.set)
+
+        old_tail.set((new_consumed, value, new_tail))
+        current.listen(self._promise)
 
     def close(self):
-        self._flow.close()
+        with self._lock:
+            if self._current is None:
+                return
+            current = self._current
+            self._current = None
+
+        self._tail.set(None)
+        current.unlisten(self._promise)
 
 class Fork(Stream):
     def __init__(self, stream):
@@ -500,59 +512,52 @@ class PipePair(Stream):
     def __init__(self, left, right):
         self._left = left
         self._right = right
+
+        self._message_head = Value()
+        self._signal_head = Value()
+        self._broken_head = Value()
+        right.pipe_left(self._message_head, self._signal_head)
+        left.pipe_right(self._broken_head)
+
         self._result = Value()
 
-        left_result = left.result()
-        right_result = right.result()
+        self._right.result().listen(self._right_result)
+        self._left.result().listen(self._left_result)
+        self._left.message_head().listen(self._message_promise)
 
-        message_head = Value()
-        signal_head = Value()
-        broken_head = Value()
-
-        right.pipe_left(message_head, signal_head)
-        left.pipe_right(broken_head)
-
-        self._messages = Flow(self._message_flow(left.message_head(),
-                                                 left_result,
-                                                 message_head))
-        Flow(self._result_flow(left_result, right_result,
-                               signal_head, broken_head))
-
-    def _message_flow(self, left_head, left_result, message_head):
-        while True:
-            promise = yield left_head
-            if promise is None:
-                break
-
-            consume, value, left_head = promise
-            message_head, old_head = Value(), message_head
-            old_head.set((consume, value, message_head))
-
-        throw, args = yield left_result
+    def _left_result(self, (throw, args)):
         if throw:
-            message_head.set(None)
+            self._signal_head.set((NULL, Value((True, args)), NULL))
+        else:
+            self._signal_head.set(None)
+        self._right.result().listen(self._result.set)
+
+    def _right_result(self, (throw, args)):
+        self._broken_head.set((NULL, Value((True, (BrokenPipe,))), NULL))
+
+    def _message_promise(self, promise):
+        if self._right.result().is_set():
             return
 
+        if promise is None:
+            self._left.result().listen(self._message_final)
+            return
+
+        consume, value, head = promise
+
+        old_head = self._message_head
+        new_head = Value()
+        self._message_head = new_head
+
+        if not old_head.set((consume, value, new_head)):
+            return
+
+        head.listen(self._message_promise)
+
+    def _message_final(self, (throw, args)):
         if not throw:
             args = StopIteration, StopIteration(*args), None
-        message_head.set((NULL, Value((True, args)), NULL))
-
-    def _result_flow(self, left_result, right_result, signal_head, broken_head):
-        which, (throw, args) = yield Which(left_result, right_result)
-
-        if which is left_result:
-            if throw:
-                signal_head.set((NULL, Value((True, args)), NULL))
-            else:
-                signal_head.set(None)
-            throw, args = yield right_result
-            self._messages.close()
-        elif which is right_result:
-            self._messages.close()
-            broken_head.set((NULL, Value((True, (BrokenPipe,))), NULL))
-            yield left_result
-
-        self._result.set((throw, args))
+            self._message_head.set((NULL, Value((True, args)), NULL))
 
     def pipe_left(self, *args, **keys):
         return self._left.pipe_left(*args, **keys)
