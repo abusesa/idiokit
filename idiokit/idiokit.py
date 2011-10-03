@@ -60,6 +60,9 @@ class Piped(_Queue):
         self._flows = dict()
 
     def add(self, head):
+        if head is NULL:
+            return
+
         with self._lock:
             if self._flows is None:
                 return
@@ -293,7 +296,7 @@ class Fork(Stream):
 
         msg = Value()
         self._input.head().listen(functools.partial(self._input_promise, msg))
-        self._stream.pipe_left(msg, Value(None))
+        self._stream.pipe_left(msg, NULL)
         self._stream.result().listen(self._stream_result)
 
     def _stream_result(self, result):

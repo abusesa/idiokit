@@ -45,7 +45,7 @@ def parse_presence(elements, own_jid):
 
             affiliation = item.get_attr("affiliation")
             role = item.get_attr("role")
-            participant = MUCParticipant(other_jid, affiliation, role, 
+            participant = MUCParticipant(other_jid, affiliation, role,
                                          presence.children(), jid)
             return participant, codes
     return None
@@ -214,7 +214,7 @@ class MUC(object):
             while True:
                 try:
                     jid, participants = yield join_room(jid,
-                                                        self.xmpp, output, 
+                                                        self.xmpp, output,
                                                         password, history)
                 except MUCError, me:
                     if (me.type, me.condition) != ("cancel", "conflict"):
@@ -224,7 +224,7 @@ class MUC(object):
                     break
         except:
             exc_type, exc_value, exc_tb = sys.exc_info()
-            
+
             outputs = self.rooms.get(jid.bare(), set())
             outputs.discard(output)
             if not outputs:
