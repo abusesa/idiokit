@@ -10,6 +10,9 @@ from .values import Value, Which, Flow
 
 NULL = Value(None)
 
+class BrokenPipe(Exception):
+    pass
+
 class _Queue(object):
     _lock = threading.Lock()
 
@@ -131,25 +134,13 @@ class Stream(object):
     def fork(self, *args, **keys):
         return Fork(self, *args, **keys)
 
-    @stream
     def _send(self, signal, throw, args):
-        send = Send(throw, args)
+        send = _SendBase(self.result(), throw, args)
         if signal:
-            self.pipe_left(Value(None), send.message_head())
+            self.pipe_left(NULL, send._head)
         else:
-            self.pipe_left(send.message_head(), Value(None))
-
-        event = Event()
-        result = self.result()
-        result.listen(event.set)
-
-        try:
-            yield event | send | event
-        except BrokenPipe:
-            value = yield send
-            stop(value)
-        finally:
-            result.unlisten(event.set)
+            self.pipe_left(send._head, NULL)
+        return send
 
     def send(self, *args):
         return self._send(False, False, args)
@@ -173,6 +164,84 @@ class Stream(object):
 
     def rethrow(self):
         self.throw(*sys.exc_info())
+
+class _SendBase(Stream):
+    _CONSUMED = object()
+    _PARENT = object()
+
+    def __init__(self, parent, throw, args):
+        self._parent = parent
+        self._message = throw, args
+
+        self._consumed = Value()
+        self._value = Value()
+        self._head = Value((self._consumed, self._value, NULL))
+        self._result = Value()
+
+        self._input = Piped(True)
+        self._input_head = self._input.head()
+
+        self._consumed.listen(self._set_consumed)
+        if self._parent is not None:
+            self._parent.listen(self._set_parent)
+        self._input_head.listen(self._input_promise)
+
+    def _set_consumed(self, _):
+        self._input.add(Value((NULL, Value(self._CONSUMED), NULL)))
+
+    def _set_parent(self, _):
+        self._input.add(Value((NULL, Value(self._PARENT), NULL)))
+
+    def _input_promise(self, promise):
+        consumed, value, self._input_head = promise
+        consumed.set()
+        value.listen(self._input_value)
+
+    def _input_value(self, value):
+        if value is None:
+            self._input_head.listen(self._input_promise)
+            return
+
+        if value is self._PARENT:
+            self._value.set(None)
+            self._result.set((True, (BrokenPipe, BrokenPipe(), None)))
+        elif self._parent is not None:
+            self._parent.unlisten(self._set_parent)
+        self._parent = None
+
+        if value is self._CONSUMED:
+            self._value.set(self._message)
+            self._result.set((False, ()))
+        else:
+            self._consumed.unlisten(self._set_consumed)
+        self._message = None
+
+        if value not in (self._CONSUMED, self._PARENT):
+            self._value.set(None)
+            self._result.set(value)
+        self._input.close()
+        self._input_head = None
+
+    def pipe_left(self, _, signal_head):
+        self._input.add(signal_head)
+
+    def pipe_right(self, broken_head):
+        self._input.add(broken_head)
+
+    def message_head(self):
+        return NULL
+
+    def result(self):
+        return self._result
+
+class Send(_SendBase):
+    def __init__(self, throw, args):
+        _SendBase.__init__(self, None, throw, args)
+
+    def message_head(self):
+        if self._consumed.is_set():
+            return NULL
+        return self._head
 
 class _ForkOutput(_Queue):
     def __init__(self, head):
@@ -271,6 +340,9 @@ class _GeneratorOutput(_Queue):
         self._closed = False
 
     def stack(self, stream):
+        if stream.message_head() is NULL:
+            return
+
         with self._lock:
             if self._closed:
                 return
@@ -424,54 +496,6 @@ class Next(Stream):
     def result(self):
         return self._result
 
-class Send(Stream):
-    def __init__(self, throw, args):
-        self._consumed = Value()
-        self._value = Value()
-        self._head = Value((self._consumed, self._value, NULL))
-        self._result = Value()
-        self._input = Piped(True)
-
-        Flow(self._main((throw, args), self._input.head()))
-
-    def _main(self, message, input_head):
-        try:
-            while True:
-                which, promise = yield Which(input_head, self._consumed)
-
-                if which is self._consumed or promise is None:
-                    self._value.set(message)
-                    self._result.set((False, ()))
-                    break
-
-                consumed, value, input_head = promise
-                consumed.set()
-
-                result = yield value
-                if value is not None:
-                    self._value.set(None)
-                    self._result.set(result)
-                    break
-        finally:
-            self._input.close()
-
-    def pipe_left(self, _, signal_head):
-        self._input.add(signal_head)
-
-    def pipe_right(self, broken_head):
-        self._input.add(broken_head)
-
-    def message_head(self):
-        if self._consumed.is_set():
-            return NULL
-        return self._head
-
-    def result(self):
-        return self._result
-
-class BrokenPipe(Exception):
-    pass
-
 class PipePair(Stream):
     def __init__(self, left, right):
         self._left = left
@@ -545,28 +569,22 @@ class PipePair(Stream):
 class Event(Stream):
     def __init__(self):
         self._result = Value()
-        self._value = Value()
         self._input = Piped(True)
+        self._input_head = self._input.head()
+        self._input_head.listen(self._input_promise)
 
-        Flow(self._main(self._input.head()))
+    def _input_promise(self, promise):
+        consumed, value, self._input_head = promise
+        consumed.set()
+        value.listen(self._input_value)
 
-    def _main(self, input_head):
-        try:
-            while True:
-                which, result = yield Which(input_head, self._value)
-                if which is self._value or result is None:
-                    self._result.set(result)
-                    break
-
-                consume, value, head = result
-                consume.set()
-
-                result = yield value
-                if result is not None:
-                    self._result.set(result)
-                    break
-        finally:
-            self._input.close()
+    def _input_value(self, value):
+        if value is None:
+            self._input_head.listen(self._input_promise)
+            return
+        self._input.close()
+        self._input_head = None
+        self._result.set(value)
 
     def succeed(self, *args):
         return self.set((False, args))
@@ -575,7 +593,7 @@ class Event(Stream):
         return self.set((True, args))
 
     def set(self, args):
-        self._value.set(args)
+        self._input.add(Value((NULL, Value(args), NULL)))
 
     def pipe_left(self, _, signal_head):
         self._input.add(signal_head)
