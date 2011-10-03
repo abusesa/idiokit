@@ -218,10 +218,6 @@ def stream(func):
         return result
     return _stream
 
-@idiokit.stream
-def dev_null():
-    while True:
-        yield idiokit.next()
-
+dev_null = idiokit.consume
 pipe = idiokit.pipe
 run = idiokit.main_loop

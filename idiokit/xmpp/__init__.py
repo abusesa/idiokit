@@ -10,7 +10,7 @@ from .jid import JID
 
 class StreamError(core.XMPPError):
     def __init__(self, element):
-        core.XMPPError.__init__(self, "stream level error", 
+        core.XMPPError.__init__(self, "stream level error",
                                 element, core.STREAM_ERROR_NS)
 
 class Restart(idiokit.Signal):
@@ -19,7 +19,7 @@ class Restart(idiokit.Signal):
 @idiokit.stream
 def element_stream(socket, domain):
     parser = xmlcore.ElementParser()
-        
+
     stream_element = xmlcore.Element("stream:stream")
     stream_element.set_attr("to", domain)
     stream_element.set_attr("xmlns", core.STANZA_NS)
@@ -32,11 +32,7 @@ def element_stream(socket, domain):
     def write():
         while True:
             element = yield idiokit.next()
-
-            index = 0
-            data = element.serialize()
-            while index < len(data):
-                index += yield socket.write(data[index:])
+            yield socket.writeall(element.serialize())
 
     @idiokit.stream
     def read():
@@ -56,7 +52,7 @@ def element_stream(socket, domain):
 def _get_socket(domain, host, port):
     resolver = resolve.Resolver(host, port)
     error = core.XMPPError("could not resolve server address")
-    
+
     for family, socktype, proto, _, addr in resolver.resolve(domain):
         try:
             sock = sockets.Socket(family, socktype, proto)

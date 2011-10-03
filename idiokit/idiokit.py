@@ -270,18 +270,18 @@ class _GeneratorOutput(_Queue):
         self._stack = collections.deque()
         self._closed = False
 
-    def stack(self, head):
+    def stack(self, stream):
         with self._lock:
             if self._closed:
                 return
 
             if self._stack:
-                self._stack.append(head)
+                self._stack.append(stream)
                 return
 
             self._stack.append(None)
 
-        head.listen(self._promise)
+        stream.message_head().listen(self._promise)
 
     def _promise(self, promise):
         if promise is None:
@@ -290,16 +290,17 @@ class _GeneratorOutput(_Queue):
                 stack.popleft()
 
                 if stack:
-                    head = stack[0]
+                    stream = stack[0]
                     stack[0] = None
                 else:
-                    head = None
+                    stream = None
                 closed = self._closed
 
-            if head is None:
+            if stream is None:
                 if closed:
                     self._tail.set(None)
-                return
+            else:
+                stream.message_head().listen(self._promise)
         else:
             consume, value, head = promise
 
@@ -310,7 +311,7 @@ class _GeneratorOutput(_Queue):
             self._tail = Value()
 
             tail.set((next_consume, value, self._tail))
-        head.listen(self._promise)
+            head.listen(self._promise)
 
     def close(self):
         with self._lock:
@@ -357,7 +358,7 @@ class Generator(Stream):
             next.pipe_left(self._messages.head(), self._signals.head())
             next.pipe_right(self._broken.head())
 
-            self._output.stack(next.message_head())
+            self._output.stack(next)
 
             next.result().listen(self._step)
 
@@ -468,9 +469,6 @@ class Send(Stream):
     def result(self):
         return self._result
 
-class Signal(BaseException):
-    pass
-
 class BrokenPipe(Exception):
     pass
 
@@ -507,7 +505,7 @@ class PipePair(Stream):
             old_head.set((consume, value, message_head))
 
         throw, args = yield left_result
-        if throw and issubclass(args[0], Signal):
+        if throw:
             message_head.set(None)
             return
 
@@ -519,7 +517,7 @@ class PipePair(Stream):
         which, (throw, args) = yield Which(left_result, right_result)
 
         if which is left_result:
-            if throw and issubclass(args[0], Signal):
+            if throw:
                 signal_head.set((NULL, Value((True, args)), NULL))
             else:
                 signal_head.set(None)
@@ -604,6 +602,14 @@ next = Next
 
 def stop(*args):
     raise StopIteration(*args)
+
+@stream
+def consume():
+    while True:
+        yield next()
+
+class Signal(BaseException):
+    pass
 
 def main_loop(main):
     import signal
