@@ -16,10 +16,10 @@ class BrokenPipe(Exception):
 class _Queue(object):
     _lock = threading.Lock()
 
-    def __init__(self, only_tail=False):
+    def __init__(self, auto_consume=False):
         self._tail = Value()
 
-        if only_tail:
+        if auto_consume:
             self._head = None
         else:
             self._head = self._tail
