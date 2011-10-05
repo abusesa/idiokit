@@ -4,7 +4,7 @@ import time
 import threading
 import functools
 
-from . import idiokit, threadpool, values
+from . import idiokit, threadpool, values, callqueue
 
 class Node(object):
     __slots__ = "index", "value"
@@ -135,6 +135,9 @@ class Timer(object):
 
     def set(self, delay, args=None):
         value = TimerValue()
+        if delay <= 0:
+            callqueue.add(value.cancel, args)
+            return value
 
         with self._lock:
             node = self._heap.push((time.time() + delay, value, args))

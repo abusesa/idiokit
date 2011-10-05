@@ -2,37 +2,19 @@ from __future__ import absolute_import
 
 import sys
 import functools
-import threading
 
-from . import idiokit, values, callqueue, threadpool
+from . import idiokit, values, threadpool
+
+# Helpers
 
 NULL = idiokit.Event()
 NULL.succeed(None)
-
-Finished = StopIteration
-
-def _channel():
-    while True:
-        item = yield idiokit.next()
-        yield idiokit.send(item)
-
-class Channel(idiokit.Generator):
-    def __init__(self):
-        idiokit.Generator.__init__(self, _channel())
-
-    def finish(self, *args):
-        self.throw(StopIteration(*args))
-
-class _Sub(object):
-    def __init__(self, wrapped):
-        self.wrapped = wrapped
 
 class _ValueStream(idiokit.Stream):
     _head = values.Value(None)
 
     def __init__(self, value):
         idiokit.Stream.__init__(self)
-
         self._value = value
 
     def pipe_left(self, *args, **keys):
@@ -45,15 +27,38 @@ class _ValueStream(idiokit.Stream):
     def result(self):
         return self._value
 
+# threado.Finished
+
+Finished = StopIteration
+
+# threado.Channel
+
+def _channel():
+    while True:
+        item = yield idiokit.next()
+        yield idiokit.send(item)
+
+class Channel(idiokit.Generator):
+    def __init__(self):
+        idiokit.Generator.__init__(self, _channel())
+
+    def finish(self, *args):
+        self.throw(StopIteration, StopIteration(*args), None)
+
+# threado.stream and threado.GeneratorStream
+
+class _Sub(object):
+    def __init__(self, wrapped):
+        self.wrapped = wrapped
+
 class Inner(object):
     def __init__(self, outer):
         self._outer = outer
 
     def send(self, *args):
-        msg = values.Value((values.Value(None),
-                            values.Value((False, args)),
-                            values.Value(None)))
-        self._outer._output.stack(msg)
+        outer = self._outer
+        if outer is not None:
+            outer._output.stack(idiokit.send(*args))
 
     def sub(self, other):
         return _Sub(other)
@@ -68,89 +73,23 @@ class Inner(object):
         idiokit.stop(*args)
 
     def _close(self):
-        self._outer = NULL
+        self._outer = None
 
 @idiokit.stream
 def _next_or_result(stream):
     result = yield stream.next()
     idiokit.stop(result)
 
-class _Any(object):
-    def __init__(self, left, right):
-        self.left = left
-        self.right = right
-
-def any(left, right):
-    return _Any(left, right)
-
-def _any(self, left, right):
-    if left is right:
-        return left
-
-    result = values.Value()
-
-    def flow(left, right):
-        if right is self.inner:
-            right, left = left, right
-
-        piped = None
-
-        if left is self.inner:
-            piped = idiokit.Piped()
-            piped.add(self._messages.head())
-            piped.add(self._signals.head())
-            piped.add(self._broken.head())
-            left_head = piped.head()
-        else:
-            left_head = left.message_head()
-
-        right_head = right.message_head()
-
-        try:
-            while True:
-                head, promise = yield values.Which(left_head, right_head)
-                if promise is None:
-                    if head is left_head:
-                        throw, args = yield left.result()
-                    else:
-                        throw, args = yield right.result()
-                    break
-
-                consumed, value, next = promise
-                consumed.set()
-
-                item = yield value
-                if item is not None:
-                    throw, args = item
-                    break
-
-                if head is left_head:
-                    left_head = next
-                else:
-                    right_head = next
-        finally:
-            if piped is not None:
-                piped.close()
-
-        if not throw:
-            source = left if head is left_head else right
-            args = source, idiokit.peel_args(args)
-        result.set((throw, args))
-
-    values.Flow(flow(left, right))
-    return _ValueStream(result)
-
 class GeneratorStream(idiokit.Generator):
     def __init__(self):
         self._started = idiokit.Value()
-
         self.inner = Inner(self)
 
         idiokit.Generator.__init__(self, self._wrapped())
 
     def _transform(self, next):
         if isinstance(next, _Any):
-            return _any(self, next.left, next.right)
+            return next.resolve(self)
 
         if isinstance(next, _Sub):
             return next.wrapped
@@ -167,7 +106,7 @@ class GeneratorStream(idiokit.Generator):
         if isinstance(next, idiokit.Stream):
             return _next_or_result(next)
 
-        return _any(self, *next)
+        return _Any(*next).resolve(self)
 
     def _wrapped(self):
         yield _ValueStream(self._started)
@@ -217,6 +156,98 @@ def stream(func):
         result.start()
         return result
     return _stream
+
+# threado.any and "yield left, right" support
+
+def any(left, right):
+    return _Any(left, right)
+
+class _Either(values.ValueBase):
+    def __init__(self, left, right):
+        values.ValueBase.__init__(self)
+
+        self._left = left
+        self._right = right
+
+        left.listen(self._listen_left)
+        right.listen(self._listen_right)
+
+        if self.is_set():
+            left.unlisten(self._listen_left)
+            right.unlisten(self._listen_right)
+
+    def _listen_left(self, value):
+        if not self._set((False, (self._left,))):
+            return
+        self._right.unlisten(self._listen_right)
+
+    def _listen_right(self, value):
+        if not self._set((False, (self._right,))):
+            return
+        self._left.unlisten(self._listen_left)
+
+class _Any(object):
+    def __init__(self, left, right):
+        self.left = left
+        self.right = right
+
+    @idiokit.stream
+    def resolve(self, context):
+        left = self.left
+        right = self.right
+
+        if left is right:
+            idiokit.stop((yield left))
+
+        if right is context.inner:
+            left, right = right, left
+
+        piped = None
+
+        if left is context.inner:
+            piped = idiokit.Piped()
+            piped.add(context._messages.head())
+            piped.add(context._signals.head())
+            piped.add(context._broken.head())
+            left_head = piped.head()
+        else:
+            left_head = left.message_head()
+        right_head = right.message_head()
+
+        try:
+            while True:
+                head = yield _ValueStream(_Either(left_head, right_head))
+                promise = head.get()
+                if promise is None:
+                    if head is left_head:
+                        result = yield _ValueStream(left.result())
+                    else:
+                        result = yield _ValueStream(right.result())
+                    break
+
+                consumed, value, next = promise
+                consumed.set()
+
+                wrapped = values.Value()
+                value.listen(lambda x: wrapped.set((False, (x,))))
+                result = yield _ValueStream(wrapped)
+                if result is not None:
+                    result = yield _ValueStream(value)
+                    break
+
+                if head is left_head:
+                    left_head = next
+                else:
+                    right_head = next
+        finally:
+            if piped is not None:
+                piped.close()
+
+        if head is left_head:
+            idiokit.stop(left, result)
+        idiokit.stop(right, result)
+
+# Rest of threado.*
 
 dev_null = idiokit.consume
 pipe = idiokit.pipe
