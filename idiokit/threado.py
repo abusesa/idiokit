@@ -21,7 +21,7 @@ class _ValueStream(idiokit.Stream):
         pass
     pipe_right = pipe_left
 
-    def message_head(self):
+    def head(self):
         return self._head
 
     def result(self):
@@ -211,8 +211,8 @@ class _Any(object):
             piped.add(context._broken.head())
             left_head = piped.head()
         else:
-            left_head = left.message_head()
-        right_head = right.message_head()
+            left_head = left.head()
+        right_head = right.head()
 
         try:
             while True:

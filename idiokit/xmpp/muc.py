@@ -100,8 +100,8 @@ class MUCRoom(idiokit.Stream):
     def pipe_right(self, *args, **keys):
         return self._proxied.pipe_right(*args, **keys)
 
-    def message_head(self, *args, **keys):
-        return self._proxied.message_head(*args, **keys)
+    def head(self, *args, **keys):
+        return self._proxied.head(*args, **keys)
 
     def result(self, *args, **keys):
         return self._proxied.result(*args, **keys)

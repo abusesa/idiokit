@@ -29,7 +29,7 @@ class _ValueStream(idiokit.Stream):
         pass
     pipe_right = pipe_left
 
-    def message_head(self):
+    def head(self):
         return self._head
 
     def result(self):
@@ -40,7 +40,7 @@ _pipes = list()
 @idiokit.stream
 def async_select(read, write, error, timeout=None):
     value = idiokit.Value()
-    
+
     if not _pipes:
         _pipes.append(os.pipe())
     rfd, wfd = _pipes.pop()
@@ -51,7 +51,7 @@ def async_select(read, write, error, timeout=None):
 
         event = idiokit.Event()
         value.listen(event.set)
-        
+
         try:
             result = yield event
         except:

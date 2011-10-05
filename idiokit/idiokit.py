@@ -231,7 +231,7 @@ class _SendBase(Stream):
     def pipe_right(self, broken_head):
         self._input.add(broken_head)
 
-    def message_head(self):
+    def head(self):
         return NULL
 
     def result(self):
@@ -241,7 +241,7 @@ class Send(_SendBase):
     def __init__(self, throw, args):
         _SendBase.__init__(self, None, throw, args)
 
-    def message_head(self):
+    def head(self):
         if self._consumed.is_set():
             return NULL
         return self._head
@@ -291,7 +291,7 @@ class Fork(Stream):
         self._stream = stream
 
         self._input = Piped(True)
-        self._output = _ForkOutput(self._stream.message_head())
+        self._output = _ForkOutput(self._stream.head())
         self._result = Value()
 
         msg = Value()
@@ -341,7 +341,7 @@ class Fork(Stream):
     def pipe_right(self, broken):
         self._input.add(broken)
 
-    def message_head(self):
+    def head(self):
         return self._output.head()
 
     def result(self):
@@ -355,7 +355,8 @@ class _GeneratorOutput(_Queue):
         self._closed = False
 
     def stack(self, stream):
-        if stream.message_head() is NULL:
+        head = stream.head()
+        if head is NULL:
             return
 
         with self._lock:
@@ -368,7 +369,7 @@ class _GeneratorOutput(_Queue):
 
             self._stack.append(None)
 
-        stream.message_head().listen(self._promise)
+        head.listen(self._promise)
 
     def _promise(self, promise):
         if promise is None:
@@ -387,7 +388,7 @@ class _GeneratorOutput(_Queue):
                 if closed:
                     self._tail.set(None)
             else:
-                stream.message_head().listen(self._promise)
+                stream.head().listen(self._promise)
         else:
             consume, value, head = promise
 
@@ -469,7 +470,7 @@ class Generator(Stream):
     def pipe_right(self, pipes):
         self._broken.add(pipes)
 
-    def message_head(self):
+    def head(self):
         return self._output.head()
 
     def result(self):
@@ -505,7 +506,7 @@ class Next(Stream):
     def pipe_right(self, pipes):
         self._input.add(pipes)
 
-    def message_head(self):
+    def head(self):
         return NULL
 
     def result(self):
@@ -526,7 +527,7 @@ class PipePair(Stream):
 
         self._right.result().listen(self._right_result)
         self._left.result().listen(self._left_result)
-        self._left.message_head().listen(self._message_promise)
+        self._left.head().listen(self._message_promise)
 
     def _left_result(self, (throw, args)):
         if throw:
@@ -568,8 +569,8 @@ class PipePair(Stream):
     def pipe_right(self, *args, **keys):
         return self._right.pipe_right(*args, **keys)
 
-    def message_head(self):
-        return self._right.message_head()
+    def head(self):
+        return self._right.head()
 
     def result(self):
         return self._result
@@ -609,7 +610,7 @@ class Event(Stream):
     def pipe_right(self, broken_head):
         self._input.add(broken_head)
 
-    def message_head(self):
+    def head(self):
         return NULL
 
     def result(self):

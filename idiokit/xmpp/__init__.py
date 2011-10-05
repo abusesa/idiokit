@@ -104,8 +104,8 @@ class XMPP(idiokit.Generator):
     def pipe_right(self, *args, **keys):
         return self.elements.pipe_right(*args, **keys)
 
-    def message_head(self):
-        return self.elements.message_head()
+    def head(self):
+        return self.elements.head()
 
     def result(self):
         return self.elements.result()
