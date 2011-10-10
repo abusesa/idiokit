@@ -23,9 +23,9 @@ class Ping(object):
         except core.XMPPError, error:
             item = error.type, error.condition
             valid = "cancel", "service-unavailable"
-            
+
             if item != valid:
                 raise error
             idiokit.stop(False)
 
-        inner.stop(True)
+        idiokit.stop(True)

@@ -3,7 +3,7 @@ from __future__ import absolute_import
 import socket
 import collections
 
-from .. import idiokit, sockets, xmlcore
+from .. import idiokit, sockets, xmlcore, timer
 from . import resolve
 from . import core, disco, muc, ping
 from .jid import JID
@@ -92,6 +92,7 @@ def connect(jid, password,
 class XMPP(idiokit.Proxy):
     def __init__(self, jid, elements):
         idiokit.Proxy.__init__(self, elements)
+        idiokit.pipe(self._keepalive(), elements)
 
         self.jid = jid
 
@@ -99,3 +100,9 @@ class XMPP(idiokit.Proxy):
         self.disco = disco.Disco(self)
         self.muc = muc.MUC(self)
         self.ping = ping.Ping(self)
+
+    @idiokit.stream
+    def _keepalive(self, interval=60.0):
+        while True:
+            yield self.ping.ping(self.jid.bare())
+            yield timer.sleep(interval)
