@@ -83,31 +83,18 @@ def join_room(jid, xmpp, output, password=None, history=False):
         if participant.name == jid or "110" in codes:
             idiokit.stop(participant.name, participants)
 
-class MUCRoom(idiokit.Stream):
+class MUCRoom(idiokit.Proxy):
     def __init__(self, jid, muc, output, participants):
-        idiokit.Stream.__init__(self)
-
         self.jid = JID(jid)
         self.participants = participants
 
         self._muc = muc
         self._xmpp = muc.xmpp
-        self._proxied = self._handle_input() | output | self._handle_output()
 
-    def pipe_left(self, *args, **keys):
-        return self._proxied.pipe_left(*args, **keys)
-
-    def pipe_right(self, *args, **keys):
-        return self._proxied.pipe_right(*args, **keys)
-
-    def head(self, *args, **keys):
-        return self._proxied.head(*args, **keys)
-
-    def result(self, *args, **keys):
-        return self._proxied.result(*args, **keys)
+        idiokit.Proxy.__init__(self, self._input() | output | self._output())
 
     @idiokit.stream
-    def _handle_input(self):
+    def _input(self):
         bare_jid = self.jid.bare()
 
         while True:
@@ -116,7 +103,7 @@ class MUCRoom(idiokit.Stream):
             yield self._xmpp.core.message(bare_jid, *elements, **attrs)
 
     @idiokit.stream
-    def _handle_output(self):
+    def _output(self):
         try:
             while True:
                 elements = yield idiokit.next()
@@ -157,26 +144,18 @@ class MUC(object):
         self.xmpp.disco.add_node(ROOMS_NODE, self._node_handler)
         self.rooms = dict()
 
-        idiokit.pipe(self.xmpp, self._handler())
+        self._main = idiokit.pipe(self.xmpp, self._dispatch())
+        self._muc = None
 
     @idiokit.stream
-    def _handler(self):
-        try:
-            while True:
-                elements = yield idiokit.next()
+    def _dispatch(self):
+        while True:
+            elements = yield idiokit.next()
 
-                for element in elements:
-                    bare = JID(element.get_attr("from")).bare()
-                    for output in self.rooms.get(bare, set()):
-                        output.send(element)
-        except:
-            exc_info = sys.exc_info()
-
-            for bare, rooms in self.rooms.iteritems():
-                for room in rooms:
-                    room.stream.throw(*exc_info)
-
-            self.rooms.clear()
+            for element in elements:
+                bare = JID(element.get_attr("from")).bare()
+                for output in self.rooms.get(bare, ()):
+                    output.send(element)
 
     def _node_handler(self):
         features = list()
@@ -191,24 +170,61 @@ class MUC(object):
             self.rooms.pop(room.room_jid.bare(), None)
 
     @idiokit.stream
-    def join(self, room, nick=None, password=None, history=False):
-        jid = JID(room)
-        if jid.resource is not None:
-            raise MUCError("illegal room JID (contains a resource)")
-        if jid.node is None:
-            jid = JID(room + "@conference." + self.xmpp.jid.domain)
+    def _test_muc(self, domain):
+        info = yield self.xmpp.disco.info(domain)
+        if MUC_NS not in info.features:
+            raise MUCError("%r is not a multi-user chat service" % domain)
 
+        for identity in info.identities:
+            if identity.category == "conference" and identity.type == "text":
+                idiokit.stop(domain)
+
+        raise MUCError("%r is not a multi-user chat service" % domain)
+
+    @idiokit.stream
+    def _resolve_muc(self):
+        items = yield self.xmpp.disco.items(self.xmpp.jid.domain)
+        for item in items:
+            if item.node is not None and item.jid != item.jid.domain:
+                continue
+
+            try:
+                domain = yield self._test_muc(item.jid)
+            except MUCError:
+                continue
+            else:
+                break
+        else:
+            domain = yield self._test_muc("@conference." + self.xmpp.jid.domain)
+
+        idiokit.stop(domain)
+
+    @idiokit.stream
+    def _full_room_jid(self, room):
+        if "@" in room:
+            jid = JID(room)
+            if jid.resource is not None:
+                raise MUCError("illegal room JID (contains a resource)")
+
+            node = jid.node
+            domain = yield self._test_muc(jid.domain)
+        else:
+            node = room
+            if self._muc is None:
+                self._muc = self._resolve_muc()
+            domain = yield self._muc.fork()
+
+        idiokit.stop(JID(node, domain))
+
+    @idiokit.stream
+    def join(self, room, nick=None, password=None, history=False):
+        jid = yield self._full_room_jid(room)
         if nick is None:
             nick = self.xmpp.jid.node
         jid = JID(jid.node, jid.domain, nick)
 
-        info = yield self.xmpp.disco.info(jid.domain)
-        if MUC_NS not in info.features:
-            raise MUCError("'%s' is not a multi-user chat service" % jid.domain)
-        if not any(x for x in info.identities if x.category == "conference"):
-            raise MUCError("'%s' is not a multi-user chat service" % jid.domain)
-
         output = channel()
+        idiokit.pipe(self._main.fork(), output)
         self.rooms.setdefault(jid.bare(), set()).add(output)
         try:
             while True:
@@ -219,7 +235,7 @@ class MUC(object):
                 except MUCError, me:
                     if (me.type, me.condition) != ("cancel", "conflict"):
                         raise
-                    jid = JID(jid.node, jid.domain, nick + "-" + gen_random())
+                    jid = JID(jid.node, jid.domain, nick+"-"+gen_random())
                 else:
                     break
         except:
