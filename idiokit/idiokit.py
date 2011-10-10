@@ -616,6 +616,24 @@ class Event(Stream):
     def result(self):
         return self._result
 
+class Proxy(Stream):
+    def __init__(self, proxied):
+        Stream.__init__(self)
+
+        self._proxied = proxied
+
+    def pipe_right(self, *args, **keys):
+        return self._proxied.pipe_right(*args, **keys)
+
+    def pipe_left(self, *args, **keys):
+        return self._proxied.pipe_left(*args, **keys)
+
+    def head(self, *args, **keys):
+        return self._proxied.head(*args, **keys)
+
+    def result(self, *args, **keys):
+        return self._proxied.result(*args, **keys)
+
 def send(*args):
     return Send(False, args)
 

@@ -89,23 +89,13 @@ def connect(jid, password,
     jid = yield core.require_bind_and_session(elements, jid)
     idiokit.stop(XMPP(jid, elements))
 
-class XMPP(idiokit.Generator):
+class XMPP(idiokit.Proxy):
     def __init__(self, jid, elements):
+        idiokit.Proxy.__init__(self, elements)
+
         self.jid = jid
-        self.elements = elements
+
         self.core = core.Core(self)
         self.disco = disco.Disco(self)
         self.muc = muc.MUC(self)
         self.ping = ping.Ping(self)
-
-    def pipe_left(self, *args, **keys):
-        return self.elements.pipe_left(*args, **keys)
-
-    def pipe_right(self, *args, **keys):
-        return self.elements.pipe_right(*args, **keys)
-
-    def head(self):
-        return self.elements.head()
-
-    def result(self):
-        return self.elements.result()
