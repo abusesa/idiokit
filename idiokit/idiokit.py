@@ -16,14 +16,10 @@ class BrokenPipe(Exception):
 class _Queue(object):
     _lock = threading.Lock()
 
-    def __init__(self, auto_consume=False):
+    def __init__(self):
         self._tail = Value()
-
-        if auto_consume:
-            self._head = None
-        else:
-            self._head = self._tail
-            self._head.listen(self._move_promise)
+        self._head = self._tail
+        self._head.listen(self._move_promise)
 
     def _move_promise(self, promise):
         if promise is None:
@@ -55,13 +51,11 @@ class _Queue(object):
 
     def head(self):
         with self._lock:
-            head = self._head
-            result = self._tail if head is None else head
-        return result
+            return self._head
 
 class Piped(_Queue):
-    def __init__(self, *args, **keys):
-        _Queue.__init__(self, *args, **keys)
+    def __init__(self):
+        _Queue.__init__(self)
 
         self._heads = dict()
 
@@ -197,7 +191,7 @@ class _SendBase(Stream):
         self._head = Value((self._consumed, self._value, NULL))
         self._result = Value()
 
-        self._input = Piped(True)
+        self._input = Piped()
         self._input_head = self._input.head()
 
         self._consumed.listen(self._set_consumed)
@@ -262,52 +256,13 @@ class Send(_SendBase):
             return NULL
         return self._head
 
-class _ForkOutput(_Queue):
-    def __init__(self, head):
-        _Queue.__init__(self)
-
-        self._current = head
-        self._current.listen(self._promise)
-
-    def _promise(self, promise):
-        if promise is None:
-            with self._lock:
-                self._current = None
-            self._tail.set(None)
-            return
-
-        with self._lock:
-            if self._current is None:
-                return
-            consumed, value, current = promise
-            self._current = current
-
-            old_tail = self._tail
-            new_tail = Value()
-            self._tail = new_tail
-
-        new_consumed = Value()
-        new_consumed.listen(consumed.set)
-
-        old_tail.set((new_consumed, value, new_tail))
-        current.listen(self._promise)
-
-    def close(self):
-        with self._lock:
-            if self._current is None:
-                return
-            current = self._current
-            self._current = None
-
-        self._tail.set(None)
-        current.unlisten(self._promise)
-
 class Fork(Stream):
     def __init__(self, stream):
         self._stream = stream
 
-        self._input = Piped(True)
-        self._output = _ForkOutput(self._stream.head())
+        self._input = Piped()
+        self._output = Piped()
+        self._output.add(self._stream.head())
         self._result = Value()
 
         msg = Value()
@@ -408,14 +363,17 @@ class _GeneratorOutput(_Queue):
         else:
             consume, value, head = promise
 
-            next_consume = Value()
-            next_consume.listen(consume.set)
-
             tail = self._tail
             self._tail = Value()
 
+            next_consume = Value()
             tail.set((next_consume, value, self._tail))
-            head.listen(self._promise)
+
+            next_consume.listen(functools.partial(self._consumed, consume, head))
+
+    def _consumed(self, consume, head, _):
+        consume.set()
+        head.listen(self._promise)
 
     def close(self):
         with self._lock:
@@ -495,7 +453,7 @@ class Generator(Stream):
 class Next(Stream):
     def __init__(self):
         self._result = Value()
-        self._input = Piped(True)
+        self._input = Piped()
         self._input.head().listen(self._promise)
 
     def _promise(self, promise):
@@ -594,7 +552,7 @@ class PipePair(Stream):
 class Event(Stream):
     def __init__(self):
         self._result = Value()
-        self._input = Piped(True)
+        self._input = Piped()
         self._input_head = self._input.head()
         self._input_head.listen(self._input_promise)
 
