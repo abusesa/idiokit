@@ -200,9 +200,6 @@ class Stream(object):
     def has_result(self):
         return self.result().is_set()
 
-    def rethrow(self):
-        self.throw(*sys.exc_info())
-
 class _SendBase(Stream):
     _CONSUMED = object()
     _PARENT = object()
