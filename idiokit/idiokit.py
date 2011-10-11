@@ -53,81 +53,106 @@ class _Queue(object):
         with self._lock:
             return self._head
 
+class _PipedNode(object):
+    def __init__(self, parent, head, next):
+        self.parent = parent
+        self.consume = None
+        self.head = head
+        self.next = next
+        self.prev = None
+
+    def promise_callback(self, promise):
+        self.parent._promise(self, promise)
+
+    def consume_callback(self, _):
+        self.parent._consume(self)
+
 class Piped(_Queue):
     def __init__(self):
         _Queue.__init__(self)
 
-        self._heads = dict()
+        self._root = None
 
     def add(self, head):
         if head is NULL:
             return
 
         with self._lock:
-            if self._heads is None:
+            if self._tail is None:
                 return
 
-            key = object()
-            callback = functools.partial(self._promise, key)
-            self._heads[key] = head, callback
+            node = _PipedNode(self, head, self._root)
+            if self._root:
+                self._root.prev = node
+            self._root = node
 
-        head.listen(callback)
+        head.listen(node.promise_callback)
 
         with self._lock:
-            if self._heads is not None:
+            if self._tail is not None:
                 return
 
-        head.unlisten(callback)
+        head.unlisten(node.promise_callback)
 
-    def _promise(self, key, promise):
+    def _promise(self, node, promise):
         with self._lock:
-            if self._heads is None:
+            if self._tail is None:
                 return
 
-            _, callback = self._heads.pop(key)
             if promise is None:
+                next = node.next
+                prev = node.prev
+                if next is not None:
+                    next.prev = prev
+                if prev is not None:
+                    prev.next = next
+                if node is self._root:
+                    self._root = next
                 return
-            self._heads[key] = None, callback
 
-            consume, value, head = promise
+            node.consume, value, node.head = promise
 
-            out_next = Value()
+            out_head = Value()
             tail = self._tail
-            self._tail = out_next
+            self._tail = out_head
 
         out_consume = Value()
-        out_consume.listen(functools.partial(self._consume, key, consume, head))
+        out_consume.listen(node.consume_callback)
 
-        tail.set((out_consume, value, out_next))
+        tail.set((out_consume, value, out_head))
 
-    def _consume(self, key, consume, head, _):
-        consume.set()
-
-        with self._lock:
-            if self._heads is None:
-                return
-            _, callback = self._heads[key]
-
-        head.listen(callback)
+    def _consume(self, node):
+        node.consume.set()
+        node.consume = None
 
         with self._lock:
-            if self._heads is not None:
+            if self._tail is None:
                 return
 
-        head.unlisten(callback)
+        node.head.listen(node.promise_callback)
+
+        with self._lock:
+            if self._tail is not None:
+                return
+
+        node.head.unlisten(node.promise_callback)
 
     def close(self):
         with self._lock:
-            if self._heads is None:
+            if self._tail is None:
                 return
+            tail = self._tail
+            self._tail = None
 
-            heads = self._heads
-            self._heads = None
+            node = self._root
+            self._root = None
 
-        for head, callback in heads.itervalues():
-            if head is not None:
-                head.unlisten(callback)
-        self._tail.set(None)
+        while node is not None:
+            if node.consume is None:
+                node.head.unlisten(node.promise_callback)
+            node = node.next
+
+        tail.set(None)
 
 def peel_args(args):
     if not args:
