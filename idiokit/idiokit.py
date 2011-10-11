@@ -33,11 +33,17 @@ class _Queue(object):
         value.listen(self._move_value)
 
     def _move_value(self, result):
-        if result is None:
-            return self._move_consume(None)
-
         consume, value, head = self._head.get()
-        consume.listen(self._move_consume)
+
+        if result is None:
+            consume.set()
+
+            with self._lock:
+                self._head = head
+
+            head.listen(self._move_promise)
+        else:
+            consume.listen(self._move_consume)
 
     def _move_consume(self, _):
         consume, value, head = self._head.get()
@@ -57,66 +63,76 @@ class Piped(_Queue):
     def __init__(self, *args, **keys):
         _Queue.__init__(self, *args, **keys)
 
-        self._flows = dict()
+        self._heads = dict()
 
     def add(self, head):
         if head is NULL:
             return
 
         with self._lock:
-            if self._flows is None:
+            if self._heads is None:
                 return
 
             key = object()
             callback = functools.partial(self._promise, key)
-            self._flows[key] = head, callback
+            self._heads[key] = head, callback
 
         head.listen(callback)
 
         with self._lock:
-            if self._flows is not None:
+            if self._heads is not None:
                 return
 
         head.unlisten(callback)
 
     def _promise(self, key, promise):
         with self._lock:
-            if self._flows is None:
-                return
-            if promise is None:
-                self._flows.pop(key, None)
+            if self._heads is None:
                 return
 
+            _, callback = self._heads.pop(key)
+            if promise is None:
+                return
+            self._heads[key] = None, callback
+
             consume, value, head = promise
-            _, callback = self._flows[key]
-            self._flows[key] = head, callback
 
             out_next = Value()
             tail = self._tail
             self._tail = out_next
 
         out_consume = Value()
-        out_consume.listen(consume.set)
+        out_consume.listen(functools.partial(self._consume, key, consume, head))
 
         tail.set((out_consume, value, out_next))
+
+    def _consume(self, key, consume, head, _):
+        consume.set()
+
+        with self._lock:
+            if self._heads is None:
+                return
+            _, callback = self._heads[key]
+
         head.listen(callback)
 
         with self._lock:
-            if self._flows is not None:
+            if self._heads is not None:
                 return
 
         head.unlisten(callback)
 
     def close(self):
         with self._lock:
-            if self._flows is None:
+            if self._heads is None:
                 return
 
-            flows = self._flows
-            self._flows = None
+            heads = self._heads
+            self._heads = None
 
-        for head, callback in flows.itervalues():
-            head.unlisten(callback)
+        for head, callback in heads.itervalues():
+            if head is not None:
+                head.unlisten(callback)
         self._tail.set(None)
 
 def peel_args(args):
