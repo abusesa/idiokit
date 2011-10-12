@@ -5,7 +5,7 @@ import time
 import threading
 import collections
 
-from . import values
+from . import idiokit, values
 
 class ThreadPool(object):
     _Value = staticmethod(values.Value)
@@ -107,3 +107,10 @@ class ThreadPool(object):
             value.set((throw, args))
 
 run = ThreadPool().run
+
+@idiokit.stream
+def thread(func, *args, **keys):
+    value = run(func, *args, **keys)
+    event = idiokit.Event()
+    value.listen(event.set)
+    idiokit.stop((yield event))
