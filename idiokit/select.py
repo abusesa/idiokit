@@ -1,7 +1,6 @@
 from __future__ import absolute_import
 
 import os
-import sys
 import errno
 import threading
 import select as _select
@@ -55,16 +54,12 @@ def async_select(read, write, error, timeout=None):
         try:
             result = yield event
         except:
-            exc_info = sys.exc_info()
-
             os.write(wfd, "\x00")
             try:
                 yield _ValueStream(value)
             finally:
                 os.read(rfd, 1)
-
-            exc_type, exc_value, exc_tb = exc_info
-            raise exc_type, exc_value, exc_tb
+            raise
         else:
             idiokit.stop(result)
     finally:

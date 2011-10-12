@@ -184,10 +184,14 @@ class Stream(object):
         return self._send(False, False, args)
 
     def throw(self, *args):
+        if not args:
+            args = sys.exc_info()
         return self._send(False, True, args)
 
     def signal(self, *args):
-        return self._send(False, True, args)
+        if not args:
+            args = sys.exc_info()
+        return self._send(True, True, args)
 
     def next(self):
         return Event() | self.fork() | Next()

@@ -1,6 +1,5 @@
 from __future__ import absolute_import
 
-import sys
 import random
 import string
 
@@ -239,15 +238,11 @@ class MUC(object):
                 else:
                     break
         except:
-            exc_type, exc_value, exc_tb = sys.exc_info()
-
             outputs = self.rooms.get(jid.bare(), set())
             outputs.discard(output)
             if not outputs:
                 self.rooms.pop(jid.bare(), None)
-
             yield output.signal(idiokit.Signal)
-
-            raise exc_type, exc_value, exc_tb
+            raise
         else:
             idiokit.stop(MUCRoom(jid, self, output, participants))
