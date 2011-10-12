@@ -108,9 +108,12 @@ class ThreadPool(object):
 
 run = ThreadPool().run
 
-@idiokit.stream
 def thread(func, *args, **keys):
     value = run(func, *args, **keys)
     event = idiokit.Event()
     value.listen(event.set)
-    idiokit.stop((yield event))
+
+    # Return the Event instance directly instead of yielding it.
+    # This way StopIterations are also raised instead of them
+    # turning into valid exits.
+    return event

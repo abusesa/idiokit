@@ -3,7 +3,7 @@ from __future__ import absolute_import
 import socket
 import collections
 
-from .. import idiokit, sockets, xmlcore, timer
+from .. import idiokit, sockets, xmlcore, timer, threadpool
 from . import resolve
 from . import core, disco, muc, ping
 from .jid import JID
@@ -53,7 +53,15 @@ def _get_socket(domain, host, port):
     resolver = resolve.Resolver(host, port)
     error = core.XMPPError("could not resolve server address")
 
-    for family, socktype, proto, _, addr in resolver.resolve(domain):
+    results = iter(resolver.resolve(domain))
+
+    while True:
+        try:
+            item = yield threadpool.thread(results.next)
+        except StopIteration:
+            raise error
+
+        family, socktype, proto, _, addr = item
         try:
             sock = sockets.Socket(family, socktype, proto)
         except socket.error, error:
@@ -66,8 +74,6 @@ def _get_socket(domain, host, port):
             continue
 
         idiokit.stop(sock)
-
-    raise error
 
 @idiokit.stream
 def connect(jid, password,
