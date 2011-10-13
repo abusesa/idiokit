@@ -194,13 +194,13 @@ class MUC(object):
             else:
                 break
         else:
-            domain = yield self._test_muc("@conference." + self.xmpp.jid.domain)
+            domain = yield self._test_muc("conference." + self.xmpp.jid.domain)
 
         idiokit.stop(domain)
 
     @idiokit.stream
     def _full_room_jid(self, room):
-        if "@" in room:
+        if "@" in unicode(room):
             jid = JID(room)
             if jid.resource is not None:
                 raise MUCError("illegal room JID (contains a resource)")
@@ -242,7 +242,7 @@ class MUC(object):
             outputs.discard(output)
             if not outputs:
                 self.rooms.pop(jid.bare(), None)
-            yield output.signal(idiokit.Signal)
+            output.signal(idiokit.Signal)
             raise
         else:
             idiokit.stop(MUCRoom(jid, self, output, participants))

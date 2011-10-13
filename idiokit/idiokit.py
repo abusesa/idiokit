@@ -282,13 +282,52 @@ class Send(_SendBase):
             return NULL
         return self._head
 
+class _ForkOutput(_Queue):
+    def __init__(self, head):
+        _Queue.__init__(self)
+
+        self._current = head
+        self._current.listen(self._promise)
+
+    def _promise(self, promise):
+        if promise is None:
+            with self._lock:
+                self._current = None
+            self._tail.set(None)
+            return
+
+        with self._lock:
+            if self._current is None:
+                return
+            consumed, value, current = promise
+            self._current = current
+
+            old_tail = self._tail
+            new_tail = Value()
+            self._tail = new_tail
+
+        new_consumed = Value()
+        new_consumed.listen(consumed.set)
+
+        old_tail.set((new_consumed, value, new_tail))
+        current.listen(self._promise)
+
+    def close(self):
+        with self._lock:
+            if self._current is None:
+                return
+            current = self._current
+            self._current = None
+
+        self._tail.set(None)
+        current.unlisten(self._promise)
+
 class Fork(Stream):
     def __init__(self, stream):
         self._stream = stream
 
         self._input = Piped()
-        self._output = Piped()
-        self._output.add(self._stream.head())
+        self._output = _ForkOutput(self._stream.head())
         self._result = Value()
 
         msg = Value()
