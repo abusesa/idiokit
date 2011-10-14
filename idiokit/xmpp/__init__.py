@@ -98,7 +98,7 @@ def connect(jid, password,
 class XMPP(idiokit.Proxy):
     def __init__(self, jid, elements):
         idiokit.Proxy.__init__(self, elements)
-        idiokit.pipe(self._keepalive(), elements)
+        # idiokit.pipe(self._keepalive(), elements)
 
         self.jid = jid
 
