@@ -43,6 +43,14 @@ class XMPPError(Exception):
             return self.args[0]
         return self.args[0] + " (%s)" % extra
 
+def _iq_build(type, query, **attrs):
+    uid = uuid.uuid4().hex[:16]
+    attrs["id"] = uid
+
+    iq = xmlcore.Element("iq", type=type, **attrs)
+    iq.add(query)
+    return uid, iq
+
 @idiokit.stream
 def _iq_wait(uid):
     while True:
@@ -62,14 +70,12 @@ def _iq_wait(uid):
                 raise XMPPError("type attribute missing for iq stanza")
 
 @idiokit.stream
-def _iq(stream, type, query, **attrs):
-    uid = uuid.uuid4().hex[:16]
-    attrs["id"] = uid
+def _iq(stream, iq_type, query, **attrs):
+    uid, iq = _iq_build(iq_type, query, **attrs)
 
-    iq = xmlcore.Element("iq", type=type, **attrs)
-    iq.add(query)
-    yield stream.send(iq)
-    result = yield idiokit.Event() | stream.fork() | _iq_wait(uid)
+    forked = stream.fork()
+    yield forked.send(iq)
+    result = yield idiokit.Event() | forked | _iq_wait(uid)
     idiokit.stop(result)
 
 @idiokit.stream
@@ -93,7 +99,7 @@ def require_tls(stream):
 @idiokit.stream
 def require_sasl(stream, jid, password):
     features = yield require_features(stream)
-    
+
     mechanisms = features.children("mechanisms", SASL_NS).children("mechanism")
     for mechanism in mechanisms:
         if mechanism.text != "PLAIN":
@@ -106,7 +112,7 @@ def require_sasl(stream, jid, password):
 def require_bind_and_session(stream, jid):
     jid = JID(jid)
     features = yield require_features(stream)
-    
+
     if not features.children("bind", BIND_NS):
         raise XMPPError("server does not support resource binding")
     if not features.children("session", SESSION_NS):
@@ -168,6 +174,7 @@ class Core(object):
     def __init__(self, xmpp):
         self.xmpp = xmpp
         self.iq_handlers = list()
+        self.iq_uids = dict()
         idiokit.pipe(xmpp, self._handle_iqs())
 
     def add_iq_handler(self, func, *args, **keys):
@@ -180,8 +187,11 @@ class Core(object):
 
             for iq in elements.named("iq", STANZA_NS).with_attrs("type"):
                 if iq.get_attr("type").lower() not in ("get", "set"):
+                    uid = iq.get_attr("id", None)
+                    if uid is not None and uid in self.iq_uids:
+                        self.iq_uids[uid].send(iq)
                     continue
-                
+
                 for func, args, keys in self.iq_handlers:
                     payload = iq.children(*args, **keys)
                     if payload and func(iq, list(payload)[0]):
@@ -189,7 +199,7 @@ class Core(object):
                 else:
                     error = self.build_error("cancel", "service-unavailable")
                     self.iq_error(iq, error)
-        
+
     def build_error(self, type, condition, text=None, special=None):
         if type not in self.VALID_ERROR_TYPES:
             expected = "/".join(self.VALID_ERROR_TYPES)
@@ -217,11 +227,25 @@ class Core(object):
         presence.add(*payload)
         return self.xmpp.send(presence)
 
+    @idiokit.stream
+    def _iq(self, iq_type, payload, **attrs):
+        uid, iq = _iq_build(iq_type, payload, **attrs)
+
+        waiter = _iq_wait(uid)
+        self.iq_uids[uid] = waiter
+
+        try:
+            yield self.xmpp.send(iq)
+            result = yield idiokit.Event() | waiter
+        finally:
+            self.iq_uids.pop(uid, None)
+        idiokit.stop(result)
+
     def iq_get(self, payload, **attrs):
-        return _iq(self.xmpp, "get", payload, **attrs)
+        return self._iq("get", payload, **attrs)
 
     def iq_set(self, payload, **attrs):
-        return _iq(self.xmpp, "set", payload, **attrs)
+        return self._iq("set", payload, **attrs)
 
     def iq_result(self, request, payload=None, **attrs):
         if not request.with_attrs("id"):
@@ -233,22 +257,22 @@ class Core(object):
         attrs["to"] = request.get_attr("from")
         attrs["id"] = request.get_attr("id")
         attrs["from"] = unicode(self.xmpp.jid)
-            
+
         iq = xmlcore.Element("iq", **attrs)
         if payload is not None:
             iq.add(payload)
         return self.xmpp.send(iq)
-        
+
     def iq_error(self, request, error, **attrs):
         if not request.with_attrs("id"):
             raise XMPPError("request did not have 'id' attribute")
         if not request.with_attrs("from"):
             raise XMPPError("request did not have 'from' attribute")
 
-        attrs["type"] = "error"        
+        attrs["type"] = "error"
         attrs["to"] = request.get_attr("from")
         attrs["id"] = request.get_attr("id")
-            
+
         iq = xmlcore.Element("iq", **attrs)
         iq.add(request)
         iq.add(error)
