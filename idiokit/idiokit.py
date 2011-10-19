@@ -19,35 +19,29 @@ class _Queue(object):
     def __init__(self):
         self._tail = Value()
         self._head = self._tail
-        self._head.listen(self._move_promise)
+        self._head.listen(self._move)
 
-    def _move_promise(self, promise):
-        if promise is None:
-            return
+    def _move(self, _):
+        while True:
+            if not self._head.is_set():
+                return self._head.listen(self._move)
 
-        consume, value, head = promise
-        value.listen(self._move_value)
+            promise = self._head.get()
+            if promise is None:
+                return
 
-    def _move_value(self, result):
-        consume, value, head = self._head.get()
-
-        if result is None:
-            consume.set()
+            consumed, value, head = promise
+            if consumed.is_set():
+                pass
+            elif not value.is_set():
+                return value.listen(self._move)
+            elif value.get() is not None:
+                return consumed.listen(self._move)
+            else:
+                consumed.set()
 
             with self._lock:
                 self._head = head
-
-            head.listen(self._move_promise)
-        else:
-            consume.listen(self._move_consume)
-
-    def _move_consume(self, _):
-        consume, value, head = self._head.get()
-
-        with self._lock:
-            self._head = head
-
-        head.listen(self._move_promise)
 
     def head(self):
         with self._lock:
