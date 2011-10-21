@@ -158,7 +158,18 @@ def peel_args(args):
 def stream(func):
     @functools.wraps(func)
     def _stream(*args, **keys):
-        gen = iter(func(*args, **keys))
+        # Check that func(...) doesn't raise e.g. StopIteration.
+        try:
+            gen = func(*args, **keys)
+        except:
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            info = "%r raised exception %r of type %r"
+            error = TypeError(info % (func, exc_value, exc_type))
+            raise TypeError, error, exc_tb
+
+        # Check that gen is iterable.
+        gen = iter(gen)
+
         return Generator(gen)
     return _stream
 
