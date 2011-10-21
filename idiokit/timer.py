@@ -35,13 +35,13 @@ def _down(array, node):
         left_index = 2 * node.index + 1
         if left_index < length:
             left = array[left_index]
-            if left.value < node.value:
+            if left.value < smallest.value:
                 smallest = left
 
         right_index = left_index + 1
         if right_index < length:
             right = array[right_index]
-            if right.value < node.value:
+            if right.value < smallest.value:
                 smallest = right
 
         if node is smallest:
