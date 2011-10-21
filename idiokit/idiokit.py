@@ -1,12 +1,28 @@
 from __future__ import with_statement
 
 import sys
+import inspect
 import threading
 import functools
 import collections
 
 from . import callqueue
 from .values import Value
+
+def _isgenfunc(func):
+    # Return True if func is a generator function, False otherwise.
+
+    if not inspect.isfunction(func):
+        return False
+
+    # Python data model documentation:
+    # "The following flag bits are defined for co_flags: [...]
+    #  bit 0x20 is set if the function is a generator."
+    return func.func_code.co_flags & 0x20 != 0x00
+
+# Use inspect.isgeneratorfunction if available, fall back to
+# _isgenfunc otherwise.
+isgenfunc = getattr(inspect, "isgeneratorfunction", _isgenfunc)
 
 NULL = Value(None)
 
@@ -156,21 +172,12 @@ def peel_args(args):
     return args
 
 def stream(func):
+    if not isgenfunc(func):
+        raise TypeError("%r is not a generator function" % func)
+
     @functools.wraps(func)
     def _stream(*args, **keys):
-        # Check that func(...) doesn't raise e.g. StopIteration.
-        try:
-            gen = func(*args, **keys)
-        except:
-            exc_type, exc_value, exc_tb = sys.exc_info()
-            info = "%r raised exception %r of type %r"
-            error = TypeError(info % (func, exc_value, exc_type))
-            raise TypeError, error, exc_tb
-
-        # Check that gen is iterable.
-        gen = iter(gen)
-
-        return Generator(gen)
+        return Generator(func(*args, **keys))
     return _stream
 
 class Stream(object):
