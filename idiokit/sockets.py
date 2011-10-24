@@ -180,7 +180,7 @@ class Socket(threado.GeneratorStream):
         self._wrapped = _Base()
         self._closed = False
         self._stop_channel = threado.Channel()
-        self._callback = None
+        self._flag = False
 
     @_blocking
     def connect(self, *args, **keys):
@@ -218,7 +218,7 @@ class Socket(threado.GeneratorStream):
 
     def _socket_callback(self, wfd, _):
         with self.lock:
-            self._callback = None
+            self._flag = False
 
             try:
                 os.write(wfd, "\x00")
@@ -233,12 +233,11 @@ class Socket(threado.GeneratorStream):
             while not data:
                 item = inner.next_raw()
                 if item is None:
-                    callback = inner.add_message_callback(self._socket_callback, wfd)
                     with self.lock:
-                        if self._callback is None:
-                            self._callback = callback
+                        if self._flag:
                             break
-                    inner.discard_message_callback(callback)
+                        self._flag = True
+                    inner.add_message_callback(self._socket_callback, wfd)
                     break
 
                 final, throw, args = item
