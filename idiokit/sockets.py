@@ -68,7 +68,7 @@ def _write(func):
                 else:
                     raise
             except socket.error, error:
-                if error.args[0] in ALLOWED_SOCKET_ERRNOS:
+                if error.args[0] not in ALLOWED_SOCKET_ERRNOS:
                     raise
 
             yield select.async_select((), (self._socket,), ())
@@ -136,13 +136,19 @@ class Socket(object):
 
     @idiokit.stream
     def connect(self, *args, **keys):
-        try:
-            self._socket.connect(*args, **keys)
-        except socket.error, error:
-            if error.args[0] not in (errno.EALREADY, errno.EINPROGRESS):
-                raise error
+        while True:
+            try:
+                self._socket.connect(*args, **keys)
+            except socket.error, error:
+                if error.args[0] == errno.EISCONN:
+                    break
+                if error.args[0] not in (errno.EALREADY, errno.EINPROGRESS):
+                    raise error
+            else:
+                break
 
-        yield select.async_select((self._socket,), (self._socket,), ())
+            yield select.async_select((), (self._socket,), ())
+
         self._wrapped = _PlainSocket(self._socket)
 
     @idiokit.stream
