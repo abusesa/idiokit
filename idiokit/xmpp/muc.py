@@ -151,7 +151,7 @@ class MUC(object):
         while True:
             elements = yield idiokit.next()
 
-            for element in elements:
+            for element in elements.with_attrs("from"):
                 bare = JID(element.get_attr("from")).bare()
                 for output in self.rooms.get(bare, ()):
                     output.send(element)
