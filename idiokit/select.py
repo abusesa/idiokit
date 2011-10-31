@@ -38,29 +38,25 @@ _pipes = list()
 
 @idiokit.stream
 def async_select(read, write, error, timeout=None):
-    value = idiokit.Value()
-
     if not _pipes:
         _pipes.append(os.pipe())
     rfd, wfd = _pipes.pop()
 
+    read = (rfd,) + tuple(read)
+    value = threadpool.run(select, read, write, error, timeout)
+
+    event = idiokit.Event()
+    value.listen(event.set)
+
     try:
-        read = (rfd,) + tuple(read)
-        value = threadpool.run(select, read, write, error, timeout)
-
-        event = idiokit.Event()
-        value.listen(event.set)
-
-        try:
-            result = yield event
-        except:
+        result = yield event
+    finally:
+        if not value.is_set():
             os.write(wfd, "\x00")
             try:
                 yield _ValueStream(value)
             finally:
                 os.read(rfd, 1)
-            raise
-        else:
-            idiokit.stop(result)
-    finally:
         _pipes.append((rfd, wfd))
+
+    idiokit.stop(result)
