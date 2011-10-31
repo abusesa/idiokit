@@ -76,8 +76,8 @@ def connect(host, port, nick, password=None,
     yield socket.connect((host, port))
 
     if ssl:
-        yield self.socket.ssl(verify_cert=self.ssl_verify_cert,
-                              ca_certs=self.ssl_ca_certs)
+        yield socket.ssl(verify_cert=ssl_verify_cert,
+                         ca_certs=ssl_ca_certs)
 
     nicks = mutations(nick)
     if password is not None:
@@ -98,7 +98,7 @@ def connect(host, port, nick, password=None,
 
             if command == "433":
                 for nick in nicks:
-                    yield self.socket.writeall(format_message("NICK", nick))
+                    yield socket.writeall(format_message("NICK", nick))
                     break
                 else:
                     raise NickAlreadyInUse("".join(params[-1:]))
