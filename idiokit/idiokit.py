@@ -255,7 +255,11 @@ class _SendBase(Stream):
 
         if value is self._PARENT:
             self._value.set(None)
-            self._result.set((True, (BrokenPipe, BrokenPipe(), None)))
+            throw, args = self._parent.get()
+            if not throw:
+                throw = True
+                args = (BrokenPipe, BrokenPipe(*args), None)
+            self._result.set((throw, args))
         elif self._parent is not None:
             self._parent.unlisten(self._set_parent)
         self._parent = None
@@ -588,7 +592,10 @@ class PipePair(Stream):
         self._right.result().listen(self._result.set)
 
     def _right_result(self, (throw, args)):
-        self._broken_head.set((NULL, Value((True, (BrokenPipe,))), NULL))
+        if not throw:
+            throw = True
+            args = (BrokenPipe, BrokenPipe(*args), None)
+        self._broken_head.set((NULL, Value((throw, args)), NULL))
 
     def _message_promise(self, promise):
         if self._right.result().is_set():
