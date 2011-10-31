@@ -60,6 +60,6 @@ if __name__ == "__main__":
     username = raw_input("Username: ")
     password = getpass.getpass()
 
-    threado.run(main("echobot",
-                     "irc.example.com", 6667, False, "#echobot",
-                     username, password, "room@conference.example.com"))
+    idiokit.main_loop(main("echobot",
+                           "irc.example.com", 6667, False, "#echobot",
+                           username, password, "room@conference.example.com"))
