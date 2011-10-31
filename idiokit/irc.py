@@ -1,7 +1,8 @@
+from __future__ import absolute_import
+
 import re
-import util
-import threado
-import sockets
+
+from . import idiokit, util, sockets
 
 class IRCError(Exception):
     pass
@@ -66,92 +67,85 @@ def mutations(*nicks):
             suffix = str(i)
             yield nick[:9-len(suffix)] + suffix
 
-class IRC(threado.GeneratorStream):
-    def __init__(self, server, port,
-                 ssl=False, ssl_verify_cert=True, ssl_ca_certs=None):
-        threado.GeneratorStream.__init__(self)
+@idiokit.stream
+def connect(host, port, nick, password=None,
+            ssl=False, ssl_verify_cert=True, ssl_ca_certs=None):
+    parser = IRCParser()
+    socket = sockets.Socket()
 
-        self.server = server
-        self.port = port
+    yield socket.connect((host, port))
 
-        self.ssl = ssl
-        self.ssl_verify_cert = ssl_verify_cert
-        self.ssl_ca_certs = ssl_ca_certs
+    if ssl:
+        yield self.socket.ssl(verify_cert=self.ssl_verify_cert,
+                              ca_certs=self.ssl_ca_certs)
 
-        self.parser = None
-        self.socket = None
+    nicks = mutations(nick)
+    if password is not None:
+        yield socket.writeall(format_message("PASS", password))
+    yield socket.writeall(format_message("NICK", nicks.next()))
+    yield socket.writeall(format_message("USER", nick, nick, "-", nick))
 
-    @threado.stream
-    def connect(inner, self, nick, password=None):
-        self.parser = IRCParser()
-        self.socket = sockets.Socket()
+    while True:
+        data = yield socket.read(4096)
 
-        yield inner.sub(self.socket.connect((self.server, self.port)))
-
-        if self.ssl:
-            yield inner.sub(self.socket.ssl(verify_cert=self.ssl_verify_cert,
-                                            ca_certs=self.ssl_ca_certs))
-
-        nicks = mutations(nick)
-        if password is not None:
-            self.socket.send(format_message("PASS", password))
-        self.socket.send(format_message("NICK", nicks.next()))
-        self.socket.send(format_message("USER", nick, nick, "-", nick))
-
-        while True:
-            source, data = yield threado.any(inner, self.socket)
-            if inner is source:
+        for prefix, command, params in parser.feed(data):
+            if command == "PING":
+                yield socket.writeall(format_message("PONG", *params))
                 continue
 
-            for prefix, command, params in self.parser.feed(data):
+            if command == "001":
+                idiokit.stop(IRC(_main(socket, parser), nick))
+
+            if command == "433":
+                for nick in nicks:
+                    yield self.socket.writeall(format_message("NICK", nick))
+                    break
+                else:
+                    raise NickAlreadyInUse("".join(params[-1:]))
+                continue
+
+                if ERROR_REX.match(command):
+                    raise IRCError("".join(params[-1:]))
+
+def _main(socket, parser):
+    @idiokit.stream
+    def _input():
+        try:
+            while True:
+                msg = yield idiokit.next()
+                yield socket.writeall(format_message(*msg))
+        finally:
+            yield socket.close()
+
+    @idiokit.stream
+    def _output():
+        data = ""
+
+        while True:
+            for prefix, command, params in parser.feed(data):
                 if command == "PING":
-                    self.socket.send(format_message("PONG", *params))
-                    continue
+                    yield socket.writeall(format_message("PONG", *params))
+                yield idiokit.send(prefix, command, params)
 
-                if command == "001":
-                    self.start()
-                    inner.finish(nick)
+            data = yield socket.read(4096)
 
-                if command == "433":
-                    for nick in nicks:
-                        self.socket.send(format_message("NICK", nick))
-                        break
-                    else:
-                        raise NickAlreadyInUse("".join(params[-1:]))
-                    continue
+    return _input() | _output()
 
-                    if ERROR_REX.match(command):
-                        raise IRCError("".join(params[-1:]))
+class IRC(idiokit.Proxy):
+    def __init__(self, proxied, nick):
+        idiokit.Proxy.__init__(self, proxied)
 
-    def nick(self, nick):
-        self.send("NICK", nick)
+        self.nick = nick
+
+    def set_nick(self, nick):
+        return self.send("NICK", nick)
 
     def quit(self, message=None):
         if message is None:
-            self.send("QUIT")
-        else:
-            self.send("QUIT", message)
+            return self.send(("QUIT",))
+        return self.send("QUIT", message)
 
     def join(self, channel, key=None):
         if key is None:
-            self.send("JOIN", channel)
-        else:
-            self.send("JOIN", channel, key)
-
-    def run(self):
-        for prefix, command, params in self.parser.feed():
-            if command == "PING":
-                self.send("PONG", *params)
-            self.inner.send(prefix, command, params)
-
-        while True:
-            source, data = yield threado.any(self.inner, self.socket)
-
-            if self.inner is source:
-                self.socket.send(format_message(*data))
-                continue
-
-            for prefix, command, params in self.parser.feed(data):
-                if command == "PING":
-                    self.send("PONG", *params)
-                self.inner.send(prefix, command, params)
+            return self.send("JOIN", channel)
+        return self.send("JOIN", channel, key)
