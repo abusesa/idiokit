@@ -4,7 +4,7 @@ import threading
 
 _UNDEFINED = object()
 
-class ValueBase(object):
+class Value(object):
     _lock = threading.Lock()
 
     def __init__(self, value=_UNDEFINED):
@@ -23,7 +23,7 @@ class ValueBase(object):
         with self._lock:
             return self._value
 
-    def _set(self, value=None):
+    def set(self, value=None):
         with self._lock:
             listeners = self._listeners
             if listeners is None:
@@ -50,6 +50,3 @@ class ValueBase(object):
             listeners = self._listeners
             if listeners is not None:
                 listeners.discard(callback)
-
-class Value(ValueBase):
-    set = ValueBase._set

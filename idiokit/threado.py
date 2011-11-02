@@ -162,9 +162,9 @@ def stream(func):
 def any(left, right):
     return _Any(left, right)
 
-class _Either(values.ValueBase):
+class _Either(values.Value):
     def __init__(self, left, right):
-        values.ValueBase.__init__(self)
+        values.Value.__init__(self)
 
         self._left = left
         self._right = right
@@ -177,12 +177,12 @@ class _Either(values.ValueBase):
             right.unlisten(self._listen_right)
 
     def _listen_left(self, value):
-        if not self._set((False, (self._left,))):
+        if not self.set((False, (self._left,))):
             return
         self._right.unlisten(self._listen_right)
 
     def _listen_right(self, value):
-        if not self._set((False, (self._right,))):
+        if not self.set((False, (self._right,))):
             return
         self._left.unlisten(self._listen_left)
 
