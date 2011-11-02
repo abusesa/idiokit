@@ -719,8 +719,8 @@ def main_loop(main):
         head = _signal.head
         _signal.head = Value()
 
-        thread = threading.Thread(target=head.set,
-                                  args=((consume, value, _signal.head),))
+        thread = threading.Thread(target=callqueue.add,
+                                  args=(head.set, (consume, value, _signal.head)))
         thread.setDaemon(True)
         thread.start()
     _signal.head = Value()
