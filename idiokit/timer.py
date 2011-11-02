@@ -1,80 +1,60 @@
-from __future__ import with_statement, absolute_import
+from __future__ import absolute_import
 
 import time
 import threading
-import functools
 
-from . import idiokit, threadpool, values, callqueue, heap
-
-class TimerValue(values.ValueBase):
-    def cancel(self, value=None):
-        return self._set(value=None)
+from . import idiokit, threadpool, callqueue, heap
 
 class Timer(object):
     def __init__(self):
         self._heap = heap.Heap()
-        self._lock = threading.Lock()
         self._event = threading.Event()
-        self._running = False
+        self._running = None
 
-    def _run(self):
-        while True:
-            calls = list()
-
-            with self._lock:
+    @idiokit.stream
+    def _main(self):
+        try:
+            while True:
                 now = time.time()
+
                 while self._heap and self._heap.peek()[0] <= now:
-                    _, value, args = self._heap.pop()
-                    calls.append((value, args))
+                    _, event = self._heap.pop()
+                    event.succeed()
 
-            for value, args in calls:
-                value.cancel(args)
-
-            calls = None
-
-            with self._lock:
                 if not self._heap:
-                    self._running = False
                     return
 
-                timeout = self._heap.peek()[0] - now
+                first, _ = self._heap.peek()
+
                 self._event.clear()
+                yield threadpool.thread(self._event.wait, first - time.time())
+        finally:
+            self._running = None
 
-            self._event.wait(timeout)
+    @idiokit.stream
+    def sleep(self, delay):
+        event = idiokit.Event()
 
-    def _handle(self, node, _):
-        with self._lock:
+        if delay <= 0:
+            callqueue.add(event.succeed)
+            yield event
+            return
+
+        expire = time.time() + delay
+
+        if self._running is None:
+            self._running = self._main()
+
+        if not self._heap or self._heap.peek()[0] > expire:
+            self._event.set()
+        node = self._heap.push((expire, event))
+
+        try:
+            yield event
+        finally:
             try:
                 self._heap.pop(node)
             except heap.HeapError:
                 pass
 
-    def set(self, delay, args=None):
-        value = TimerValue()
-        if delay <= 0:
-            callqueue.add(value.cancel, args)
-            return value
-
-        with self._lock:
-            node = self._heap.push((time.time() + delay, value, args))
-            self._event.set()
-
-            if not self._running:
-                self._running = True
-                threadpool.run(self._run)
-
-        value.listen(functools.partial(self._handle, node))
-        return value
-
-set = Timer().set
-
-@idiokit.stream
-def sleep(delay):
-    event = idiokit.Event()
-    value = set(delay)
-
-    value.listen(event.succeed)
-    try:
-        yield event
-    finally:
-        value.cancel()
+sleep = Timer().sleep
