@@ -211,11 +211,6 @@ class Stream(object):
     def __or__(self, other):
         return PipePair(self, other)
 
-    # to be deprecated
-
-    def has_result(self):
-        return self.result().is_set()
-
 class _SendBase(Stream):
     _CONSUMED = object()
     _PARENT = object()

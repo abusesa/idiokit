@@ -5,6 +5,12 @@ import functools
 
 from . import idiokit, values, threadpool
 
+# Monkey patch idiokit.Stream to support .has_result()
+
+def has_result(self):
+    return self.result().is_set()
+idiokit.Stream.has_result = has_result
+
 # Helpers
 
 NULL = idiokit.Event()
