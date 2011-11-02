@@ -493,6 +493,11 @@ class Generator(Stream):
         except:
             self.close(True, sys.exc_info())
         else:
+            if not isinstance(next, Stream):
+                error = TypeError("expected a stream, got %r" % (next,))
+                self._step((True, (TypeError, error, None)))
+                return
+
             next.pipe_left(self._messages.head(), self._signals.head())
             next.pipe_right(self._broken.head())
 
