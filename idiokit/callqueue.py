@@ -1,17 +1,17 @@
 import threading
 import contextlib
 
-class CallNode(object):
-    __slots__ = "func", "args", "keys", "next"
-
-    def __init__(self, func, args, keys):
-        self.func = func
-        self.args = args
-        self.keys = keys
-
-        self.next = None
-
 class CallQueue(object):
+    class CallNode(object):
+        __slots__ = "func", "args", "keys", "next"
+
+        def __init__(self, func, args, keys):
+            self.func = func
+            self.args = args
+            self.keys = keys
+
+            self.next = None
+
     def __init__(self):
         self.exclusive_lock = threading.Lock()
 
@@ -37,7 +37,7 @@ class CallQueue(object):
             head = head.next
 
     def add(self, func, *args, **keys):
-        new_tail = CallNode(func, args, keys)
+        new_tail = self.CallNode(func, args, keys)
 
         self.queue_acquire()
 

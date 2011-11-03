@@ -5,7 +5,7 @@ import time
 import threading
 import collections
 
-from . import idiokit, values
+from . import idiokit, values, callqueue
 
 class ThreadPool(object):
     _Value = staticmethod(values.Value)
@@ -15,6 +15,7 @@ class ThreadPool(object):
     _Thread = staticmethod(threading.Thread)
     _Lock = staticmethod(threading.Lock)
     _exc_info = staticmethod(sys.exc_info)
+    _callqueue_add = staticmethod(callqueue.add)
 
     def __init__(self, idle_time=1.0):
         self.idle_time = idle_time
@@ -104,7 +105,7 @@ class ThreadPool(object):
             with self.lock:
                 self.threads.append((self._elapsed(), lock, queue))
 
-            value.set((throw, args))
+            self._callqueue_add(value.set, (throw, args))
 
 run = ThreadPool().run
 
