@@ -18,8 +18,9 @@ def xmpp_to_irc(own_jid, channel, encoding="latin-1"):
                 continue
 
             for body in message.children("body"):
-                text = "<%s> %s" % (sender.resource, body.text)
-                yield idiokit.send("PRIVMSG", channel, text.encode(encoding))
+                for line in body.text.splitlines():
+                    text = "<%s> %s" % (sender.resource, line)
+                    yield idiokit.send("PRIVMSG", channel, text.encode(encoding))
 
 @idiokit.stream
 def irc_to_xmpp(channel):
