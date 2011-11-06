@@ -18,7 +18,7 @@ STANZA_NS = "jabber:client"
 STARTTLS_NS = "urn:ietf:params:xml:ns:xmpp-tls"
 
 class XMPPError(Exception):
-    def __init__(self, message, elements=xmlcore.Query(), ns=STANZA_ERROR_NS):
+    def __init__(self, message, elements=(), ns=STANZA_ERROR_NS):
         self.type = None
         self.condition = None
         self.text = None

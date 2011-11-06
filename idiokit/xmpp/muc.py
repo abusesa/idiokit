@@ -4,7 +4,7 @@ import random
 import string
 
 from .. import idiokit
-from ..xmlcore import Element, Query
+from ..xmlcore import Element
 from . import disco
 from .core import STANZA_NS, XMPPError
 from .jid import JID
