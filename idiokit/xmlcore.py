@@ -121,12 +121,10 @@ class Element(object):
 
     def with_attrs(self, *args, **keys):
         for key in args:
-            key = key.lower()
             if key not in self._attrs:
                 return Elements()
 
         for key, value in keys.iteritems():
-            key = key.lower()
             if value is None and key not in self._attrs:
                 return
 
@@ -138,13 +136,12 @@ class Element(object):
         return self
 
     def get_attr(self, key, default=None):
-        key = key.lower()
         if key not in self._attrs:
             return default
         return self._attrs[key]
 
     def set_attr(self, key, value):
-        key = unicode(key.lower())
+        key = unicode(key)
         value = unicode(value)
         self._attrs[key] = value
 
