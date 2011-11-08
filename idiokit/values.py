@@ -8,28 +8,27 @@ class Value(object):
     _lock = threading.Lock()
 
     def __init__(self, value=_UNDEFINED):
-        if value is _UNDEFINED:
-            self._value = None
-            self._listeners = set()
-        else:
-            self._value = value
-            self._listeners = None
+        self._value = value
+        self._listeners = None
 
     def is_set(self):
         with self._lock:
-            return self._listeners is None
+            return self._value is not _UNDEFINED
 
     def get(self):
         with self._lock:
-            return self._value
+            value = self._value
+        return None if value is _UNDEFINED else value
 
     def set(self, value=None):
         with self._lock:
+            if self._value is not _UNDEFINED:
+                return False
+            self._value = value
+
             listeners = self._listeners
             if listeners is None:
-                return False
-
-            self._value = value
+                return True
             self._listeners = None
 
         for callback in listeners:
@@ -38,8 +37,11 @@ class Value(object):
 
     def listen(self, callback):
         with self._lock:
-            listeners = self._listeners
-            if listeners is not None:
+            if self._value is _UNDEFINED:
+                listeners = self._listeners
+                if listeners is None:
+                    listeners = set()
+                    self._listeners = listeners
                 listeners.add(callback)
                 return
 
