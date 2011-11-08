@@ -36,8 +36,10 @@ def _read(func):
             except ssl.SSLError, sslerror:
                 if sslerror.args[0] == ssl.SSL_ERROR_WANT_WRITE:
                     yield select.async_select((), (self._socket,), ())
+                    continue
                 elif sslerror.args[0] == ssl.SSL_ERROR_WANT_READ:
                     yield select.async_select((self._socket,), (), ())
+                    continue
                 else:
                     raise
             except socket.error, error:
@@ -63,8 +65,10 @@ def _write(func):
             except ssl.SSLError, sslerror:
                 if sslerror.args[0] == ssl.SSL_ERROR_WANT_WRITE:
                     yield select.async_select((), (self._socket,), ())
+                    continue
                 elif sslerror.args[0] == ssl.SSL_ERROR_WANT_READ:
                     yield select.async_select((self._socket,), (), ())
+                    continue
                 else:
                     raise
             except socket.error, error:
