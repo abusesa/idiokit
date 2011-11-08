@@ -32,15 +32,19 @@ class BrokenPipe(Exception):
 class _Queue(object):
     _lock = threading.Lock()
 
-    def __init__(self):
+    def __init__(self, auto_consume=False):
         self._tail = Value()
-        self._head = self._tail
-        self._head.listen(self._move)
+
+        if auto_consume:
+            self._head = None
+        else:
+            self._head = self._tail
+            self._head.listen(self._move)
 
     def _move(self, _):
         while True:
             if not self._head.is_set():
-                return self._head.listen(self._move)
+                return head.listen(self._move)
 
             promise = self._head.get()
             if promise is None:
@@ -61,108 +65,146 @@ class _Queue(object):
 
     def head(self):
         with self._lock:
-            return self._head
-
-class _PipedNode(object):
-    def __init__(self, parent, head, next):
-        self.parent = parent
-        self.consume = None
-        self.head = head
-        self.next = next
-        self.prev = None
-
-    def promise_callback(self, promise):
-        self.parent._promise(self, promise)
-
-    def consume_callback(self, _):
-        self.parent._consume(self)
+            head = self._head
+            if head is None:
+                return self._tail
+            return head
 
 class Piped(_Queue):
-    def __init__(self):
-        _Queue.__init__(self)
+    def __init__(self, auto_consume=False):
+        _Queue.__init__(self, auto_consume)
 
-        self._root = None
+        self._closed = False
+        self._sealed = False
+
+        self._ready = collections.deque()
+        self._heads = dict()
 
     def add(self, head):
         if head is NULL:
             return
 
         with self._lock:
-            if self._tail is None:
+            if self._sealed:
                 return
 
-            node = _PipedNode(self, head, self._root)
-            if self._root:
-                self._root.prev = node
-            self._root = node
+            key = object()
+            listener = functools.partial(self._promise, key)
+            self._heads[key] = head, listener
 
-        head.listen(node.promise_callback)
+        head.listen(listener)
 
         with self._lock:
-            if self._tail is not None:
+            if not self._closed:
                 return
 
-        head.unlisten(node.promise_callback)
+        head.unlisten(listener)
 
-    def _promise(self, node, promise):
+    def _promise(self, key, promise):
         with self._lock:
-            if self._tail is None:
+            if self._closed:
                 return
+            del self._heads[key]
 
             if promise is None:
-                next = node.next
-                prev = node.prev
-                if next is not None:
-                    next.prev = prev
-                if prev is not None:
-                    prev.next = next
-                if node is self._root:
-                    self._root = next
+                if self._sealed and not self._ready and not self._heads:
+                    tail = self._tail
+                    self._closed = True
+                else:
+                    return
+            elif self._ready:
+                self._ready.append(promise)
+                return
+            else:
+                _, value, _ = promise
+                self._ready.append(promise)
+
+                next = Value()
+                tail = self._tail
+                self._tail = next
+
+        if promise is None:
+            tail.set(None)
+            return
+
+        next_consume = Value()
+        next_value = Value()
+        tail.set((next_consume, next_value, next))
+        next_consume.listen(functools.partial(self._consume, next_value))
+
+    def _consume(self, value, _):
+        with self._lock:
+            if self._closed:
+                promise = None
+            else:
+                promise = self._ready.popleft()
+
+                consume, original, head = promise
+
+                key = object()
+                listener = functools.partial(self._promise, key)
+                self._heads[key] = head, listener
+
+                if self._ready:
+                    next = Value()
+                    tail = self._tail
+                    self._tail = next
+                else:
+                    tail = None
+
+        if promise is None:
+            value.set(None)
+            return
+
+        consume.set()
+        original.listen(value.set)
+
+        if tail is not None:
+            next_consume = Value()
+            next_value = Value()
+            tail.set((next_consume, next_value, next))
+            next_consume.listen(functools.partial(self._consume, next_value))
+
+        head.listen(listener)
+
+        with self._lock:
+            if not self._closed:
                 return
 
-            node.consume, value, node.head = promise
+        head.unlisten(listener)
 
-            out_head = Value()
+    def seal(self):
+        with self._lock:
+            if self._sealed:
+                return
+            self._sealed = True
+
+            if self._heads or self._ready:
+                return
+
+            self._closed = True
             tail = self._tail
-            self._tail = out_head
 
-        out_consume = Value()
-        out_consume.listen(node.consume_callback)
-
-        tail.set((out_consume, value, out_head))
-
-    def _consume(self, node):
-        node.consume.set()
-        node.consume = None
-
-        with self._lock:
-            if self._tail is None:
-                return
-
-        node.head.listen(node.promise_callback)
-
-        with self._lock:
-            if self._tail is not None:
-                return
-
-        node.head.unlisten(node.promise_callback)
+        tail.set(None)
 
     def close(self):
         with self._lock:
-            if self._tail is None:
+            if self._closed:
                 return
+            self._closed = True
+            self._sealed = True
+
+            heads = self._heads
+
+            self._heads = None
+            self._ready = None
+
             tail = self._tail
-            self._tail = None
-
-            node = self._root
-            self._root = None
-
-        while node is not None:
-            if node.consume is None:
-                node.head.unlisten(node.promise_callback)
-            node = node.next
 
         tail.set(None)
+
+        for head, listener in heads.itervalues():
+            head.unlisten(listener)
 
 def peel_args(args):
     if not args:
@@ -224,7 +266,7 @@ class _SendBase(Stream):
         self._head = Value((self._consumed, self._value, NULL))
         self._result = Value()
 
-        self._input = Piped()
+        self._input = Piped(True)
         self._input_head = self._input.head()
 
         self._consumed.listen(self._set_consumed)
@@ -293,88 +335,82 @@ class Send(_SendBase):
             return NULL
         return self._head
 
-class _ForkOutput(_Queue):
-    def __init__(self, head):
-        _Queue.__init__(self)
-
-        self._current = head
-        self._current.listen(self._promise)
-
-    def _promise(self, promise):
-        if promise is None:
-            with self._lock:
-                self._current = None
-            self._tail.set(None)
-            return
-
-        with self._lock:
-            if self._current is None:
-                return
-            consumed, value, current = promise
-            self._current = current
-
-            old_tail = self._tail
-            new_tail = Value()
-            self._tail = new_tail
-
-        new_consumed = Value()
-        new_consumed.listen(consumed.set)
-
-        old_tail.set((new_consumed, value, new_tail))
-        current.listen(self._promise)
-
-    def close(self):
-        with self._lock:
-            if self._current is None:
-                return
-            current = self._current
-            self._current = None
-
-        self._tail.set(None)
-        current.unlisten(self._promise)
-
 class Fork(Stream):
     def __init__(self, stream):
         self._stream = stream
 
-        self._input = Piped()
-        self._output = _ForkOutput(self._stream.head())
+        self._messages = Piped(True)
+        self._signals = Piped(True)
+
+        self._output = Piped()
+        self._output.add(self._stream.head())
+        self._output.seal()
+
         self._result = Value()
 
-        msg = Value()
-        self._input.head().listen(functools.partial(self._input_promise, msg))
-        self._stream.pipe_left(msg, NULL)
+        self._current = Value()
+        self._messages.head().listen(self._message_promise)
+        self._signals.head().listen(self._signal_promise)
+
+        self._stream.pipe_left(self._current, NULL)
         self._stream.result().listen(self._stream_result)
 
     def _stream_result(self, result):
         if self._result.set(result):
-            self._input.close()
+            self._messages.close()
+            self._signals.close()
             self._stream = None
 
-    def _input_promise(self, message, promise):
+    def _signal_promise(self, promise):
         if promise is None:
-            message.set(None)
+            return
+
+        consume, value, head = promise
+        consume.set()
+        value.listen(functools.partial(self._signal_value, head))
+
+    def _signal_value(self, head, result):
+        if result is None or not result[0]:
+            head.listen(self._signal_promise)
+            return
+
+        throw, args = result
+
+        self._messages.close()
+        self._signals.close()
+
+        if self._result.set(result):
+            self._output.close()
+            self._stream.result().unlisten(self._stream_result)
+            self._stream = None
+
+    def _message_promise(self, promise):
+        if promise is None:
+            self._current.set(None)
+            self._current = None
             return
 
         consume, value, head = promise
         next_value = Value()
         next_message = Value()
 
-        message.set((consume, next_value, next_message))
-        value.listen(functools.partial(self._input_value,
-                                       head, next_value, next_message))
+        current = self._current
+        self._current = next_message
+        current.set((consume, next_value, next_message))
+        value.listen(functools.partial(self._message_value, head, next_value, next_message))
 
-    def _input_value(self, head, next_value, next_message, result):
+    def _message_value(self, head, next_value, next_message, result):
         if result is None or not result[0]:
             next_value.set(result)
-            head.listen(functools.partial(self._input_promise, next_message))
+            head.listen(self._message_promise)
             return
 
         throw, args = result
 
         next_value.set(None)
         next_message.set(None)
-        self._input.close()
+        self._messages.close()
+        self._signals.close()
 
         if self._result.set(result):
             self._output.close()
@@ -382,11 +418,11 @@ class Fork(Stream):
             self._stream = None
 
     def pipe_left(self, messages, signals):
-        self._input.add(signals)
-        self._input.add(messages)
+        self._signals.add(signals)
+        self._messages.add(messages)
 
     def pipe_right(self, broken):
-        self._input.add(broken)
+        self._signals.add(broken)
 
     def head(self):
         return self._output.head()
@@ -395,8 +431,8 @@ class Fork(Stream):
         return self._result
 
 class _GeneratorOutput(_Queue):
-    def __init__(self, *args, **keys):
-        _Queue.__init__(self, *args, **keys)
+    def __init__(self):
+        _Queue.__init__(self)
 
         self._stack = collections.deque()
         self._closed = False
@@ -534,7 +570,7 @@ class Generator(Stream):
 class Next(Stream):
     def __init__(self):
         self._result = Value()
-        self._input = Piped()
+        self._input = Piped(True)
         self._input.head().listen(self._promise)
 
     def _promise(self, promise):
@@ -636,7 +672,7 @@ class PipePair(Stream):
 class Event(Stream):
     def __init__(self):
         self._result = Value()
-        self._input = Piped()
+        self._input = Piped(True)
         self._input_head = self._input.head()
         self._input_head.listen(self._input_promise)
 
