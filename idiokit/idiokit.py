@@ -44,20 +44,18 @@ class _Queue(object):
     def _move(self, _):
         while True:
             if not self._head.is_set():
-                return head.listen(self._move)
+                return self._head.listen(self._move)
 
             promise = self._head.get()
             if promise is None:
                 return
 
             consumed, value, head = promise
-            if consumed.is_set():
-                pass
-            elif not value.is_set():
-                return value.listen(self._move)
-            elif value.get() is not None:
-                return consumed.listen(self._move)
-            else:
+            if not consumed.is_set():
+                if not value.is_set():
+                    return value.listen(self._move)
+                if value.get() is not None:
+                    return consumed.listen(self._move)
                 consumed.set()
 
             with self._lock:
@@ -67,8 +65,8 @@ class _Queue(object):
         with self._lock:
             head = self._head
             if head is None:
-                return self._tail
-            return head
+                head = self._tail
+        return head
 
 class Piped(_Queue):
     def __init__(self, auto_consume=False):
