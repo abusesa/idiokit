@@ -756,17 +756,12 @@ def main_loop(main):
     def _signal(code, _):
         consume = Value()
         value = Value((True, (Signal, Signal(code), None)))
-
-        head = _signal.head
-        _signal.head = Value()
+        obj = Value((consume, value, NULL))
 
         thread = threading.Thread(target=callqueue.add,
-                                  args=(head.set, (consume, value, _signal.head)))
+                                  args=(main.pipe_left, NULL, obj))
         thread.setDaemon(True)
         thread.start()
-    _signal.head = Value()
-
-    main.pipe_left(NULL, _signal.head)
 
     sigint = signal.getsignal(signal.SIGINT)
     sigterm = signal.getsignal(signal.SIGTERM)
