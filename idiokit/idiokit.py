@@ -603,6 +603,19 @@ class Next(Stream):
     def result(self):
         return self._result
 
+class Event(Next):
+    def set(self, args):
+        Next.pipe_left(self, NULL, Value((NULL, Value(args), NULL)))
+
+    def succeed(self, *args):
+        return self.set((False, args))
+
+    def fail(self, *args):
+        return self.set((True, args))
+
+    def pipe_left(self, _, signal_head):
+        Next.pipe_left(self, NULL, signal_head)
+
 class PipePair(Stream):
     def __init__(self, left, right):
         self._left = left
@@ -665,47 +678,6 @@ class PipePair(Stream):
 
     def head(self):
         return self._right.head()
-
-    def result(self):
-        return self._result
-
-class Event(Stream):
-    def __init__(self):
-        self._result = Value()
-        self._input = Piped(True)
-        self._input_head = self._input.head()
-        self._input_head.listen(self._input_promise)
-
-    def _input_promise(self, promise):
-        consumed, value, self._input_head = promise
-        consumed.set()
-        value.listen(self._input_value)
-
-    def _input_value(self, value):
-        if value is None:
-            self._input_head.listen(self._input_promise)
-            return
-        self._input.close()
-        self._input_head = None
-        self._result.set(value)
-
-    def succeed(self, *args):
-        return self.set((False, args))
-
-    def fail(self, *args):
-        return self.set((True, args))
-
-    def set(self, args):
-        self._input.add(Value((NULL, Value(args), NULL)))
-
-    def pipe_left(self, _, signal_head):
-        self._input.add(signal_head)
-
-    def pipe_right(self, broken_head):
-        self._input.add(broken_head)
-
-    def head(self):
-        return NULL
 
     def result(self):
         return self._result
