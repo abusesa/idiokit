@@ -1,7 +1,6 @@
 from __future__ import absolute_import
 
 import socket
-import collections
 
 from .. import idiokit, sockets, xmlcore, timer, threadpool
 from . import resolve
@@ -78,7 +77,8 @@ def _get_socket(domain, host, port):
 @idiokit.stream
 def connect(jid, password,
             host=None, port=None,
-            ssl_verify_cert=True, ssl_ca_certs=None):
+            rate_limiter=None,
+            ssl_verify_cert=True,ssl_ca_certs=None):
     jid = JID(jid)
     sock = yield _get_socket(jid.domain, host, port)
 
@@ -93,6 +93,9 @@ def connect(jid, password,
     elements = element_stream(sock, jid.domain)
 
     jid = yield core.require_bind_and_session(elements, jid)
+
+    if rate_limiter is not None:
+        elements = idiokit.pipe(rate_limiter, elements)
     idiokit.stop(XMPP(jid, elements))
 
 class XMPP(idiokit.Proxy):
