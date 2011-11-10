@@ -165,9 +165,7 @@ class Piped(_Queue):
             return
 
         self._closed = True
-        tail = self._tail
-
-        tail.unsafe_set(None)
+        self._tail.unsafe_set(None)
 
     def _close(self):
         if self._closed:
@@ -180,9 +178,8 @@ class Piped(_Queue):
         self._heads = None
         self._ready = None
 
-        tail = self._tail
-
-        tail.unsafe_set(None)
+        self._tail.unsafe_set(None)
+        self._head = NULL
 
         for head, listener in heads.itervalues():
             head.unsafe_unlisten(listener)
