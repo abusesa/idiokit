@@ -19,6 +19,7 @@ class CallQueue(object):
         self.queue_acquire = queue_lock.acquire
         self.queue_release = queue_lock.release
 
+        self.local = threading.local()
         self.head = None
         self.tail = None
         self.callback = None
@@ -32,9 +33,14 @@ class CallQueue(object):
 
         self.queue_release()
 
-        while head is not None:
-            head.func(*head.args, **head.keys)
-            head = head.next
+        try:
+            self.local.current = True
+
+            while head is not None:
+                head.func(*head.args, **head.keys)
+                head = head.next
+        finally:
+            self.local.current = False
 
     def add(self, func, *args, **keys):
         new_tail = self.CallNode(func, args, keys)
@@ -55,6 +61,18 @@ class CallQueue(object):
 
         if callback is not None:
             callback()
+
+    def asap(self, func, *args, **keys):
+        try:
+            current = self.local.current
+        except AttributeError:
+            current = False
+            self.local.current = False
+
+        if current:
+            func(*args, **keys)
+        else:
+            self.add(func, *args, **keys)
 
     @contextlib.contextmanager
     def exclusive(self, callback):
@@ -87,3 +105,4 @@ global_queue = CallQueue()
 exclusive = global_queue.exclusive
 iterate = global_queue.iterate
 add = global_queue.add
+asap = global_queue.asap

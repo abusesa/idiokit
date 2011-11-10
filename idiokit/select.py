@@ -51,7 +51,7 @@ def async_select(read, write, error, timeout=None):
     try:
         result = yield event
     finally:
-        if not value.is_set():
+        if not value.unsafe_is_set():
             os.write(wfd, "\x00")
             try:
                 yield _ValueStream(value)

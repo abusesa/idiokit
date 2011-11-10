@@ -1,54 +1,59 @@
-from __future__ import with_statement
+from __future__ import absolute_import
 
-import threading
+from . import callqueue
 
 _UNDEFINED = object()
+_ERROR = ValueError("value has not been set")
 
 class Value(object):
-    _lock = threading.Lock()
-
     def __init__(self, value=_UNDEFINED):
         self._value = value
         self._listeners = None
 
-    def is_set(self):
-        with self._lock:
-            return self._value is not _UNDEFINED
+    def unsafe_is_set(self):
+        return self._value is not _UNDEFINED
 
-    def get(self):
-        with self._lock:
-            value = self._value
-        return None if value is _UNDEFINED else value
+    def unsafe_get(self):
+        value = self._value
+        if value is _UNDEFINED:
+            raise _ERROR
+        return value
 
-    def set(self, value=None):
-        with self._lock:
-            if self._value is not _UNDEFINED:
-                return False
-            self._value = value
+    def unsafe_set(self, value=None):
+        if self._value is not _UNDEFINED:
+            return False
+        self._value = value
 
-            listeners = self._listeners
-            if listeners is None:
-                return True
-            self._listeners = None
+        listeners = self._listeners
+        if listeners is None:
+            return True
+        self._listeners = None
 
         for callback in listeners:
             callback(value)
         return True
 
-    def listen(self, callback):
-        with self._lock:
-            if self._value is _UNDEFINED:
-                listeners = self._listeners
-                if listeners is None:
-                    listeners = set()
-                    self._listeners = listeners
-                listeners.add(callback)
-                return
+    def unsafe_listen(self, callback):
+        if self._value is _UNDEFINED:
+            listeners = self._listeners
+            if listeners is None:
+                listeners = set()
+                self._listeners = listeners
+            listeners.add(callback)
+            return
 
         callback(self._value)
 
+    def unsafe_unlisten(self, callback):
+        listeners = self._listeners
+        if listeners is not None:
+            listeners.discard(callback)
+
+    def set(self, value=None):
+        callqueue.asap(self.unsafe_set, value)
+
+    def listen(self, callback):
+        callqueue.asap(self.unsafe_listen, callback)
+
     def unlisten(self, callback):
-        with self._lock:
-            listeners = self._listeners
-            if listeners is not None:
-                listeners.discard(callback)
+        callqueue.asap(self.unsafe_unlisten, callback)

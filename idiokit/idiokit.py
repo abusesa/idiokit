@@ -43,20 +43,20 @@ class _Queue(object):
 
     def _move(self, _):
         while True:
-            if not self._head.is_set():
-                return self._head.listen(self._move)
+            if not self._head.unsafe_is_set():
+                return self._head.unsafe_listen(self._move)
 
-            promise = self._head.get()
+            promise = self._head.unsafe_get()
             if promise is None:
                 return
 
             consumed, value, head = promise
-            if not consumed.is_set():
-                if not value.is_set():
-                    return value.listen(self._move)
-                if value.get() is not None:
-                    return consumed.listen(self._move)
-                consumed.set()
+            if not consumed.unsafe_is_set():
+                if not value.unsafe_is_set():
+                    return value.unsafe_listen(self._move)
+                if value.unsafe_get() is not None:
+                    return consumed.unsafe_listen(self._move)
+                consumed.unsafe_set()
 
             with self._lock:
                 self._head = head
@@ -78,131 +78,123 @@ class Piped(_Queue):
         self._ready = collections.deque()
         self._heads = dict()
 
-    def add(self, head):
+    def _add(self, head):
         if head is NULL:
             return
 
-        with self._lock:
-            if self._sealed:
+        if self._sealed:
+            return
+
+        key = object()
+        listener = functools.partial(self._promise, key)
+        self._heads[key] = head, listener
+
+        head.unsafe_listen(listener)
+
+    def _promise(self, key, promise):
+        if self._closed:
+            return
+        del self._heads[key]
+
+        if promise is None:
+            if self._sealed and not self._ready and not self._heads:
+                tail = self._tail
+                self._closed = True
+            else:
                 return
+        elif self._ready:
+            self._ready.append(promise)
+            return
+        else:
+            _, value, _ = promise
+            self._ready.append(promise)
+
+            next = Value()
+            tail = self._tail
+            self._tail = next
+
+        if promise is None:
+            tail.unsafe_set(None)
+            return
+
+        next_consume = Value()
+        next_value = Value()
+        tail.unsafe_set((next_consume, next_value, next))
+        next_consume.unsafe_listen(functools.partial(self._consume, next_value))
+
+    def _consume(self, value, _):
+        if self._closed:
+            promise = None
+        else:
+            promise = self._ready.popleft()
+
+            consume, original, head = promise
 
             key = object()
             listener = functools.partial(self._promise, key)
             self._heads[key] = head, listener
 
-        head.listen(listener)
-
-        with self._lock:
-            if not self._closed:
-                return
-
-        head.unlisten(listener)
-
-    def _promise(self, key, promise):
-        with self._lock:
-            if self._closed:
-                return
-            del self._heads[key]
-
-            if promise is None:
-                if self._sealed and not self._ready and not self._heads:
-                    tail = self._tail
-                    self._closed = True
-                else:
-                    return
-            elif self._ready:
-                self._ready.append(promise)
-                return
-            else:
-                _, value, _ = promise
-                self._ready.append(promise)
-
+            if self._ready:
                 next = Value()
                 tail = self._tail
                 self._tail = next
-
-        if promise is None:
-            tail.set(None)
-            return
-
-        next_consume = Value()
-        next_value = Value()
-        tail.set((next_consume, next_value, next))
-        next_consume.listen(functools.partial(self._consume, next_value))
-
-    def _consume(self, value, _):
-        with self._lock:
-            if self._closed:
-                promise = None
             else:
-                promise = self._ready.popleft()
-
-                consume, original, head = promise
-
-                key = object()
-                listener = functools.partial(self._promise, key)
-                self._heads[key] = head, listener
-
-                if self._ready:
-                    next = Value()
-                    tail = self._tail
-                    self._tail = next
-                else:
-                    tail = None
+                tail = None
 
         if promise is None:
-            value.set(None)
+            value.unsafe_set(None)
             return
 
-        consume.set()
-        original.listen(value.set)
+        consume.unsafe_set()
+        original.unsafe_listen(value.set)
 
         if tail is not None:
             next_consume = Value()
             next_value = Value()
-            tail.set((next_consume, next_value, next))
-            next_consume.listen(functools.partial(self._consume, next_value))
+            tail.unsafe_set((next_consume, next_value, next))
+            next_consume.unsafe_listen(functools.partial(self._consume, next_value))
 
-        head.listen(listener)
+        head.unsafe_listen(listener)
 
-        with self._lock:
-            if not self._closed:
-                return
+    def _seal(self):
+        if self._sealed:
+            return
+        self._sealed = True
 
-        head.unlisten(listener)
+        if self._heads or self._ready:
+            return
 
-    def seal(self):
-        with self._lock:
-            if self._sealed:
-                return
-            self._sealed = True
+        self._closed = True
+        tail = self._tail
 
-            if self._heads or self._ready:
-                return
+        tail.unsafe_set(None)
 
-            self._closed = True
-            tail = self._tail
+    def _close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._sealed = True
 
-        tail.set(None)
+        heads = self._heads
 
-    def close(self):
-        with self._lock:
-            if self._closed:
-                return
-            self._closed = True
-            self._sealed = True
+        self._heads = None
+        self._ready = None
 
-            heads = self._heads
+        tail = self._tail
 
-            self._heads = None
-            self._ready = None
-
-            tail = self._tail
-
-        tail.set(None)
+        tail.unsafe_set(None)
 
         for head, listener in heads.itervalues():
-            head.unlisten(listener)
+            head.unsafe_unlisten(listener)
+
+    def add(self, head):
+        callqueue.asap(self._add, head)
+
+    def seal(self):
+        callqueue.asap(self._seal)
+
+    def close(self):
+        callqueue.asap(self._close)
 
 def peel_args(args):
     if not args:
@@ -210,15 +202,6 @@ def peel_args(args):
     elif len(args) == 1:
         return args[0]
     return args
-
-def stream(func):
-    if not isgenfunc(func):
-        raise TypeError("%r is not a generator function" % func)
-
-    @functools.wraps(func)
-    def _stream(*args, **keys):
-        return Generator(func(*args, **keys))
-    return _stream
 
 class Stream(object):
     def fork(self, *args, **keys):
@@ -252,6 +235,8 @@ class Stream(object):
         return PipePair(self, other)
 
 class _SendBase(Stream):
+    _lock = threading.Lock()
+
     _CONSUMED = object()
     _PARENT = object()
 
@@ -280,37 +265,44 @@ class _SendBase(Stream):
 
     def _input_promise(self, promise):
         consumed, value, self._input_head = promise
-        consumed.set()
-        value.listen(self._input_value)
+        consumed.unsafe_set()
+        value.unsafe_listen(self._input_value)
 
     def _input_value(self, value):
         if value is None:
-            self._input_head.listen(self._input_promise)
+            self._input_head.unsafe_listen(self._input_promise)
             return
 
         if value is self._PARENT:
-            self._value.set(None)
-            throw, args = self._parent.get()
+            self._value.unsafe_set(None)
+            throw, args = self._parent.unsafe_get()
             if not throw:
                 throw = True
                 args = (BrokenPipe, BrokenPipe(*args), None)
-            self._result.set((throw, args))
+            self._result.unsafe_set((throw, args))
         elif self._parent is not None:
-            self._parent.unlisten(self._set_parent)
+            self._parent.unsafe_unlisten(self._set_parent)
         self._parent = None
 
         if value is self._CONSUMED:
-            self._value.set(self._message)
-            self._result.set((False, ()))
+            self._value.unsafe_set(self._message)
+            self._result.unsafe_set((False, ()))
         else:
-            self._consumed.unlisten(self._set_consumed)
+            self._consumed.unsafe_unlisten(self._set_consumed)
         self._message = None
 
         if value not in (self._CONSUMED, self._PARENT):
-            self._value.set(None)
-            self._result.set(value)
+            self._value.unsafe_set(None)
+            self._result.unsafe_set(value)
         self._input.close()
         self._input_head = None
+
+        with self._lock:
+            self._head = NULL
+
+    def _output_head(self):
+        with self._lock:
+            return self._head
 
     def pipe_left(self, _, signal_head):
         self._input.add(signal_head)
@@ -329,9 +321,7 @@ class Send(_SendBase):
         _SendBase.__init__(self, None, throw, args)
 
     def head(self):
-        if self._consumed.is_set():
-            return NULL
-        return self._head
+        return self._output_head()
 
 class Fork(Stream):
     def __init__(self, stream):
@@ -354,7 +344,7 @@ class Fork(Stream):
         self._stream.result().listen(self._stream_result)
 
     def _stream_result(self, result):
-        if self._result.set(result):
+        if self._result.unsafe_set(result):
             self._messages.close()
             self._signals.close()
             self._stream = None
@@ -364,12 +354,12 @@ class Fork(Stream):
             return
 
         consume, value, head = promise
-        consume.set()
-        value.listen(functools.partial(self._signal_value, head))
+        consume.unsafe_set()
+        value.unsafe_listen(functools.partial(self._signal_value, head))
 
     def _signal_value(self, head, result):
         if result is None or not result[0]:
-            head.listen(self._signal_promise)
+            head.unsafe_listen(self._signal_promise)
             return
 
         throw, args = result
@@ -377,14 +367,14 @@ class Fork(Stream):
         self._messages.close()
         self._signals.close()
 
-        if self._result.set(result):
+        if self._result.unsafe_set(result):
             self._output.close()
-            self._stream.result().unlisten(self._stream_result)
+            self._stream.result().unsafe_unlisten(self._stream_result)
             self._stream = None
 
     def _message_promise(self, promise):
         if promise is None:
-            self._current.set(None)
+            self._current.unsafe_set(None)
             self._current = None
             return
 
@@ -394,25 +384,25 @@ class Fork(Stream):
 
         current = self._current
         self._current = next_message
-        current.set((consume, next_value, next_message))
-        value.listen(functools.partial(self._message_value, head, next_value, next_message))
+        current.unsafe_set((consume, next_value, next_message))
+        value.unsafe_listen(functools.partial(self._message_value, head, next_value, next_message))
 
     def _message_value(self, head, next_value, next_message, result):
         if result is None or not result[0]:
-            next_value.set(result)
-            head.listen(self._message_promise)
+            next_value.unsafe_set(result)
+            head.unsafe_listen(self._message_promise)
             return
 
         throw, args = result
 
-        next_value.set(None)
-        next_message.set(None)
+        next_value.unsafe_set(None)
+        next_message.unsafe_set(None)
         self._messages.close()
         self._signals.close()
 
-        if self._result.set(result):
+        if self._result.unsafe_set(result):
             self._output.close()
-            self._stream.result().unlisten(self._stream_result)
+            self._stream.result().unsafe_unlisten(self._stream_result)
             self._stream = None
 
     def pipe_left(self, messages, signals):
@@ -440,36 +430,34 @@ class _GeneratorOutput(_Queue):
         if head is NULL:
             return
 
-        with self._lock:
-            if self._closed:
-                return
+        if self._closed:
+            return
 
-            if self._stack:
-                self._stack.append(stream)
-                return
+        if self._stack:
+            self._stack.append(stream)
+            return
 
-            self._stack.append(None)
+        self._stack.append(None)
 
-        head.listen(self._promise)
+        head.unsafe_listen(self._promise)
 
     def _promise(self, promise):
         if promise is None:
-            with self._lock:
-                stack = self._stack
-                stack.popleft()
+            stack = self._stack
+            stack.popleft()
 
-                if stack:
-                    stream = stack[0]
-                    stack[0] = None
-                else:
-                    stream = None
-                closed = self._closed
+            if stack:
+                stream = stack[0]
+                stack[0] = None
+            else:
+                stream = None
+            closed = self._closed
 
             if stream is None:
                 if closed:
-                    self._tail.set(None)
+                    self._tail.unsafe_set(None)
             else:
-                stream.head().listen(self._promise)
+                stream.head().unsafe_listen(self._promise)
         else:
             consume, value, head = promise
 
@@ -477,23 +465,22 @@ class _GeneratorOutput(_Queue):
             self._tail = Value()
 
             next_consume = Value()
-            tail.set((next_consume, value, self._tail))
+            tail.unsafe_set((next_consume, value, self._tail))
 
-            next_consume.listen(functools.partial(self._consumed, consume, head))
+            next_consume.unsafe_listen(functools.partial(self._consumed, consume, head))
 
     def _consumed(self, consume, head, _):
-        consume.set()
-        head.listen(self._promise)
+        consume.unsafe_set()
+        head.unsafe_listen(self._promise)
 
     def close(self):
-        with self._lock:
-            if self._closed:
-                return
-            self._closed = True
+        if self._closed:
+            return
+        self._closed = True
 
-            if self._stack:
-                return
-        self._tail.set(None)
+        if self._stack:
+            return
+        self._tail.unsafe_set(None)
 
 class Generator(Stream):
     _running = set()
@@ -523,9 +510,9 @@ class Generator(Stream):
             else:
                 next = self._gen.send(peel_args(args))
         except StopIteration, stop:
-            self.close(False, stop.args)
+            self._close(False, stop.args)
         except:
-            self.close(True, sys.exc_info())
+            self._close(True, sys.exc_info())
         else:
             if not isinstance(next, Stream):
                 error = TypeError("expected a stream, got %r" % (next,))
@@ -537,16 +524,16 @@ class Generator(Stream):
 
             self._output.stack(next)
 
-            next.result().listen(self._step)
+            next.result().unsafe_listen(self._step)
 
-    def close(self, throw, args):
+    def _close(self, throw, args):
         self._output.close()
 
         self._messages.close()
         self._signals.close()
         self._broken.close()
 
-        self._result.set((throw, args))
+        self._result.unsafe_set((throw, args))
 
         self._gen = None
         self._step = None
@@ -572,21 +559,16 @@ class Next(Stream):
         self._input.head().listen(self._promise)
 
     def _promise(self, promise):
-        if promise is None:
-            self._input.close()
-            return
-
         consume, value, head = promise
-        consume.set()
-
-        value.listen(functools.partial(self._value, head))
+        consume.unsafe_set()
+        value.unsafe_listen(functools.partial(self._value, head))
 
     def _value(self, head, result):
         if result is None:
-            head.listen(self._promise)
-            return
-        self._input.close()
-        self._result.set(result)
+            head.unsafe_listen(self._promise)
+        else:
+            self._input.close()
+            self._result.unsafe_set(result)
 
     def pipe_left(self, messages, signals):
         self._input.add(signals)
@@ -633,23 +615,23 @@ class PipePair(Stream):
 
     def _left_result(self, (throw, args)):
         if throw:
-            self._signal_head.set((NULL, Value((True, args)), NULL))
+            self._signal_head.unsafe_set((NULL, Value((True, args)), NULL))
         else:
-            self._signal_head.set(None)
-        self._right.result().listen(self._result.set)
+            self._signal_head.unsafe_set(None)
+        self._right.result().unsafe_listen(self._result.set)
 
     def _right_result(self, (throw, args)):
         if not throw:
             throw = True
             args = (BrokenPipe, BrokenPipe(*args), None)
-        self._broken_head.set((NULL, Value((throw, args)), NULL))
+        self._broken_head.unsafe_set((NULL, Value((throw, args)), NULL))
 
     def _message_promise(self, promise):
-        if self._right.result().is_set():
+        if self._right.result().unsafe_is_set():
             return
 
         if promise is None:
-            self._left.result().listen(self._message_final)
+            self._left.result().unsafe_listen(self._message_final)
             return
 
         consume, value, head = promise
@@ -658,15 +640,15 @@ class PipePair(Stream):
         new_head = Value()
         self._message_head = new_head
 
-        if not old_head.set((consume, value, new_head)):
+        if not old_head.unsafe_set((consume, value, new_head)):
             return
 
-        head.listen(self._message_promise)
+        head.unsafe_listen(self._message_promise)
 
     def _message_final(self, (throw, args)):
         if not throw:
             args = StopIteration, StopIteration(*args), None
-            self._message_head.set((NULL, Value((True, args)), NULL))
+            self._message_head.unsafe_set((NULL, Value((True, args)), NULL))
 
     def pipe_left(self, *args, **keys):
         return self._left.pipe_left(*args, **keys)
@@ -698,6 +680,15 @@ class Proxy(Stream):
     def result(self, *args, **keys):
         return self._proxied.result(*args, **keys)
 
+def stream(func):
+    if not isgenfunc(func):
+        raise TypeError("%r is not a generator function" % func)
+
+    @functools.wraps(func)
+    def _stream(*args, **keys):
+        return Generator(func(*args, **keys))
+    return _stream
+
 def send(*args):
     return Send(False, args)
 
@@ -728,8 +719,7 @@ def main_loop(main):
         value = Value((True, (Signal, Signal(code), None)))
         obj = Value((consume, value, NULL))
 
-        thread = threading.Thread(target=callqueue.add,
-                                  args=(main.pipe_left, NULL, obj))
+        thread = threading.Thread(target=main.pipe_left, args=(NULL, obj))
         thread.setDaemon(True)
         thread.start()
 
@@ -747,17 +737,18 @@ def main_loop(main):
             while True:
                 iterate()
 
-                if result.is_set():
+                if result.unsafe_is_set():
                     break
 
                 while not event.isSet():
                     event.wait(0.5)
                 event.clear()
+
+            throw, args = result.unsafe_get()
     finally:
         signal.signal(signal.SIGINT, sigint)
         signal.signal(signal.SIGTERM, sigterm)
 
-    throw, args = result.get()
     if throw:
         exc_type, exc_value, exc_tb = args + (None,) * (3-len(args))
         raise exc_type, exc_value, exc_tb
