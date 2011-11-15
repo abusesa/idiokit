@@ -499,6 +499,7 @@ class Generator(Stream):
     def _start(self):
         self._running.add(self)
         self._next((False, ()))
+        del self
 
     def _next(self, (throw, args)):
         try:
@@ -508,12 +509,14 @@ class Generator(Stream):
                 next = self._gen.send(peel_args(args))
         except StopIteration, stop:
             self._close(False, stop.args)
+            del stop
         except:
             self._close(True, sys.exc_info())
         else:
             if not isinstance(next, Stream):
                 error = TypeError("expected a stream, got %r" % (next,))
                 self._step((True, (TypeError, error, None)))
+                del error
                 return
 
             next.pipe_left(self._messages.head(), self._signals.head())
@@ -522,6 +525,8 @@ class Generator(Stream):
             self._output.stack(next)
 
             next.result().unsafe_listen(self._step)
+            del next
+        del self, throw, args
 
     def _close(self, throw, args):
         self._output.close()
