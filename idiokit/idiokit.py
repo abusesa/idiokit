@@ -98,62 +98,48 @@ class Piped(_Queue):
 
         if promise is None:
             if self._sealed and not self._ready and not self._heads:
-                tail = self._tail
                 self._closed = True
-            else:
-                return
-        elif self._ready:
+                self._tail.unsafe_set(None)
+            return
+
+        if self._ready:
             self._ready.append(promise)
             return
-        else:
-            _, value, _ = promise
-            self._ready.append(promise)
 
+        self._ready.append(promise)
+
+        next = Value()
+        tail = self._tail
+        self._tail = next
+
+        next_consumed = Value()
+        next_value = Value()
+        tail.unsafe_set((next_consumed, next_value, next))
+        next_consumed.unsafe_listen(functools.partial(self._consumed, next_value))
+
+    def _consumed(self, value, _):
+        if self._closed:
+            value.unsafe_set(None)
+            return
+
+        consumed, original, head = self._ready.popleft()
+
+        key = object()
+        listener = functools.partial(self._promise, key)
+        self._heads[key] = head, listener
+
+        if self._ready:
             next = Value()
             tail = self._tail
             self._tail = next
 
-        if promise is None:
-            tail.unsafe_set(None)
-            return
-
-        next_consume = Value()
-        next_value = Value()
-        tail.unsafe_set((next_consume, next_value, next))
-        next_consume.unsafe_listen(functools.partial(self._consume, next_value))
-
-    def _consume(self, value, _):
-        if self._closed:
-            promise = None
-        else:
-            promise = self._ready.popleft()
-
-            consume, original, head = promise
-
-            key = object()
-            listener = functools.partial(self._promise, key)
-            self._heads[key] = head, listener
-
-            if self._ready:
-                next = Value()
-                tail = self._tail
-                self._tail = next
-            else:
-                tail = None
-
-        if promise is None:
-            value.unsafe_set(None)
-            return
-
-        consume.unsafe_set()
-        original.unsafe_listen(value.set)
-
-        if tail is not None:
-            next_consume = Value()
+            next_consumed = Value()
             next_value = Value()
-            tail.unsafe_set((next_consume, next_value, next))
-            next_consume.unsafe_listen(functools.partial(self._consume, next_value))
+            tail.unsafe_set((next_consumed, next_value, next))
+            next_consumed.unsafe_listen(functools.partial(self._consumed, next_value))
 
+        consumed.unsafe_set()
+        original.unsafe_listen(value.set)
         head.unsafe_listen(listener)
 
     def _seal(self):
@@ -163,7 +149,6 @@ class Piped(_Queue):
 
         if self._heads or self._ready:
             return
-
         self._closed = True
         self._tail.unsafe_set(None)
 
@@ -174,7 +159,6 @@ class Piped(_Queue):
         self._sealed = True
 
         heads = self._heads
-
         self._heads = None
         self._ready = None
 
