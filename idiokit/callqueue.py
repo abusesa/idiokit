@@ -12,8 +12,6 @@ class CallQueue(object):
 
             self.next = None
 
-    _node_cache = None
-
     def __init__(self):
         self.exclusive_lock = threading.Lock()
 
@@ -30,44 +28,24 @@ class CallQueue(object):
         self.queue_acquire()
 
         head = self.head
-        tail = self.tail
         self.head = None
         self.tail = None
 
         self.queue_release()
-
-        if head is None:
-            return
 
         try:
             self.local.current = True
 
             while head is not None:
                 head.func(*head.args, **head.keys)
-
-                head.func = None
-                head.args = None
-                head.keys = None
-
                 head = head.next
         finally:
             self.local.current = False
 
-        self.queue_acquire()
-
-        tail.next = self._node_cache
-        self._node_cache = head
-
-        self.queue_release()
-
     def add(self, func, *args, **keys):
-        self.queue_acquire()
+        new_tail = self.CallNode(func, args, keys)
 
-        new_tail = self._node_cache
-        if new_tail is None:
-            new_tail = self.CallNode(func, args, keys)
-        else:
-            self._node_cache = new_tail.next
+        self.queue_acquire()
 
         old_tail = self.tail
         self.tail = new_tail
