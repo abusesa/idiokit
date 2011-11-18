@@ -143,18 +143,14 @@ class MUC(object):
         self.xmpp.disco.add_node(ROOMS_NODE, self._node_handler)
         self.rooms = dict()
 
-        self._main = idiokit.pipe(self.xmpp, self._dispatch())
+        self._main = self.xmpp.map(self._map)
         self._muc = None
 
-    @idiokit.stream
-    def _dispatch(self):
-        while True:
-            elements = yield idiokit.next()
-
-            for element in elements.with_attrs("from"):
-                bare = JID(element.get_attr("from")).bare()
-                for output in self.rooms.get(bare, ()):
-                    output.send(element)
+    def _map(self, elements):
+        for element in elements.with_attrs("from"):
+            bare = JID(element.get_attr("from")).bare()
+            for room in self.rooms.get(bare, ()):
+                room.send(element)
 
     def _node_handler(self):
         features = list()

@@ -184,7 +184,13 @@ def peel_args(args):
         return args[0]
     return args
 
+def fill_exc(args):
+    return args + (None,) * (3-len(args))
+
 class Stream(object):
+    def map(self, func, *args, **keys):
+        return PipePair(self, Map(func, *args, **keys))
+
     def fork(self, *args, **keys):
         return Fork(self, *args, **keys)
 
@@ -214,6 +220,93 @@ class Stream(object):
 
     def __or__(self, other):
         return PipePair(self, other)
+
+class _MapOutput(_Queue):
+    def __init__(self, head, func, args, keys):
+        _Queue.__init__(self)
+
+        self._func = func
+        self._args = args
+        self._keys = keys
+
+        self._gen = None
+        self._result = Value()
+        self._current = head
+        self._current.listen(self._map)
+
+    def _map(self, _):
+        while True:
+            if self._gen is None:
+                if not self._current.unsafe_is_set():
+                    return self._current.unsafe_listen(self._map)
+
+                promise = self._current.unsafe_get()
+                if promise is None:
+                    self._tail.unsafe_set(None)
+                    return
+
+                consumed, value, head = promise
+                consumed.unsafe_set()
+
+                if not value.unsafe_is_set():
+                    return value.unsafe_listen(self._map)
+
+                result = value.unsafe_get()
+                if result is not None:
+                    throw, args = result
+                    if throw:
+                        exc_type, exc_value, exc_tb = fill_exc(args)
+                        if isinstance(exc_value, StopIteration):
+                            self._result.unsafe_set((False, exc_value.args))
+                        else:
+                            self._result.unsafe_set((True, args))
+                        return
+
+                    self._gen = self._func(peel_args(args), *self._args, **self._keys)
+
+                if self._gen is not None:
+                    self._gen = iter(self._gen)
+
+                self._current = head
+                continue
+
+            for obj in self._gen:
+                next_consumed = Value()
+                next_value = Value((False, (obj,)))
+                next_head = Value()
+
+                tail = self._tail
+                self._tail = next_head
+                tail.unsafe_set((next_consumed, next_value, next_head))
+
+                if not next_consumed.unsafe_is_set():
+                    return next_consumed.unsafe_listen(self._map)
+            else:
+                self._gen = None
+
+    def result(self):
+        return self._result
+
+class Map(Stream):
+    def __init__(self, func, *args, **keys):
+        Stream.__init__(self)
+
+        self._input = Piped(True)
+        self._output = _MapOutput(self._input.head(), func, args, keys)
+        self._result = Value()
+
+    def pipe_left(self, messages, signals):
+        self._input.add(signals)
+        self._input.add(messages)
+
+    def pipe_right(self, broken):
+        self._input.add(broken)
+
+    def result(self, *args, **keys):
+        return self._output.result()
+
+    def head(self):
+        return self._output.head()
 
 class _SendBase(Stream):
     _lock = threading.Lock()
@@ -678,6 +771,9 @@ def stream(func):
 def send(*args):
     return Send(False, args)
 
+def map(func, *args, **keys):
+    return Map(func, *args, **keys)
+
 def pipe(first, *rest):
     if not rest:
         return first
@@ -689,10 +785,8 @@ next = Next
 def stop(*args):
     raise StopIteration(*args)
 
-@stream
 def consume():
-    while True:
-        yield next()
+    return map(lambda x: None)
 
 class Signal(BaseException):
     pass
@@ -736,6 +830,6 @@ def main_loop(main):
         signal.signal(signal.SIGTERM, sigterm)
 
     if throw:
-        exc_type, exc_value, exc_tb = args + (None,) * (3-len(args))
+        exc_type, exc_value, exc_tb = fill_exc(args)
         raise exc_type, exc_value, exc_tb
     return peel_args(args)

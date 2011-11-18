@@ -175,30 +175,26 @@ class Core(object):
         self.xmpp = xmpp
         self.iq_handlers = list()
         self.iq_uids = dict()
-        idiokit.pipe(xmpp, self._handle_iqs())
+        idiokit.pipe(xmpp.map(self._map_iqs))
 
     def add_iq_handler(self, func, *args, **keys):
         self.iq_handlers.append((func, args, keys))
 
-    @idiokit.stream
-    def _handle_iqs(self):
-        while True:
-            elements = yield idiokit.next()
+    def _map_iqs(self, elements):
+        for iq in elements.named("iq", STANZA_NS).with_attrs("type"):
+            if iq.get_attr("type").lower() not in ("get", "set"):
+                uid = iq.get_attr("id", None)
+                if uid is not None and uid in self.iq_uids:
+                    self.iq_uids[uid].send(iq)
+                continue
 
-            for iq in elements.named("iq", STANZA_NS).with_attrs("type"):
-                if iq.get_attr("type").lower() not in ("get", "set"):
-                    uid = iq.get_attr("id", None)
-                    if uid is not None and uid in self.iq_uids:
-                        self.iq_uids[uid].send(iq)
-                    continue
-
-                for func, args, keys in self.iq_handlers:
-                    payload = iq.children(*args, **keys)
-                    if payload and func(iq, list(payload)[0]):
-                        break
-                else:
-                    error = self.build_error("cancel", "service-unavailable")
-                    self.iq_error(iq, error)
+            for func, args, keys in self.iq_handlers:
+                payload = iq.children(*args, **keys)
+                if payload and func(iq, list(payload)[0]):
+                    break
+            else:
+                error = self.build_error("cancel", "service-unavailable")
+                self.iq_error(iq, error)
 
     def build_error(self, type, condition, text=None, special=None):
         if type not in self.VALID_ERROR_TYPES:
