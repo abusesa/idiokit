@@ -91,7 +91,7 @@ class MUCRoom(idiokit.Proxy):
         self._xmpp = muc.xmpp
 
         idiokit.Proxy.__init__(self, self._input() | output)
-        output.map(self._presences) | self._output()
+        output | idiokit.map(self._presences) | self._output()
 
     def _presences(self, elements):
         return elements.named("presence").with_attrs("from")
@@ -138,7 +138,7 @@ class MUC(object):
         self.xmpp.disco.add_node(ROOMS_NODE, self._node_handler)
         self.rooms = dict()
 
-        self._main = self.xmpp.map(self._map)
+        self._main = self.xmpp | idiokit.map(self._map)
         self._muc = None
 
     def _map(self, elements):

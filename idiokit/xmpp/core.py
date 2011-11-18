@@ -175,7 +175,7 @@ class Core(object):
         self.xmpp = xmpp
         self.iq_handlers = list()
         self.iq_uids = dict()
-        idiokit.pipe(xmpp.map(self._map_iqs))
+        idiokit.pipe(xmpp, idiokit.map(self._map_iqs))
 
     def add_iq_handler(self, func, *args, **keys):
         self.iq_handlers.append((func, args, keys))

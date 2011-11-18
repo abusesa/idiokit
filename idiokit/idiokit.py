@@ -188,9 +188,6 @@ def fill_exc(args):
     return args + (None,) * (3-len(args))
 
 class Stream(object):
-    def map(self, func, *args, **keys):
-        return PipePair(self, Map(func, *args, **keys))
-
     def fork(self, *args, **keys):
         return Fork(self, *args, **keys)
 
