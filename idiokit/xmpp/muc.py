@@ -90,35 +90,36 @@ class MUCRoom(idiokit.Proxy):
         self._muc = muc
         self._xmpp = muc.xmpp
 
-        idiokit.Proxy.__init__(self, self._input() | output | self._output())
+        idiokit.Proxy.__init__(self, self._input() | output)
+        output.map(self._presences) | self._output()
+
+    def _presences(self, elements):
+        return elements.named("presence").with_attrs("from")
 
     @idiokit.stream
     def _input(self):
         bare_jid = self.jid.bare()
+        attrs = dict(type="groupchat")
 
         while True:
             elements = yield idiokit.next()
-            attrs = dict(type="groupchat")
             yield self._xmpp.core.message(bare_jid, *elements, **attrs)
 
     @idiokit.stream
     def _output(self):
         try:
             while True:
-                elements = yield idiokit.next()
+                presence = yield idiokit.next()
+                if presence.get_attr("type", None) != "unavailable":
+                    continue
 
-                yield idiokit.send(elements)
+                sender = JID(presence.get_attr("from"))
+                if sender == self.jid:
+                    return
 
-                for presence in elements.named("presence").with_attrs("from"):
-                    sender = JID(presence.get_attr("from"))
-
-                    if presence.get_attr("type", None) != "unavailable":
-                        continue
-                    if sender == self.jid:
+                for x in presence.children("x", USER_NS):
+                    if x.children("status").with_attrs("code", "110"):
                         return
-                    for x in presence.children("x", USER_NS):
-                        if x.children("status").with_attrs("code", "110"):
-                            return
         finally:
             self._muc._exit_room(self)
 
@@ -129,12 +130,6 @@ class MUCParticipant(object):
         self.role = role
         self.jid = jid
         self.payload = payload
-
-@idiokit.stream
-def channel():
-    while True:
-        obj = yield idiokit.next()
-        yield idiokit.send(obj)
 
 class MUC(object):
     def __init__(self, xmpp):
@@ -218,7 +213,7 @@ class MUC(object):
             nick = self.xmpp.jid.node
         jid = JID(jid.node, jid.domain, nick)
 
-        output = channel()
+        output = idiokit.map(lambda x: (x,))
         idiokit.pipe(self._main.fork(), output)
         self.rooms.setdefault(jid.bare(), set()).add(output)
         try:
