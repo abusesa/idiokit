@@ -194,9 +194,9 @@ class Stream(object):
     def _send(self, signal, throw, args):
         send = _SendBase(self.result(), throw, args)
         if signal:
-            self.pipe_left(NULL, send._head)
+            self.pipe_left(NULL, send._output_head())
         else:
-            self.pipe_left(send._head, NULL)
+            self.pipe_left(send._output_head(), NULL)
         return send
 
     def send(self, *args):
@@ -252,6 +252,8 @@ class _MapOutput(_Queue):
                 if result is not None:
                     throw, args = result
                     if throw:
+                        self._tail.unsafe_set(None)
+
                         exc_type, exc_value, exc_tb = fill_exc(args)
                         if isinstance(exc_value, StopIteration):
                             self._result.unsafe_set((False, exc_value.args))
@@ -290,7 +292,10 @@ class Map(Stream):
 
         self._input = Piped(True)
         self._output = _MapOutput(self._input.head(), func, args, keys)
-        self._result = Value()
+        self._output.result().listen(self._got_result)
+
+    def _got_result(self, _):
+        self._input.close()
 
     def pipe_left(self, messages, signals):
         self._input.add(signals)
