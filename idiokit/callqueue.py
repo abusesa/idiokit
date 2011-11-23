@@ -26,12 +26,12 @@ class CallQueue(object):
 
     def iterate(self):
         self.queue_acquire()
-
-        head = self.head
-        self.head = None
-        self.tail = None
-
-        self.queue_release()
+        try:
+            head = self.head
+            self.head = None
+            self.tail = None
+        finally:
+            self.queue_release()
 
         try:
             self.local.current = True
@@ -46,18 +46,18 @@ class CallQueue(object):
         new_tail = self.CallNode(func, args, keys)
 
         self.queue_acquire()
+        try:
+            old_tail = self.tail
+            self.tail = new_tail
 
-        old_tail = self.tail
-        self.tail = new_tail
+            if old_tail is not None:
+                old_tail.next = new_tail
+                return
 
-        if old_tail is not None:
-            old_tail.next = new_tail
+            self.head = new_tail
+            callback = self.callback
+        finally:
             self.queue_release()
-            return
-
-        self.head = new_tail
-        callback = self.callback
-        self.queue_release()
 
         if callback is not None:
             callback()
@@ -79,10 +79,12 @@ class CallQueue(object):
         self.exclusive_lock.acquire()
         try:
             self.queue_acquire()
-            old_callback = self.callback
-            self.callback = callback
-            tail = self.tail
-            self.queue_release()
+            try:
+                old_callback = self.callback
+                self.callback = callback
+                tail = self.tail
+            finally:
+                self.queue_release()
 
             if tail is not None:
                 callback()
@@ -91,9 +93,11 @@ class CallQueue(object):
                 yield self.iterate
             finally:
                 self.queue_acquire()
-                self.callback = old_callback
-                tail = self.tail
-                self.queue_release()
+                try:
+                    self.callback = old_callback
+                    tail = self.tail
+                finally:
+                    self.queue_release()
 
                 if old_callback is not None and tail is not None:
                     old_callback()

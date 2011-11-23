@@ -616,6 +616,7 @@ class Generator(Stream):
 
         self._result.unsafe_set((throw, args))
 
+        self._gen.close()
         self._gen = None
         self._step = None
         self._running.discard(self)
