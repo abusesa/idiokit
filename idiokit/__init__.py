@@ -1,3 +1,3 @@
 from __future__ import absolute_import
 
-from .idiokit import stream, next, send, pipe, map, consume, stop, main_loop, Event, Proxy
+from .idiokit import stream, next, send, pipe, map, consume, stop, main_loop, Event, Proxy, BrokenPipe
