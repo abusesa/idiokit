@@ -3,7 +3,7 @@ from __future__ import absolute_import
 import sys
 import functools
 
-from . import idiokit, values, threadpool
+from . import idiokit, values, threadpool, callqueue
 
 # Monkey patch idiokit.Stream to support .has_result()
 
@@ -175,22 +175,21 @@ class _Either(values.Value):
         self._left = left
         self._right = right
 
+        callqueue.add(self._init, left, right)
+
+    def _init(self, left, right):
         left.listen(self._listen_left)
         right.listen(self._listen_right)
 
-        if self.is_set():
-            left.unlisten(self._listen_left)
-            right.unlisten(self._listen_right)
-
     def _listen_left(self, value):
-        if not self.set((False, (self._left,))):
-            return
-        self._right.unlisten(self._listen_right)
+        if not self.unsafe_is_set():
+            self.unsafe_set((False, (self._left,)))
+            self._right.unlisten(self._listen_right)
 
     def _listen_right(self, value):
-        if not self.set((False, (self._right,))):
-            return
-        self._left.unlisten(self._listen_left)
+        if not self.unsafe_is_set():
+            self.unsafe_set((False, (self._right,)))
+            self._left.unlisten(self._listen_left)
 
 class _Any(object):
     def __init__(self, left, right):
@@ -223,7 +222,7 @@ class _Any(object):
         try:
             while True:
                 head = yield _ValueStream(_Either(left_head, right_head))
-                promise = head.get()
+                promise = head.unsafe_get()
                 if promise is None:
                     if head is left_head:
                         result = yield _ValueStream(left.result())
@@ -232,10 +231,10 @@ class _Any(object):
                     break
 
                 consumed, value, next = promise
-                consumed.set()
+                consumed.unsafe_set()
 
                 wrapped = values.Value()
-                value.listen(lambda x: wrapped.set((False, (x,))))
+                value.listen(lambda x: wrapped.unsafe_set((False, (x,))))
                 result = yield _ValueStream(wrapped)
                 if result is not None:
                     result = yield _ValueStream(value)
