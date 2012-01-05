@@ -112,6 +112,8 @@ class XMPP(threado.GeneratorStream):
                  ssl_verify_cert=True, ssl_ca_certs=None):
         threado.GeneratorStream.__init__(self)
 
+        self.host = host
+        self.port = port
         self.ssl_verify_cert = ssl_verify_cert
         self.ssl_ca_certs = ssl_ca_certs
 
@@ -122,13 +124,11 @@ class XMPP(threado.GeneratorStream):
         self.jid = JID(jid)
         self.password = password
 
-        self.resolver = Resolver(host, port)
-
     @threado.stream
     def connect(inner, self):
         socket_error = None
-        resolver = self.resolver.resolve(self.jid.domain)
 
+        resolver = Resolver(self.host, self.port).resolve(self.jid.domain)
         while True:
             try:
                 family, socktype, proto, _, address = yield inner.thread(resolver.next)
@@ -148,10 +148,13 @@ class XMPP(threado.GeneratorStream):
             raise socket_error
 
         self.elements = element_stream(sock, self.jid.domain)
-
         yield inner.sub(core.require_tls(self.elements))
-        yield inner.sub(sock.ssl(verify_cert=self.ssl_verify_cert,
-                                 ca_certs=self.ssl_ca_certs))
+
+        identity = self.host if self.host is not None else self.jid.domain
+        cert = yield inner.sub(sock.ssl(verify_cert=self.ssl_verify_cert,
+                                        ca_certs=self.ssl_ca_certs,
+                                        identity=identity))
+
         self.elements.send(RESTART)
 
         yield inner.sub(core.require_sasl(self.elements, self.jid,

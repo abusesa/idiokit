@@ -7,7 +7,7 @@ import select
 import functools
 from socket import error
 
-from . import ssl, threado
+from . import sslsockets, threado
 
 ALLOWED_SOCKET_ERRNOS = frozenset([errno.EINTR,
                                    errno.ENOBUFS,
@@ -36,7 +36,7 @@ def _read(func):
             if not data:
                 _check_connection(self._socket)
             return data
-        except ssl.SSLError:
+        except sslsockets.SSLError:
             raise
         except socket.error, se:
             if se.args[0] not in ALLOWED_SOCKET_ERRNOS:
@@ -49,7 +49,7 @@ def _write(func):
     def wrapped(*args, **keys):
         try:
             return func(*args, **keys)
-        except ssl.SSLError:
+        except sslsockets.SSLError:
             raise
         except socket.error, se:
             if se.args[0] in ALLOWED_SOCKET_ERRNOS:
@@ -118,19 +118,19 @@ class _SSLSocket(_Base):
     can_write = can_read
 
     def needs_read(self):
-        return self._needs == ssl.SSL_ERROR_WANT_READ
+        return self._needs == sslsockets.SSL_ERROR_WANT_READ
 
     def needs_write(self):
-        return self._needs == ssl.SSL_ERROR_WANT_WRITE
+        return self._needs == sslsockets.SSL_ERROR_WANT_WRITE
 
     @_read
     def read(self, amount):
         self._needs = None
         try:
             return self._ssl.read(amount)
-        except ssl.SSLError, e:
-            if e.args[0] in (ssl.SSL_ERROR_WANT_WRITE,
-                             ssl.SSL_ERROR_WANT_READ):
+        except sslsockets.SSLError, e:
+            if e.args[0] in (sslsockets.SSL_ERROR_WANT_WRITE,
+                             sslsockets.SSL_ERROR_WANT_READ):
                 self._needs = e.args[0]
                 return ""
             raise e
@@ -140,9 +140,9 @@ class _SSLSocket(_Base):
         self._needs = None
         try:
             return self._ssl.write(data)
-        except ssl.SSLError, e:
-            if e.args[0] in (ssl.SSL_ERROR_WANT_WRITE,
-                             ssl.SSL_ERROR_WANT_READ):
+        except sslsockets.SSLError, e:
+            if e.args[0] in (sslsockets.SSL_ERROR_WANT_WRITE,
+                             sslsockets.SSL_ERROR_WANT_READ):
                 self._needs = e.args[0]
                 return 0
             raise e
@@ -193,7 +193,7 @@ class Socket(threado.GeneratorStream):
     @_blocking
     def ssl(self, *args, **keys):
         self._socket.setblocking(True)
-        ssl_socket = ssl.wrap_socket(self._socket, *args, **keys)
+        ssl_socket = sslsockets.wrap_socket(self._socket, *args, **keys)
         self._socket.setblocking(False)
 
         self._wrapped = _SSLSocket(self._socket, ssl_socket)
