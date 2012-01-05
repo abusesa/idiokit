@@ -85,7 +85,11 @@ def connect(jid, password,
     elements = element_stream(sock, jid.domain)
     yield core.require_tls(elements)
     yield elements.throw(Restart)
-    yield sock.ssl(verify_cert=ssl_verify_cert, ca_certs=ssl_ca_certs)
+
+    identity = host if host is not None else jid.domain
+    yield sock.ssl(verify_cert=ssl_verify_cert,
+                   ca_certs=ssl_ca_certs,
+                   identity=identity)
     elements = element_stream(sock, jid.domain)
 
     yield core.require_sasl(elements, jid, password)

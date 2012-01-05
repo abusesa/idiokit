@@ -7,7 +7,7 @@ import socket
 import functools
 
 from socket import error
-from . import idiokit, ssl, select, timer, threadpool
+from . import idiokit, sslsockets, select, timer, threadpool
 
 ALLOWED_SOCKET_ERRNOS = frozenset([errno.EINTR, errno.ENOBUFS,
                                    errno.EAGAIN, errno.EWOULDBLOCK])
@@ -33,11 +33,11 @@ def _read(func):
 
                     msg = os.strerror(errno.ECONNRESET)
                     raise socket.error(errno.ECONNRESET, msg)
-            except ssl.SSLError, sslerror:
-                if sslerror.args[0] == ssl.SSL_ERROR_WANT_WRITE:
+            except sslsockets.SSLError, sslerror:
+                if sslerror.args[0] == sslsockets.SSL_ERROR_WANT_WRITE:
                     yield select.async_select((), (self._socket,), ())
                     continue
-                elif sslerror.args[0] == ssl.SSL_ERROR_WANT_READ:
+                elif sslerror.args[0] == sslsockets.SSL_ERROR_WANT_READ:
                     yield select.async_select((self._socket,), (), ())
                     continue
                 else:
@@ -62,11 +62,11 @@ def _write(func):
                 amount = func(self, data)
                 if amount > 0:
                     idiokit.stop(amount)
-            except ssl.SSLError, sslerror:
-                if sslerror.args[0] == ssl.SSL_ERROR_WANT_WRITE:
+            except sslsockets.SSLError, sslerror:
+                if sslerror.args[0] == sslsockets.SSL_ERROR_WANT_WRITE:
                     yield select.async_select((), (self._socket,), ())
                     continue
-                elif sslerror.args[0] == ssl.SSL_ERROR_WANT_READ:
+                elif sslerror.args[0] == sslsockets.SSL_ERROR_WANT_READ:
                     yield select.async_select((self._socket,), (), ())
                     continue
                 else:
@@ -159,7 +159,7 @@ class Socket(object):
     def ssl(self, *args, **keys):
         self._socket.setblocking(True)
 
-        value = threadpool.run(ssl.wrap_socket, self._socket, *args, **keys)
+        value = threadpool.run(sslsockets.wrap_socket, self._socket, *args, **keys)
 
         event = idiokit.Event()
         value.listen(event.set)
