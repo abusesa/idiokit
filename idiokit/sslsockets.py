@@ -84,7 +84,7 @@ else:
 
     def wrap_socket(sock, verify_cert=True, ca_certs=None, identity=None):
         wrapped = _wrap_socket(sock, verify_cert, ca_certs)
-        if verify_cert or identity is not None:
+        if verify_cert and identity is not None:
             if not match_identity(wrapped.getpeercert(), identity):
                 raise SSLError("failed certificate identity check")
         return wrapped
