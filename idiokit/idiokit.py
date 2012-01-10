@@ -219,7 +219,7 @@ class Stream(object):
         return PipePair(self, other)
 
 class _MapOutput(_Queue):
-    def __init__(self, head, func, args, keys):
+    def __init__(self, messages, signals, func, args, keys):
         _Queue.__init__(self)
 
         self._func = func
@@ -228,16 +228,61 @@ class _MapOutput(_Queue):
 
         self._gen = None
         self._result = Value()
-        self._current = head
-        self._current.listen(self._map)
 
-    def _map(self, _):
+        self._messages = messages
+        self._signals = signals
+
+        self._signals.listen(self._got_signal)
+        self._messages.listen(self._got_message)
+        self._result.listen(self._close)
+
+    def _close(self, _):
+        self._gen = None
+        self._signals = None
+        self._messages = None
+
+    def _got_signal(self, _):
+        if self._result.unsafe_is_set():
+            return
+
+        while True:
+            if not self._signals.unsafe_is_set():
+                return self._signals.unsafe_listen(self._got_signal)
+
+            promise = self._signals.unsafe_get()
+            if promise is None:
+                return
+
+            consumed, value, head = promise
+            consumed.unsafe_set()
+
+            if not value.unsafe_is_set():
+                return value.unsafe_listen(self._got_signal)
+
+            self._signals = head
+
+            result = value.unsafe_get()
+            if result is None:
+                continue
+
+            throw, args = result
+            if not throw:
+                continue
+
+            self._tail.unsafe_set(None)
+            self._result.unsafe_set((True, fill_exc(args)))
+            return
+
+    def _got_message(self, _):
+        if self._result.unsafe_is_set():
+            return
+
         while True:
             if self._gen is None:
-                if not self._current.unsafe_is_set():
-                    return self._current.unsafe_listen(self._map)
+                if not self._messages.unsafe_is_set():
+                    return self._messages.unsafe_listen(self._got_message)
 
-                promise = self._current.unsafe_get()
+                promise = self._messages.unsafe_get()
                 if promise is None:
                     self._tail.unsafe_set(None)
                     return
@@ -246,7 +291,7 @@ class _MapOutput(_Queue):
                 consumed.unsafe_set()
 
                 if not value.unsafe_is_set():
-                    return value.unsafe_listen(self._map)
+                    return value.unsafe_listen(self._got_message)
 
                 result = value.unsafe_get()
                 if result is not None:
@@ -266,7 +311,7 @@ class _MapOutput(_Queue):
                 if self._gen is not None:
                     self._gen = iter(self._gen)
 
-                self._current = head
+                self._messages = head
                 continue
 
             for obj in self._gen:
@@ -279,7 +324,7 @@ class _MapOutput(_Queue):
                 tail.unsafe_set((next_consumed, next_value, next_head))
 
                 if not next_consumed.unsafe_is_set():
-                    return next_consumed.unsafe_listen(self._map)
+                    return next_consumed.unsafe_listen(self._got_message)
             else:
                 self._gen = None
 
@@ -290,19 +335,21 @@ class Map(Stream):
     def __init__(self, func, *args, **keys):
         Stream.__init__(self)
 
-        self._input = Piped(True)
-        self._output = _MapOutput(self._input.head(), func, args, keys)
+        self._messages = Piped(True)
+        self._signals = Piped(True)
+        self._output = _MapOutput(self._messages.head(), self._signals.head(), func, args, keys)
         self._output.result().listen(self._got_result)
 
     def _got_result(self, _):
-        self._input.close()
+        self._messages.close()
+        self._signals.close()
 
     def pipe_left(self, messages, signals):
-        self._input.add(signals)
-        self._input.add(messages)
+        self._signals.add(signals)
+        self._messages.add(messages)
 
     def pipe_right(self, broken):
-        self._input.add(broken)
+        self._signals.add(broken)
 
     def result(self, *args, **keys):
         return self._output.result()
