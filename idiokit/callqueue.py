@@ -2,16 +2,6 @@ import threading
 import contextlib
 
 class CallQueue(object):
-    class CallNode(object):
-        __slots__ = "func", "args", "keys", "next"
-
-        def __init__(self, func, args, keys):
-            self.func = func
-            self.args = args
-            self.keys = keys
-
-            self.next = None
-
     def __init__(self):
         self.exclusive_lock = threading.Lock()
 
@@ -20,41 +10,32 @@ class CallQueue(object):
         self.queue_release = queue_lock.release
 
         self.local = threading.local()
-        self.head = None
-        self.tail = None
+        self.queue = []
         self.callback = None
 
     def iterate(self):
         self.queue_acquire()
         try:
-            head = self.head
-            self.head = None
-            self.tail = None
+            queue = self.queue
+            self.queue = []
         finally:
             self.queue_release()
 
         try:
             self.local.current = True
-
-            while head is not None:
-                head.func(*head.args, **head.keys)
-                head = head.next
+            for func, args, keys in queue:
+                func(*args, **keys)
         finally:
             self.local.current = False
 
     def add(self, func, *args, **keys):
-        new_tail = self.CallNode(func, args, keys)
-
         self.queue_acquire()
         try:
-            old_tail = self.tail
-            self.tail = new_tail
-
-            if old_tail is not None:
-                old_tail.next = new_tail
+            empty = not self.queue
+            self.queue.append((func, args, keys))
+            if not empty:
                 return
 
-            self.head = new_tail
             callback = self.callback
         finally:
             self.queue_release()
@@ -82,11 +63,11 @@ class CallQueue(object):
             try:
                 old_callback = self.callback
                 self.callback = callback
-                tail = self.tail
+                empty = not self.queue
             finally:
                 self.queue_release()
 
-            if tail is not None:
+            if not empty:
                 callback()
 
             try:
@@ -95,11 +76,11 @@ class CallQueue(object):
                 self.queue_acquire()
                 try:
                     self.callback = old_callback
-                    tail = self.tail
+                    empty = not self.queue
                 finally:
                     self.queue_release()
 
-                if old_callback is not None and tail is not None:
+                if old_callback is not None and not empty:
                     old_callback()
         finally:
             self.exclusive_lock.release()
