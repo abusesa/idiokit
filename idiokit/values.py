@@ -2,25 +2,27 @@ from __future__ import absolute_import
 
 from . import callqueue
 
-_UNDEFINED = object()
-_ERROR = ValueError("value has not been set")
-
 class Value(object):
+    __slots__ = "_value", "_listeners"
+
+    _UNDEFINED = object()
+    _ERROR = ValueError("value has not been set")
+
     def __init__(self, value=_UNDEFINED):
         self._value = value
         self._listeners = None
 
     def unsafe_is_set(self):
-        return self._value is not _UNDEFINED
+        return self._value is not self._UNDEFINED
 
     def unsafe_get(self):
         value = self._value
-        if value is _UNDEFINED:
-            raise _ERROR
+        if value is self._UNDEFINED:
+            raise self._ERROR
         return value
 
     def unsafe_set(self, value=None):
-        if self._value is not _UNDEFINED:
+        if self._value is not self._UNDEFINED:
             return False
         self._value = value
 
@@ -34,7 +36,7 @@ class Value(object):
         return True
 
     def unsafe_listen(self, callback):
-        if self._value is _UNDEFINED:
+        if self._value is self._UNDEFINED:
             listeners = self._listeners
             if listeners is None:
                 listeners = set()

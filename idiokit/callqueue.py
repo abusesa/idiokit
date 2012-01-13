@@ -71,7 +71,7 @@ class CallQueue(object):
                 callback()
 
             try:
-                yield self.iterate
+                yield
             finally:
                 self.queue_acquire()
                 try:
