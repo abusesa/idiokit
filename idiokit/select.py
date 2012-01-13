@@ -2,7 +2,6 @@ from __future__ import absolute_import
 
 import os
 import errno
-import threading
 import select as _select
 
 from . import idiokit, threadpool, values
