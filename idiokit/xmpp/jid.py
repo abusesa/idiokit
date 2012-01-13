@@ -1,14 +1,17 @@
 # Module for XMPP JID processing as defined in on RFC 3920
 # (http://www.ietf.org/rfc/rfc3920.txt) And RFC 3454
 # (http://www.ietf.org/rfc/rfc3454.txt).
-# 
+#
 # This module was originally written using both the above RFCs and the
 # xmppstringprep module of the pyxmpp package
 # (http://pyxmpp.jajcus.net/) as well as the
 # twisted.words.protocols.jabber.xmpp_stringprep module of Twisted
 # (http://twistedmatrix.com/) as a reference.
 
+from __future__ import with_statement
+
 import re
+import threading
 from stringprep import *
 from unicodedata import ucd_3_2_0 as unicodedata
 from encodings import idna
@@ -81,7 +84,7 @@ def split_jid(jid):
         raise JIDError("not a valid JID")
     return match.groups()
 
-def check_length(identifier, value):    
+def check_length(identifier, value):
     if len(value) > 1023:
         raise JIDError("%s identifier too long" % identifier)
     return value
@@ -118,6 +121,7 @@ def unicodify(item):
 class JID(object):
     cache = dict()
     cache_size = 2**14
+    cache_lock = threading.Lock()
 
     __slots__ = "_node", "_domain", "_resource"
 
@@ -126,9 +130,10 @@ class JID(object):
     resource = property(lambda x: x._resource)
 
     def __new__(cls, node=None, domain=None, resource=None):
-        cache_key = node, domain, resource
-        if cache_key in cls.cache:
-            return cls.cache[cache_key]
+        with cls.cache_lock:
+            cache_key = node, domain, resource
+            if cache_key in cls.cache:
+                return cls.cache[cache_key]
 
         if node is None and domain is None:
             raise JIDError("either a full JID or at least a domain expected")
@@ -144,9 +149,10 @@ class JID(object):
         obj._domain = prep_domain(domain)
         obj._resource = prep_resource(resource)
 
-        if len(cls.cache) >= cls.cache_size:
-            cls.cache.clear()                  
-        cls.cache[cache_key] = obj
+        with cls.cache_lock:
+            if len(cls.cache) >= cls.cache_size:
+                cls.cache.clear()
+            cls.cache[cache_key] = obj
 
         return obj
 
@@ -172,7 +178,7 @@ class JID(object):
 
     def __repr__(self):
         return "%s(%s)" % (type(self).__name__, repr(unicode(self)))
-    
+
     def __unicode__(self):
         jid = self.domain
 
@@ -233,6 +239,6 @@ class TestJID(unittest.TestCase):
 
     def test_invalid_node(self):
         self.assertRaises(JIDError, JID, "@", "domain", "resource")
-        
+
 if __name__ == "__main__":
     unittest.main()
