@@ -361,7 +361,6 @@ class _SendBase(Stream):
     _lock = threading.Lock()
 
     _CONSUMED = object()
-    _PARENT = object()
 
     def __init__(self, parent, throw, args):
         self._parent = parent
@@ -373,52 +372,56 @@ class _SendBase(Stream):
         self._result = Value()
 
         self._input = Piped(True)
-        self._input_head = self._input.head()
 
-        self._consumed.listen(self._set_consumed)
+        self._consumed.listen(self._on_consumed)
         if self._parent is not None:
-            self._parent.listen(self._set_parent)
-        self._input_head.listen(self._input_promise)
+            self._parent.listen(self._on_parent)
+        self._input.head().listen(self._on_input)
 
-    def _set_consumed(self, _):
-        self._input.add(Value((NULL, Value(self._CONSUMED), NULL)))
-
-    def _set_parent(self, _):
-        self._input.add(Value((NULL, Value(self._PARENT), NULL)))
-
-    def _input_promise(self, promise):
-        consumed, value, self._input_head = promise
-        consumed.unsafe_set()
-        value.unsafe_listen(self._input_value)
-
-    def _input_value(self, value):
-        if value is None:
-            self._input_head.unsafe_listen(self._input_promise)
+    def _on_consumed(self, _):
+        if self._consumed is None:
             return
 
-        if value is self._PARENT:
-            self._value.unsafe_set(None)
-            throw, args = self._parent.unsafe_get()
-            if not throw:
-                throw = True
-                args = (BrokenPipe, BrokenPipe(*args), None)
-            self._result.unsafe_set((throw, args))
-        elif self._parent is not None:
-            self._parent.unsafe_unlisten(self._set_parent)
-        self._parent = None
+        self._consumed = None
+        self._input.add(Value((NULL, Value(self._CONSUMED), NULL)))
 
-        if value is self._CONSUMED:
+    def _on_parent(self, (throw, args)):
+        if self._parent is None:
+            return
+
+        self._parent = None
+        if not throw:
+            args = (BrokenPipe, BrokenPipe(*args), None)
+        self._input.add(Value((NULL, Value((True, args)), NULL)))
+
+    def _on_input(self, promise):
+        consume, value, head = promise
+        consume.unsafe_set()
+        value.unsafe_listen(functools.partial(self._on_value, head))
+
+    def _on_value(self, head, result):
+        if result is None:
+            head.unsafe_listen(self._on_input)
+            return
+
+        if result is self._CONSUMED:
             self._value.unsafe_set(self._message)
             self._result.unsafe_set((False, ()))
         else:
-            self._consumed.unsafe_unlisten(self._set_consumed)
+            self._value.unsafe_set(None)
+            self._result.unsafe_set(result)
+        self._value = None
         self._message = None
 
-        if value not in (self._CONSUMED, self._PARENT):
-            self._value.unsafe_set(None)
-            self._result.unsafe_set(value)
+        if self._consumed is not None:
+            self._consumed.unsafe_unlisten(self._on_consumed)
+            self._consumed = None
+
+        if self._parent is not None:
+            self._parent.unsafe_unlisten(self._on_parent)
+            self._parent = None
+
         self._input.close()
-        self._input_head = None
 
         with self._lock:
             self._head = NULL
@@ -548,11 +551,7 @@ class _GeneratorOutput(_Queue):
         self._stack = collections.deque()
         self._closed = False
 
-    def stack(self, stream):
-        head = stream.head()
-        if head is NULL:
-            return
-
+    def unsafe_stack(self, stream):
         if self._closed:
             return
 
@@ -560,43 +559,40 @@ class _GeneratorOutput(_Queue):
             self._stack.append(stream)
             return
 
-        self._stack.append(None)
+        head = stream.head()
+        if head is not NULL:
+            self._stack.append(head)
+            self._handle(None)
 
-        head.unsafe_listen(self._promise)
+    def _handle(self, _):
+        while self._stack:
+            head = self._stack[0]
+            if not head.unsafe_is_set():
+                return head.unsafe_listen(self._handle)
 
-    def _promise(self, promise):
-        if promise is None:
-            stack = self._stack
-            stack.popleft()
+            promise = head.unsafe_get()
+            if promise is None:
+                self._stack.popleft()
 
-            if stack:
-                stream = stack[0]
-                stack[0] = None
-            else:
-                stream = None
-            closed = self._closed
-
-            if stream is None:
-                if closed:
+                if self._stack:
+                    self._stack[0] = self._stack[0].head()
+                elif self._closed:
                     self._tail.unsafe_set(None)
-            else:
-                stream.head().unsafe_listen(self._promise)
-        else:
+                continue
+
             consume, value, head = promise
+            if not self._tail.unsafe_is_set():
+                self._tail.unsafe_set((Value(), value, Value()))
 
-            tail = self._tail
-            self._tail = Value()
+            next_consume, _, next_tail = self._tail.unsafe_get()
+            if not next_consume.unsafe_is_set():
+                return next_consume.unsafe_listen(self._handle)
 
-            next_consume = Value()
-            tail.unsafe_set((next_consume, value, self._tail))
+            consume.unsafe_set()
+            self._tail = next_tail
+            self._stack[0] = head
 
-            next_consume.unsafe_listen(functools.partial(self._consumed, consume, head))
-
-    def _consumed(self, consume, head, _):
-        consume.unsafe_set()
-        head.unsafe_listen(self._promise)
-
-    def close(self):
+    def unsafe_close(self):
         if self._closed:
             return
         self._closed = True
@@ -648,14 +644,14 @@ class Generator(Stream):
             next.pipe_left(self._messages.head(), self._signals.head())
             next.pipe_right(self._broken.head())
 
-            self._output.stack(next)
+            self._output.unsafe_stack(next)
 
             next.result().unsafe_listen(self._step)
             del next
         del self, throw, args
 
     def _close(self, throw, args):
-        self._output.close()
+        self._output.unsafe_close()
 
         self._messages.close()
         self._signals.close()
