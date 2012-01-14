@@ -1,7 +1,10 @@
 import threading
 import contextlib
+import collections
 
 class CallQueue(object):
+    create_deque = staticmethod(collections.deque)
+
     def __init__(self):
         self.exclusive_lock = threading.Lock()
 
@@ -10,23 +13,24 @@ class CallQueue(object):
         self.queue_release = queue_lock.release
 
         self.local = threading.local()
-        self.queue = []
+        self.queue = self.create_deque()
         self.callback = None
 
     def iterate(self):
         self.queue_acquire()
         try:
             queue = self.queue
-            self.queue = []
+            self.queue = self.create_deque()
         finally:
             self.queue_release()
 
         try:
-            self.local.current = True
-            for func, args, keys in queue:
+            self.local.current = queue
+            while queue:
+                func, args, keys = queue.popleft()
                 func(*args, **keys)
         finally:
-            self.local.current = False
+            self.local.current = None
 
     def add(self, func, *args, **keys):
         self.queue_acquire()
@@ -47,13 +51,13 @@ class CallQueue(object):
         try:
             current = self.local.current
         except AttributeError:
-            current = False
-            self.local.current = False
+            current = None
+            self.local.current = None
 
-        if current:
-            func(*args, **keys)
-        else:
+        if current is None:
             self.add(func, *args, **keys)
+        else:
+            current.append((func, args, keys))
 
     @contextlib.contextmanager
     def exclusive(self, callback):

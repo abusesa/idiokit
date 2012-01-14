@@ -32,7 +32,7 @@ class Value(object):
         self._listeners = None
 
         for callback in listeners:
-            callback(value)
+            callqueue.asap(callback, value)
         return True
 
     def unsafe_listen(self, callback):
@@ -44,7 +44,7 @@ class Value(object):
             listeners.add(callback)
             return
 
-        callback(self._value)
+        callqueue.asap(callback, self._value)
 
     def unsafe_unlisten(self, callback):
         listeners = self._listeners
