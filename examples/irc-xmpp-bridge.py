@@ -3,7 +3,17 @@ from idiokit.xmpp import connect as xmpp_connect
 from idiokit.irc import connect as irc_connect
 from idiokit.xmpp.jid import JID
 from idiokit.xmlcore import Element
-from idiokit.util import guess_encoding
+
+def guess_encoding(text):
+    if isinstance(text, unicode):
+        return text
+
+    for encoding in ["ascii", "utf-8"]:
+        try:
+            return text.decode(encoding)
+        except UnicodeDecodeError:
+            pass
+    return text.decode("latin-1", "replace")
 
 @idiokit.stream
 def xmpp_to_irc(own_jid, channel, encoding="latin-1"):
