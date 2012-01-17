@@ -2,20 +2,22 @@ from __future__ import absolute_import
 
 import re
 
-from . import idiokit, util, sockets
+from . import idiokit, sockets
 
 class IRCError(Exception):
     pass
 
 class IRCParser(object):
     def __init__(self):
-        self.line_buffer = util.LineBuffer()
+        self.buffer = ""
 
     def feed(self, data=""):
-        if "\x00" in data:
-            raise IRCError("NUL not allowed in messages")
+        lines = re.split("\r?\n", self.buffer + data)
+        self.buffer = lines.pop()
 
-        for line in self.line_buffer.feed(data):
+        for line in lines:
+            if "\x00" in line:
+                raise IRCError("NUL not allowed in messages")
             if len(line) > 510:
                 raise IRCError("too long message (over 512 bytes)")
             yield self.process_line(line)
