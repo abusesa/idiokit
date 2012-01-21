@@ -838,16 +838,13 @@ class Signal(BaseException):
     pass
 
 def main_loop(main):
+    import time
     import signal
 
     def _signal(code, _):
         consume = Value()
         value = Value((True, (Signal, Signal(code), None)))
-        obj = Value((consume, value, NULL))
-
-        thread = threading.Thread(target=main.pipe_left, args=(NULL, obj))
-        thread.setDaemon(True)
-        thread.start()
+        main.pipe_left(NULL, Value((consume, value, NULL)))
 
     sigint = signal.getsignal(signal.SIGINT)
     sigterm = signal.getsignal(signal.SIGTERM)
@@ -855,26 +852,31 @@ def main_loop(main):
     signal.signal(signal.SIGINT, _signal)
     signal.signal(signal.SIGTERM, _signal)
 
-    result = main.result()
-    event = threading.Event()
-    iterate = callqueue.iterate
-    try:
-        with callqueue.exclusive(event.set):
-            while True:
+    def loop():
+        iterate = callqueue.iterate
+        result = main.result()
+        lock = threading.Lock()
+        acquire = lock.acquire
+
+        acquire()
+        with callqueue.exclusive(lock.release):
+            while not result.unsafe_is_set():
+                acquire()
                 iterate()
 
-                if result.unsafe_is_set():
-                    break
+    thread = threading.Thread(target=loop)
+    try:
+        signal.signal(signal.SIGINT, _signal)
+        signal.signal(signal.SIGTERM, _signal)
 
-                while not event.isSet():
-                    event.wait(0.5)
-                event.clear()
-
-            throw, args = result.unsafe_get()
+        thread.start()
+        while thread.isAlive():
+            time.sleep(0.1)
     finally:
         signal.signal(signal.SIGINT, sigint)
         signal.signal(signal.SIGTERM, sigterm)
 
+    throw, args = main.result().unsafe_get()
     if throw:
         exc_type, exc_value, exc_tb = fill_exc(args)
         raise exc_type, exc_value, exc_tb
