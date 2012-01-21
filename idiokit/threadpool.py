@@ -7,9 +7,24 @@ import collections
 
 from . import idiokit, values, callqueue
 
+class MonotonicTimer(object):
+    _time = staticmethod(time.time)
+
+    def __init__(self):
+        self._elapsed = 0
+        self._origin = self._time()
+        self._previous = self._origin
+
+    def elapsed(self):
+        now = self._time()
+        if now < self._previous:
+            self._elapsed += self._previous - self._origin
+            self._origin = now
+        self._previous = now
+        return self._elapsed + (now - self._origin)
+
 class ThreadPool(object):
     _Value = staticmethod(values.Value)
-    _time = staticmethod(time.time)
     _sleep = staticmethod(time.sleep)
     _deque = staticmethod(collections.deque)
     _Thread = staticmethod(threading.Thread)
@@ -20,8 +35,7 @@ class ThreadPool(object):
     def __init__(self, idle_time=1.0):
         self.idle_time = idle_time
 
-        self.elapsed_time = 0
-        self.previous_time = None
+        self.timer = MonotonicTimer()
 
         self.lock = self._Lock()
         self.supervisor = None
@@ -29,13 +43,6 @@ class ThreadPool(object):
         self.alive = 0
         self.threads = self._deque()
         self.queue = self._deque()
-
-    def _elapsed(self):
-        now = self._time()
-        if self.previous_time is not None and self.previous_time <= now:
-            self.elapsed_time += now - self.previous_time
-        self.previous_time = now
-        return self.elapsed_time
 
     def run(self, func, *args, **keys):
         value = self._Value()
@@ -71,7 +78,7 @@ class ThreadPool(object):
                     if self.alive == 0:
                         break
 
-                    cut = self._elapsed() - self.idle_time
+                    cut = self.timer.elapsed() - self.idle_time
                     while self.threads and self.threads[0][0] < cut:
                         _, lock, queue = self.threads.popleft()
                         queue.append(None)
@@ -103,7 +110,7 @@ class ThreadPool(object):
                 args = self._exc_info()
 
             with self.lock:
-                self.threads.append((self._elapsed(), lock, queue))
+                self.threads.append((self.timer.elapsed(), lock, queue))
 
             self._callqueue_add(value.set, (throw, args))
 
