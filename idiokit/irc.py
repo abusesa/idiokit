@@ -98,6 +98,8 @@ def connect(host, port, nick, password=None,
 
     while True:
         data = yield sock.recv(4096)
+        if not data:
+            raise IRCError("connection lost")
 
         for prefix, command, params in parser.feed(data):
             if command == "PING":
@@ -139,6 +141,8 @@ def _main(sock, parser):
                 yield idiokit.send(prefix, command, params)
 
             data = yield sock.recv(4096)
+            if not data:
+                raise IRCError("connection lost")
 
     return _input() | _output()
 

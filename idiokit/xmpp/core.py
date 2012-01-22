@@ -2,8 +2,6 @@ from __future__ import with_statement, absolute_import
 
 import uuid
 import base64
-import functools
-import contextlib
 
 from .. import idiokit, xmlcore
 from .jid import JID

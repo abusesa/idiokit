@@ -33,6 +33,9 @@ def element_stream(sock, domain):
     def read():
         while True:
             data = yield sock.recv(4096)
+            if not data:
+                raise core.XMPPError("connection lost")
+
             for element in parser.feed(data):
                 if element.named("error", core.STREAM_NS):
                     raise StreamError(element)

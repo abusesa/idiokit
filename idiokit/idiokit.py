@@ -849,9 +849,6 @@ def main_loop(main):
     sigint = signal.getsignal(signal.SIGINT)
     sigterm = signal.getsignal(signal.SIGTERM)
 
-    signal.signal(signal.SIGINT, _signal)
-    signal.signal(signal.SIGTERM, _signal)
-
     def loop():
         iterate = callqueue.iterate
         result = main.result()
@@ -871,7 +868,7 @@ def main_loop(main):
 
         thread.start()
         while thread.isAlive():
-            time.sleep(0.15)
+            time.sleep(0.1)
     finally:
         signal.signal(signal.SIGINT, sigint)
         signal.signal(signal.SIGTERM, sigterm)
