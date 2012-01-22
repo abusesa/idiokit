@@ -1,8 +1,4 @@
-from __future__ import absolute_import
-
-import socket
-
-from .. import idiokit, sockets, xmlcore, timer, threadpool
+from .. import idiokit, socket, ssl, xmlcore, timer, threadpool
 from . import resolve
 from . import core, disco, muc, ping
 from .jid import JID
@@ -16,7 +12,7 @@ class Restart(idiokit.Signal):
     pass
 
 @idiokit.stream
-def element_stream(socket, domain):
+def element_stream(sock, domain):
     parser = xmlcore.ElementParser()
 
     stream_element = xmlcore.Element("stream:stream")
@@ -25,18 +21,18 @@ def element_stream(socket, domain):
     stream_element.set_attr("xmlns:stream", core.STREAM_NS)
     stream_element.set_attr("version", "1.0")
 
-    yield socket.write(stream_element.serialize_open())
+    yield sock.sendall(stream_element.serialize_open())
 
     @idiokit.stream
     def write():
         while True:
             element = yield idiokit.next()
-            yield socket.writeall(element.serialize())
+            yield sock.sendall(element.serialize())
 
     @idiokit.stream
     def read():
         while True:
-            data = yield socket.read()
+            data = yield sock.recv(4096)
             for element in parser.feed(data):
                 if element.named("error", core.STREAM_NS):
                     raise StreamError(element)
@@ -62,23 +58,36 @@ def _get_socket(domain, host, port):
 
         family, socktype, proto, _, addr = item
         try:
-            sock = sockets.Socket(family, socktype, proto)
-        except socket.error, error:
+            sock = socket.Socket(family, socktype, proto)
+        except socket.SocketError, error:
             continue
 
         try:
             yield sock.connect(addr)
-        except socket.error, error:
+        except socket.SocketError, error:
             yield sock.close()
             continue
 
         idiokit.stop(sock)
 
 @idiokit.stream
+def _init_ssl(sock, require_cert, ca_certs, identity):
+    sock = yield ssl.wrap_socket(sock,
+                                 require_cert=require_cert,
+                                 ca_certs=ca_certs)
+    if not require_cert:
+        idiokit.stop(sock)
+
+    cert = yield sock.getpeercert()
+    if not ssl.match_identity(cert, identity):
+        raise ssl.SSLError("certificate identity check failed")
+    idiokit.stop(sock)
+
+@idiokit.stream
 def connect(jid, password,
             host=None, port=None,
             rate_limiter=None,
-            ssl_verify_cert=True,ssl_ca_certs=None):
+            ssl_verify_cert=True, ssl_ca_certs=None):
     jid = JID(jid)
     sock = yield _get_socket(jid.domain, host, port)
 
@@ -86,10 +95,8 @@ def connect(jid, password,
     yield core.require_tls(elements)
     yield elements.throw(Restart)
 
-    identity = host if host is not None else jid.domain
-    yield sock.ssl(verify_cert=ssl_verify_cert,
-                   ca_certs=ssl_ca_certs,
-                   identity=identity)
+    identity = jid.domain if host is None else host
+    sock = yield _init_ssl(sock, ssl_verify_cert, ssl_ca_certs, identity)
     elements = element_stream(sock, jid.domain)
 
     yield core.require_sasl(elements, jid, password)

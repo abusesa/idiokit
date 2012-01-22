@@ -6,15 +6,6 @@ import select as _select
 
 from . import idiokit, threadpool, values
 
-def select(*args, **keys):
-    while True:
-        try:
-            return _select.select(*args, **keys)
-        except _select.error, se:
-            if se.args[0] == errno.EINTR:
-                continue
-            raise se
-
 class _ValueStream(idiokit.Stream):
     _head = values.Value(None)
 
@@ -33,29 +24,42 @@ class _ValueStream(idiokit.Stream):
     def result(self):
         return self._value
 
-_pipes = list()
+class Select(object):
+    def __init__(self):
+        self._pipes = list()
 
-@idiokit.stream
-def async_select(read, write, error, timeout=None):
-    if not _pipes:
-        _pipes.append(os.pipe())
-    rfd, wfd = _pipes.pop()
-
-    read = (rfd,) + tuple(read)
-    value = threadpool.run(select, read, write, error, timeout)
-
-    event = idiokit.Event()
-    value.listen(event.set)
-
-    try:
-        result = yield event
-    finally:
-        if not value.unsafe_is_set():
-            os.write(wfd, "\x00")
+    def _do_select(self, *args, **keys):
+        while True:
             try:
-                yield _ValueStream(value)
-            finally:
-                os.read(rfd, 1)
-        _pipes.append((rfd, wfd))
+                return _select.select(*args, **keys)
+            except _select.error, se:
+                if se.args[0] == errno.EINTR:
+                    continue
+                raise se
 
-    idiokit.stop(result)
+    @idiokit.stream
+    def select(self, read, write, error, timeout=None):
+        if not self._pipes:
+            self._pipes.append(os.pipe())
+        rfd, wfd = self._pipes.pop()
+
+        read = (rfd,) + tuple(read)
+        value = threadpool.run(self._do_select, read, write, error, timeout)
+
+        event = idiokit.Event()
+        value.listen(event.set)
+
+        try:
+            result = yield event
+        finally:
+            if not value.unsafe_is_set():
+                os.write(wfd, "\x00")
+                try:
+                    yield _ValueStream(value)
+                finally:
+                    os.read(rfd, 1)
+            self._pipes.append((rfd, wfd))
+
+        idiokit.stop(result)
+
+select = Select().select

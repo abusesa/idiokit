@@ -871,7 +871,7 @@ def main_loop(main):
 
         thread.start()
         while thread.isAlive():
-            time.sleep(0.1)
+            time.sleep(0.15)
     finally:
         signal.signal(signal.SIGINT, sigint)
         signal.signal(signal.SIGTERM, sigterm)

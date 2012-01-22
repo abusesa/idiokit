@@ -1,8 +1,6 @@
-from __future__ import absolute_import
-
 import re
 
-from . import idiokit, sockets
+from . import idiokit, socket, ssl
 
 class IRCError(Exception):
     pass
@@ -70,29 +68,40 @@ def mutations(*nicks):
             yield nick[:9-len(suffix)] + suffix
 
 @idiokit.stream
+def _init_ssl(sock, require_cert, ca_certs, identity):
+    sock = yield ssl.wrap_socket(sock,
+                                 require_cert=require_cert,
+                                 ca_certs=ca_certs)
+    if not require_cert:
+        idiokit.stop(sock)
+
+    cert = yield sock.getpeercert()
+    if not ssl.match_identity(cert, identity):
+        raise ssl.SSLError("certificate identity check failed")
+    idiokit.stop(sock)
+
+@idiokit.stream
 def connect(host, port, nick, password=None,
             ssl=False, ssl_verify_cert=True, ssl_ca_certs=None):
     parser = IRCParser()
-    socket = sockets.Socket()
 
-    yield socket.connect((host, port))
-
+    sock = socket.Socket()
+    yield sock.connect((host, port))
     if ssl:
-        yield socket.ssl(verify_cert=ssl_verify_cert,
-                         ca_certs=ssl_ca_certs)
+        sock = yield _init_ssl(sock, ssl_verify_cert, ssl_ca_certs, host)
 
     nicks = mutations(nick)
     if password is not None:
-        yield socket.writeall(format_message("PASS", password))
-    yield socket.writeall(format_message("NICK", nicks.next()))
-    yield socket.writeall(format_message("USER", nick, nick, "-", nick))
+        yield sock.sendall(format_message("PASS", password))
+    yield sock.sendall(format_message("NICK", nicks.next()))
+    yield sock.sendall(format_message("USER", nick, nick, "-", nick))
 
     while True:
-        data = yield socket.read(4096)
+        data = yield sock.recv(4096)
 
         for prefix, command, params in parser.feed(data):
             if command == "PING":
-                yield socket.writeall(format_message("PONG", *params))
+                yield sock.sendall(format_message("PONG", *params))
                 continue
 
             if command == "001":
@@ -100,7 +109,7 @@ def connect(host, port, nick, password=None,
 
             if command == "433":
                 for nick in nicks:
-                    yield socket.writeall(format_message("NICK", nick))
+                    yield sock.sendall(format_message("NICK", nick))
                     break
                 else:
                     raise NickAlreadyInUse("".join(params[-1:]))
@@ -109,15 +118,15 @@ def connect(host, port, nick, password=None,
                 if ERROR_REX.match(command):
                     raise IRCError("".join(params[-1:]))
 
-def _main(socket, parser):
+def _main(sock, parser):
     @idiokit.stream
     def _input():
         try:
             while True:
                 msg = yield idiokit.next()
-                yield socket.writeall(format_message(*msg))
+                yield sock.sendall(format_message(*msg))
         finally:
-            yield socket.close()
+            yield sock.close()
 
     @idiokit.stream
     def _output():
@@ -126,10 +135,10 @@ def _main(socket, parser):
         while True:
             for prefix, command, params in parser.feed(data):
                 if command == "PING":
-                    yield socket.writeall(format_message("PONG", *params))
+                    yield sock.sendall(format_message("PONG", *params))
                 yield idiokit.send(prefix, command, params)
 
-            data = yield socket.read(4096)
+            data = yield sock.recv(4096)
 
     return _input() | _output()
 
