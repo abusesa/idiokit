@@ -89,7 +89,6 @@ def _init_ssl(sock, require_cert, ca_certs, identity):
 @idiokit.stream
 def connect(jid, password,
             host=None, port=None,
-            rate_limiter=None,
             ssl_verify_cert=True, ssl_ca_certs=None):
     jid = JID(jid)
     sock = yield _get_socket(jid.domain, host, port)
@@ -108,8 +107,6 @@ def connect(jid, password,
 
     jid = yield core.require_bind_and_session(elements, jid)
 
-    if rate_limiter is not None:
-        elements = idiokit.pipe(rate_limiter, elements)
     idiokit.stop(XMPP(jid, elements))
 
 class XMPP(idiokit.Proxy):
