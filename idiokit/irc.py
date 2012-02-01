@@ -107,7 +107,7 @@ def connect(host, port, nick, password=None,
                 continue
 
             if command == "001":
-                idiokit.stop(IRC(_main(socket, parser), nick))
+                idiokit.stop(IRC(_main(sock, parser), nick))
 
             if command == "433":
                 for nick in nicks:
