@@ -1,12 +1,10 @@
-from __future__ import with_statement
+from __future__ import with_statement, absolute_import
 
 import uuid
 import base64
-import contextlib
 
-import threado
-from jid import JID
-from xmlcore import Query, Element
+from .. import idiokit, xmlcore
+from .jid import JID
 
 STREAM_NS = "http://etherx.jabber.org/streams"
 STREAM_ERROR_NS = "urn:ietf:params:xml:ns:xmpp-streams"
@@ -18,7 +16,7 @@ STANZA_NS = "jabber:client"
 STARTTLS_NS = "urn:ietf:params:xml:ns:xmpp-tls"
 
 class XMPPError(Exception):
-    def __init__(self, message, elements=Query(), ns=STANZA_ERROR_NS):
+    def __init__(self, message, elements=(), ns=STANZA_ERROR_NS):
         self.type = None
         self.condition = None
         self.text = None
@@ -43,142 +41,130 @@ class XMPPError(Exception):
             return self.args[0]
         return self.args[0] + " (%s)" % extra
 
-@threado.stream
-def _iq(inner, send, stream, type, query, **attrs):
+def _iq_build(type, query, **attrs):
     uid = uuid.uuid4().hex[:16]
     attrs["id"] = uid
 
-    iq = Element("iq", type=type, **attrs)
+    iq = xmlcore.Element("iq", type=type, **attrs)
     iq.add(query)
-    send(iq)
+    return uid, iq
 
+@idiokit.stream
+def _iq_wait(uid):
     while True:
-        source, elements = yield threado.any(inner, stream)
-        if inner is source:
-            continue
+        elements = yield idiokit.next()
 
         for element in elements.named("iq").with_attrs(id=uid):
             type = element.get_attr("type", None)
+
             if type == "result":
-                inner.finish(element)
-            elif type == "error":
+                idiokit.stop(element)
+
+            if type == "error":
                 errors = element.children("error", STANZA_NS)
                 raise XMPPError("iq failed", errors)
-            elif type is None:
+
+            if type is None:
                 raise XMPPError("type attribute missing for iq stanza")
 
-@threado.stream
-def require_features(inner, stream):
+@idiokit.stream
+def _iq(stream, iq_type, query, **attrs):
+    uid, iq = _iq_build(iq_type, query, **attrs)
+
+    forked = stream.fork()
+    yield forked.send(iq)
+    result = yield idiokit.Event() | forked | _iq_wait(uid)
+    idiokit.stop(result)
+
+@idiokit.stream
+def require_features(stream):
     while True:
-        source, elements = yield threado.any(inner, stream)
-        if stream is source:
-            break
+        elements = yield stream.next()
 
-    features = elements.named("features", STREAM_NS)
-    if not features:
-        raise XMPPError("feature list expected")
-    inner.finish(features)
+        features = elements.named("features", STREAM_NS)
+        if features:
+            idiokit.stop(features)
 
-@threado.stream
-def require_tls(inner, stream):
-    features = yield inner.sub(require_features(stream))
+@idiokit.stream
+def require_tls(stream):
+    features = yield require_features(stream)
 
     tls = features.children("starttls", STARTTLS_NS)
     if not tls:
         raise XMPPError("server does not support starttls")
-    yield inner.sub(starttls(stream))
+    yield starttls(stream)
 
-@threado.stream
-def require_sasl(inner, stream, jid, password):
-    features = yield inner.sub(require_features(stream))
+@idiokit.stream
+def require_sasl(stream, jid, password):
+    features = yield require_features(stream)
 
     mechanisms = features.children("mechanisms", SASL_NS).children("mechanism")
     for mechanism in mechanisms:
         if mechanism.text != "PLAIN":
             continue
-        result = yield inner.sub(sasl_plain(stream, jid, password))
-        inner.finish(result)
+        result = yield sasl_plain(stream, jid, password)
+        idiokit.stop(result)
     raise XMPPError("server does not support plain sasl")
 
-@threado.stream
-def require_bind_and_session(inner, stream, jid):
-    features = yield inner.sub(require_features(stream))
+@idiokit.stream
+def require_bind_and_session(stream, jid):
+    jid = JID(jid)
+    features = yield require_features(stream)
 
     if not features.children("bind", BIND_NS):
         raise XMPPError("server does not support resource binding")
     if not features.children("session", SESSION_NS):
         raise XMPPError("server does not support sessions")
 
-    jid = yield inner.sub(bind_resource(stream, jid.resource))
-    yield inner.sub(session(stream))
-    inner.finish(jid)
+    jid = yield bind_resource(stream, jid.resource)
+    yield session(stream)
+    idiokit.stop(jid)
 
-@threado.stream
-def starttls(inner, stream):
-    starttls = Element("starttls", xmlns=STARTTLS_NS)
-    stream.send(starttls)
+@idiokit.stream
+def starttls(stream):
+    yield stream.send(xmlcore.Element("starttls", xmlns=STARTTLS_NS))
 
     while True:
-        source, elements = yield threado.any(inner, stream)
-        if inner is source:
-            continue
-
+        elements = yield stream.next()
         if elements.named("failure", STARTTLS_NS):
             raise XMPPError("starttls failed", elements)
         if elements.named("proceed", STARTTLS_NS):
             break
 
-@threado.stream
-def sasl_plain(inner, stream, jid, password):
+@idiokit.stream
+def sasl_plain(stream, jid, password):
     password = unicode(password).encode("utf-8")
     data = "\x00" + jid.node.encode("utf-8") + "\x00" + password
 
-    auth = Element("auth", xmlns=SASL_NS, mechanism="PLAIN")
+    auth = xmlcore.Element("auth", xmlns=SASL_NS, mechanism="PLAIN")
     auth.text = base64.b64encode(data)
-    stream.send(auth)
+    yield stream.send(auth)
 
     while True:
-        source, elements = yield threado.any(inner, stream)
-        if inner is source:
-            continue
+        elements = yield stream.next()
 
         if elements.named("failure", SASL_NS):
             raise XMPPError("authentication failed", elements)
         if elements.named("success", SASL_NS):
             break
 
-@threado.stream
-def bind_resource(inner, stream, resource=None):
-    bind = Element("bind", xmlns=BIND_NS)
+@idiokit.stream
+def bind_resource(stream, resource=None):
+    bind = xmlcore.Element("bind", xmlns=BIND_NS)
     if resource is not None:
-        element = Element("resource")
+        element = xmlcore.Element("resource")
         element.text = resource
         bind.add(element)
-    result = yield inner.sub(_iq(stream.send, stream, "set", bind))
+    result = yield _iq(stream, "set", bind)
 
     for jid in result.children("bind", BIND_NS).children("jid"):
-        inner.finish(JID(jid.text))
+        idiokit.stop(JID(jid.text))
     raise XMPPError("no jid supplied by bind")
 
-@threado.stream
-def session(inner, stream):
-    session = Element("session", xmlns=SESSION_NS)
-    yield inner.sub(_iq(stream.send, stream, "set", session))
-
-def _stream_callback(channel, success, value):
-    if success:
-        channel.send(value)
-    else:
-        channel.throw(*value)
-
-@contextlib.contextmanager
-def _stream(xmpp):
-    channel = threado.Channel()
-    callback = xmpp.add_listener(_stream_callback, channel)
-    try:
-        yield channel
-    finally:
-        xmpp.discard_listener(callback)
+@idiokit.stream
+def session(stream):
+    session = xmlcore.Element("session", xmlns=SESSION_NS)
+    yield _iq(stream, "set", session)
 
 class Core(object):
     VALID_ERROR_TYPES = set(["cancel", "continue", "modify", "auth", "wait"])
@@ -186,22 +172,23 @@ class Core(object):
     def __init__(self, xmpp):
         self.xmpp = xmpp
         self.iq_handlers = list()
-        self.xmpp.add_listener(self._iq_dispatcher)
+        self.iq_uids = dict()
+        idiokit.pipe(xmpp, idiokit.map(self._map_iqs))
 
-    def add_iq_handler(self, handler, *args, **keys):
-        self.iq_handlers.append((handler, args, keys))
+    def add_iq_handler(self, func, *args, **keys):
+        self.iq_handlers.append((func, args, keys))
 
-    def _iq_dispatcher(self, success, elements):
-        if not success:
-            return
-
+    def _map_iqs(self, elements):
         for iq in elements.named("iq", STANZA_NS).with_attrs("type"):
             if iq.get_attr("type").lower() not in ("get", "set"):
+                uid = iq.get_attr("id", None)
+                if uid is not None and uid in self.iq_uids:
+                    self.iq_uids[uid].send(iq)
                 continue
 
-            for handler, args, keys in self.iq_handlers:
+            for func, args, keys in self.iq_handlers:
                 payload = iq.children(*args, **keys)
-                if payload and handler(iq, list(payload)[0]):
+                if payload and func(iq, list(payload)[0]):
                     break
             else:
                 error = self.build_error("cancel", "service-unavailable")
@@ -213,10 +200,10 @@ class Core(object):
             message = "wrong error type (got '%s', expected '%s')"
             raise XMPPError(message % (type, expected))
 
-        error = Element("error", type=type)
-        error.add(Element(condition, xmlns=STANZA_ERROR_NS))
+        error = xmlcore.Element("error", type=type)
+        error.add(xmlcore.Element(condition, xmlns=STANZA_ERROR_NS))
         if text is not None:
-            text_element = Element("text", xmlns=STANZA_ERROR_NS)
+            text_element = xmlcore.Element("text", xmlns=STANZA_ERROR_NS)
             text_element.text = text
             error.add(text_element)
         if special is not None:
@@ -225,26 +212,34 @@ class Core(object):
 
     def message(self, to, *payload, **attrs):
         attrs["to"] = to
-        message = Element("message", **attrs)
+        message = xmlcore.Element("message", **attrs)
         message.add(*payload)
-        self.xmpp.send(message)
+        return self.xmpp.send(message)
 
     def presence(self, *payload, **attrs):
-        presence = Element("presence", **attrs)
+        presence = xmlcore.Element("presence", **attrs)
         presence.add(*payload)
-        self.xmpp.send(presence)
+        return self.xmpp.send(presence)
 
-    @threado.stream
-    def iq_get(inner, self, payload, **attrs):
-        with _stream(self.xmpp) as stream:
-            result = yield inner.sub(_iq(self.xmpp.send, stream, "get", payload, **attrs))
-        inner.finish(result)
+    @idiokit.stream
+    def _iq(self, iq_type, payload, **attrs):
+        uid, iq = _iq_build(iq_type, payload, **attrs)
 
-    @threado.stream
-    def iq_set(inner, self, payload, **attrs):
-        with _stream(self.xmpp) as stream:
-            result = yield inner.sub(_iq(self.xmpp.send, stream, "set", payload, **attrs))
-        inner.finish(result)
+        waiter = _iq_wait(uid)
+        self.iq_uids[uid] = waiter
+
+        try:
+            yield self.xmpp.send(iq)
+            result = yield idiokit.Event() | waiter
+        finally:
+            self.iq_uids.pop(uid, None)
+        idiokit.stop(result)
+
+    def iq_get(self, payload, **attrs):
+        return self._iq("get", payload, **attrs)
+
+    def iq_set(self, payload, **attrs):
+        return self._iq("set", payload, **attrs)
 
     def iq_result(self, request, payload=None, **attrs):
         if not request.with_attrs("id"):
@@ -257,10 +252,10 @@ class Core(object):
         attrs["id"] = request.get_attr("id")
         attrs["from"] = unicode(self.xmpp.jid)
 
-        iq = Element("iq", **attrs)
+        iq = xmlcore.Element("iq", **attrs)
         if payload is not None:
             iq.add(payload)
-        self.xmpp.send(iq)
+        return self.xmpp.send(iq)
 
     def iq_error(self, request, error, **attrs):
         if not request.with_attrs("id"):
@@ -272,7 +267,7 @@ class Core(object):
         attrs["to"] = request.get_attr("from")
         attrs["id"] = request.get_attr("id")
 
-        iq = Element("iq", **attrs)
+        iq = xmlcore.Element("iq", **attrs)
         iq.add(request)
         iq.add(error)
-        self.xmpp.send(iq)
+        return self.xmpp.send(iq)

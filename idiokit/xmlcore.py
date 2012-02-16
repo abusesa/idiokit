@@ -1,45 +1,35 @@
-import codecs
 import xml.parsers.expat
 from xml.sax.saxutils import escape as _escape, quoteattr as _quoteattr
 
-class Query(object):
+class Elements(object):
+    __slots__ = ["_elements"]
+
     def __init__(self, *elements):
-        self.elements = elements
+        element_list = list()
+        for element in elements:
+            element_list.extend(element)
+        self._elements = tuple(element_list)
 
     def named(self, *args, **keys):
-        elements = list()
-        for element in self.elements:
-            elements.extend(element.named(*args, **keys))
-        return Query(*elements)        
+        elements = (x.named(*args, **keys) for x in self._elements)
+        return Elements(*elements)
 
     def children(self, *args, **keys):
-        elements = list()
-        for element in self.elements:
-            elements.extend(element.children(*args, **keys))
-        return Query(*elements)
+        elements = (x.children(*args, **keys) for x in self._elements)
+        return Elements(*elements)
 
     def with_attrs(self, *args, **keys):
-        elements = list()
-        for element in self.elements:
-            elements.extend(element.with_attrs(*args, **keys))
-        return Query(*elements)        
+        elements = (x.with_attrs(*args, **keys) for x in self._elements)
+        return Elements(*elements)
 
     def __len__(self):
-        return len(self.elements)
+        return len(self._elements)
 
     def __iter__(self):
-        return iter(self.elements)
+        return iter(self._elements)
 
     def __nonzero__(self):
-        return len(self.elements) > 0
-
-_utf8encoder = codecs.getencoder("utf-8")
-def _encode(string):
-    return _utf8encoder(string)[0]
-
-_utf8decoder = codecs.getdecoder("utf-8")
-def _decode(string):
-    return _utf8decoder(string)[0]    
+        return not not self._elements
 
 def namespace_split(name):
     if ":" not in name:
@@ -75,43 +65,33 @@ def escape(text):
         return "<![CDATA[" + text + "]]>"
     return escaped
 
-class _Element(object):
+class Element(object):
     @property
     def name(self):
-        return _decode(self._name)
+        return self._name
 
     @property
     def ns(self):
         attrs = self._attrs
         ns_name = self._ns_name
-        
+
         while attrs is not None:
             if ns_name in attrs:
-                return _decode(attrs[ns_name])
+                return attrs[ns_name]
             attrs = attrs.get(None, None)
         return None
 
-    def _get_text(self):
-        return _decode(self._text)
-    def _set_text(self, text):
-        self._text = _encode(text)
-    text = property(_get_text, _set_text)
+    __slots__ = [
+        "_full_name", "_ns_name", "_name",
+        "text", "tail",
+        "_children", "_attrs"
+    ]
 
-    def _get_tail(self):
-        return _decode(self._tail)
-    def _set_tail(self, tail):
-        self._tail = _encode(tail)
-    tail = property(_get_tail, _set_tail)
-
-    def __init__(self, _name, _text="", _tail="", **keys):
-        _name = _encode(_name)
-        _text = _encode(_text)
-        _tail = _encode(_tail)
-
+    def __init__(self, _name, _text=u"", _tail=u"", **keys):
         self._full_name = _name
         self._ns_name, self._name = namespace_split(_name)
-        self._text = _text
-        self._tail = _tail
+        self.text = _text
+        self.tail = _tail
 
         self._children = None
         self._attrs = dict()
@@ -120,12 +100,13 @@ class _Element(object):
 
     def named(self, name=None, ns=None):
         if name is not None and self.name != name:
-            return Query()
+            return Elements()
         if ns is not None and self.ns != ns:
-            return Query()
+            return Elements()
         return self
 
     def add(self, *children):
+        children = Elements(*children)
         for child in children:
             child._attrs[None] = self._attrs
         if self._children is None:
@@ -136,35 +117,32 @@ class _Element(object):
         children = list()
         for child in (self._children or ()):
             children.extend(child.named(*args, **keys))
-        return Query(*children)
+        return Elements(*children)
 
     def with_attrs(self, *args, **keys):
         for key in args:
-            key = _encode(key.lower())
             if key not in self._attrs:
-                return Query()
+                return Elements()
 
         for key, value in keys.iteritems():
-            key = _encode(key.lower())
             if value is None and key not in self._attrs:
-                return 
+                return
 
             other = self._attrs.get(key, None)
             if value is None and other is not None:
-                return Query()
-            if value is not None and other != _encode(value):
-                return Query()
+                return Elements()
+            if value is not None and other != value:
+                return Elements()
         return self
 
     def get_attr(self, key, default=None):
-        key = _encode(key.lower())
         if key not in self._attrs:
             return default
-        return _decode(self._attrs[key])
+        return self._attrs[key]
 
     def set_attr(self, key, value):
-        key = _encode(unicode(key.lower()))
-        value = _encode(unicode(value))
+        key = unicode(key)
+        value = unicode(value)
         self._attrs[key] = value
 
     def __iter__(self):
@@ -191,7 +169,7 @@ class _Element(object):
     def serialize_open(self):
         bites = list()
         self._serialize_open(bites.append)
-        return "".join(bites)
+        return "".join(bites).encode("utf-8")
 
     def _serialize_close(self, append):
         append("</" + self._full_name + ">")
@@ -199,30 +177,26 @@ class _Element(object):
     def serialize_close(self):
         bites = list()
         self._serialize_close(bites.append)
-        return "".join(bites)
+        return "".join(bites).encode("utf-8")
 
     def _serialize(self, append):
-        if not (self._text or self._children):
+        if not (self.text or self._children):
             self._serialize_open(append, close=True)
         else:
             self._serialize_open(append, close=False)
-            if self._text:
-                append(escape(self._text))
+            if self.text:
+                append(escape(self.text))
             for child in (self._children or ()):
                 child._serialize(append)
             self._serialize_close(append)
 
-        if self._tail:
-            append(escape(self._tail))
+        if self.tail:
+            append(escape(self.tail))
 
-    def serialize(self):
+    def serialize(self, encoding=None):
         bites = list()
         self._serialize(bites.append)
-        return "".join(bites)
-
-_example = _Element("_example")
-class Element(_Element):
-    __slots__ = tuple(_example.__dict__)
+        return u"".join(bites).encode("utf-8")
 
 class ElementParser(object):
     def __init__(self):
@@ -233,7 +207,7 @@ class ElementParser(object):
 
         self.stack = list()
         self.collected = list()
-        
+
     def start_element(self, name, attrs):
         element = Element(name)
         for key, value in attrs.iteritems():
@@ -262,7 +236,7 @@ class ElementParser(object):
 
     def feed(self, data):
         self.parser.Parse(data)
-        collected = Query(*self.collected)
+        collected = Elements(*self.collected)
         self.collected = list()
         return collected
 
@@ -280,7 +254,7 @@ class TestEncoding(unittest.TestCase):
         element = Element("name")
         element.text = "<&>"
         assert is_valid_xml_data(element.serialize())
-    
+
     def test_ignore_illegal_chars(self):
         illegal_ranges = [(0x0, 0x9), (0xb, 0xd), (0xe, 0x20),
                           (0xd800, 0xe000), (0xfffe, 0x10000)]

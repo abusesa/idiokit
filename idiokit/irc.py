@@ -1,20 +1,21 @@
 import re
-import util
-import threado
-import sockets
+
+from . import idiokit, socket, ssl
 
 class IRCError(Exception):
     pass
 
 class IRCParser(object):
     def __init__(self):
-        self.line_buffer = util.LineBuffer()
+        self.buffer = ""
 
     def feed(self, data=""):
-        if "\x00" in data:
-            raise IRCError("NUL not allowed in messages")
+        lines = re.split("\r?\n", self.buffer + data)
+        self.buffer = lines.pop()
 
-        for line in self.line_buffer.feed(data):
+        for line in lines:
+            if "\x00" in line:
+                raise IRCError("NUL not allowed in messages")
             if len(line) > 510:
                 raise IRCError("too long message (over 512 bytes)")
             yield self.process_line(line)
@@ -66,92 +67,100 @@ def mutations(*nicks):
             suffix = str(i)
             yield nick[:9-len(suffix)] + suffix
 
-class IRC(threado.GeneratorStream):
-    def __init__(self, server, port,
-                 ssl=False, ssl_verify_cert=True, ssl_ca_certs=None):
-        threado.GeneratorStream.__init__(self)
+@idiokit.stream
+def _init_ssl(sock, require_cert, ca_certs, identity):
+    sock = yield ssl.wrap_socket(sock,
+                                 require_cert=require_cert,
+                                 ca_certs=ca_certs)
+    if not require_cert:
+        idiokit.stop(sock)
 
-        self.server = server
-        self.port = port
+    cert = yield sock.getpeercert()
+    if not ssl.match_identity(cert, identity):
+        raise ssl.SSLError("certificate identity check failed")
+    idiokit.stop(sock)
 
-        self.ssl = ssl
-        self.ssl_verify_cert = ssl_verify_cert
-        self.ssl_ca_certs = ssl_ca_certs
+@idiokit.stream
+def connect(host, port, nick, password=None,
+            ssl=False, ssl_verify_cert=True, ssl_ca_certs=None):
+    parser = IRCParser()
 
-        self.parser = None
-        self.socket = None
+    sock = socket.Socket()
+    yield sock.connect((host, port))
+    if ssl:
+        sock = yield _init_ssl(sock, ssl_verify_cert, ssl_ca_certs, host)
 
-    @threado.stream
-    def connect(inner, self, nick, password=None):
-        self.parser = IRCParser()
-        self.socket = sockets.Socket()
+    nicks = mutations(nick)
+    if password is not None:
+        yield sock.sendall(format_message("PASS", password))
+    yield sock.sendall(format_message("NICK", nicks.next()))
+    yield sock.sendall(format_message("USER", nick, nick, "-", nick))
 
-        yield inner.sub(self.socket.connect((self.server, self.port)))
+    while True:
+        data = yield sock.recv(4096)
+        if not data:
+            raise IRCError("connection lost")
 
-        if self.ssl:
-            yield inner.sub(self.socket.ssl(verify_cert=self.ssl_verify_cert,
-                                            ca_certs=self.ssl_ca_certs))
-
-        nicks = mutations(nick)
-        if password is not None:
-            self.socket.send(format_message("PASS", password))
-        self.socket.send(format_message("NICK", nicks.next()))
-        self.socket.send(format_message("USER", nick, nick, "-", nick))
-
-        while True:
-            source, data = yield threado.any(inner, self.socket)
-            if inner is source:
+        for prefix, command, params in parser.feed(data):
+            if command == "PING":
+                yield sock.sendall(format_message("PONG", *params))
                 continue
 
-            for prefix, command, params in self.parser.feed(data):
+            if command == "001":
+                idiokit.stop(IRC(_main(sock, parser), nick))
+
+            if command == "433":
+                for nick in nicks:
+                    yield sock.sendall(format_message("NICK", nick))
+                    break
+                else:
+                    raise NickAlreadyInUse("".join(params[-1:]))
+                continue
+
+                if ERROR_REX.match(command):
+                    raise IRCError("".join(params[-1:]))
+
+def _main(sock, parser):
+    @idiokit.stream
+    def _input():
+        try:
+            while True:
+                msg = yield idiokit.next()
+                yield sock.sendall(format_message(*msg))
+        finally:
+            yield sock.close()
+
+    @idiokit.stream
+    def _output():
+        data = ""
+
+        while True:
+            for prefix, command, params in parser.feed(data):
                 if command == "PING":
-                    self.socket.send(format_message("PONG", *params))
-                    continue
+                    yield sock.sendall(format_message("PONG", *params))
+                yield idiokit.send(prefix, command, params)
 
-                if command == "001":
-                    self.start()
-                    inner.finish(nick)
+            data = yield sock.recv(4096)
+            if not data:
+                raise IRCError("connection lost")
 
-                if command == "433":
-                    for nick in nicks:
-                        self.socket.send(format_message("NICK", nick))
-                        break
-                    else:
-                        raise NickAlreadyInUse("".join(params[-1:]))
-                    continue
+    return _input() | _output()
 
-                    if ERROR_REX.match(command):
-                        raise IRCError("".join(params[-1:]))
+class IRC(idiokit.Proxy):
+    def __init__(self, proxied, nick):
+        idiokit.Proxy.__init__(self, proxied)
 
-    def nick(self, nick):
-        self.send("NICK", nick)
+        self.nick = nick
+
+    def set_nick(self, nick):
+        return self.send("NICK", nick)
 
     def quit(self, message=None):
         if message is None:
-            self.send("QUIT")
-        else:
-            self.send("QUIT", message)
+            return self.send(("QUIT",))
+        return self.send("QUIT", message)
 
     def join(self, channel, key=None):
         if key is None:
-            self.send("JOIN", channel)
-        else:
-            self.send("JOIN", channel, key)
-
-    def run(self):
-        for prefix, command, params in self.parser.feed():
-            if command == "PING":
-                self.send("PONG", *params)
-            self.inner.send(prefix, command, params)
-
-        while True:
-            source, data = yield threado.any(self.inner, self.socket)
-
-            if self.inner is source:
-                self.socket.send(format_message(*data))
-                continue
-
-            for prefix, command, params in self.parser.feed(data):
-                if command == "PING":
-                    self.send("PONG", *params)
-                self.inner.send(prefix, command, params)
+            return self.send("JOIN", channel)
+        return self.send("JOIN", channel, key)

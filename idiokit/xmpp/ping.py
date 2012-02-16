@@ -1,6 +1,7 @@
-import core
-import xmlcore
-import threado
+from __future__ import absolute_import
+
+from . import core
+from .. import idiokit, xmlcore
 
 PING_NS = "urn:xmpp:ping"
 PING_PAYLOAD = xmlcore.Element("ping", xmlns=PING_NS)
@@ -15,16 +16,16 @@ class Ping(object):
         self.xmpp.core.iq_result(element)
         return True
 
-    @threado.stream
-    def ping(inner, self, to):
+    @idiokit.stream
+    def ping(self, to):
         try:
-            yield inner.sub(self.xmpp.core.iq_get(PING_PAYLOAD, to=to))
+            yield self.xmpp.core.iq_get(PING_PAYLOAD, to=to)
         except core.XMPPError, error:
             item = error.type, error.condition
             valid = "cancel", "service-unavailable"
-            
+
             if item != valid:
                 raise error
-            inner.finish(False)
+            idiokit.stop(False)
 
-        inner.finish(True)
+        idiokit.stop(True)

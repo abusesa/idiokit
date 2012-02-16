@@ -1,44 +1,60 @@
-import time
-import heapq
-import threado
+from __future__ import absolute_import
+
 import threading
 
-class _Timer(threado.GeneratorStream):
+from . import idiokit, threadpool, callqueue, heap
+
+class Timer(object):
     def __init__(self):
-        threado.GeneratorStream.__init__(self)
-        self.event = threading.Event()
-        self.heap = list()
-        self.start()
+        self._heap = heap.Heap()
+        self._event = threading.Event()
+        self._running = None
+        self._timer = threadpool.MonotonicTimer()
 
-    def run(self):
-        while True:
-            current_time = time.time()
-            while self.heap and self.heap[0][0] <= current_time:
-                _, channel = heapq.heappop(self.heap)
-                channel.finish()
+    @idiokit.stream
+    def _main(self):
+        try:
+            while True:
+                now = self._timer.elapsed()
 
-            if self.heap:
-                timeout = self.heap[0][0]-current_time
-            else:
-                timeout = None
+                while self._heap and self._heap.peek()[0] <= now:
+                    _, event = self._heap.pop()
+                    event.succeed()
 
-            yield self.inner.thread(self.event.wait, timeout)
-            self.event.clear()
+                if not self._heap:
+                    return
 
-    @threado.stream
-    def sleep(inner, self, delay):
+                first, _ = self._heap.peek()
+
+                self._event.clear()
+                yield threadpool.thread(self._event.wait, first - now)
+        finally:
+            self._running = None
+
+    @idiokit.stream
+    def sleep(self, delay):
+        event = idiokit.Event()
+
         if delay <= 0:
-            inner.finish()
+            callqueue.add(event.succeed)
+            yield event
+            return
 
-        expire_time = time.time() + delay
-        channel = threado.Channel()
+        expire = self._timer.elapsed() + delay
 
-        heapq.heappush(self.heap, (expire_time, channel))
-        self.event.set()
+        if self._running is None:
+            self._running = self._main()
 
-        while not channel.has_result():
-            yield inner, channel
-        inner.finish()
-global_timer = _Timer()
+        if not self._heap or self._heap.peek()[0] > expire:
+            self._event.set()
+        node = self._heap.push((expire, event))
 
-sleep = global_timer.sleep
+        try:
+            yield event
+        finally:
+            try:
+                self._heap.pop(node)
+            except heap.HeapError:
+                pass
+
+sleep = Timer().sleep

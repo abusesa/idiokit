@@ -1,6 +1,8 @@
-import threado
-from xmlcore import Element
-from jid import JID
+from __future__ import absolute_import
+
+from .. import idiokit
+from ..xmlcore import Element
+from .jid import JID
 
 DISCO_INFO_NS = "http://jabber.org/protocol/disco#info"
 DISCO_ITEMS_NS = "http://jabber.org/protocol/disco#items"
@@ -95,13 +97,13 @@ class Disco(object):
         identity = DiscoIdentity(category, type, name)
         self.identities.add(identity)
 
-    @threado.stream
-    def info(inner, self, jid, node=None):
+    @idiokit.stream
+    def info(self, jid, node=None):
         query = Element("query", xmlns=DISCO_INFO_NS)
         if node is not None:
             query.set_attr("node", node)
 
-        elements = yield inner.sub(self.xmpp.core.iq_get(query, to=jid))
+        elements = yield self.xmpp.core.iq_get(query, to=jid)
 
         query = elements.children("query", DISCO_INFO_NS)
         identities = list()
@@ -114,15 +116,15 @@ class Disco(object):
         features = list()
         for feature in query.children("feature").with_attrs("var"):
             features.append(feature.get_attr("var"))
-        inner.finish(DiscoInfo(identities, features))
+        idiokit.stop(DiscoInfo(identities, features))
 
-    @threado.stream
-    def items(inner, self, jid, node=None):
+    @idiokit.stream
+    def items(self, jid, node=None):
         query = Element("query", xmlns=DISCO_ITEMS_NS)
         if node is not None:
             query.set_attr("node", node)
 
-        elements = yield inner.sub(self.xmpp.core.iq_get(query, to=jid))
+        elements = yield self.xmpp.core.iq_get(query, to=jid)
 
         query = elements.children("query", DISCO_ITEMS_NS)
         items = list()
@@ -131,4 +133,4 @@ class Disco(object):
             node = item.get_attr("node", None)
             name = item.get_attr("name", None)
             items.append(DiscoItem(jid, node, name))
-        inner.finish(items)
+        idiokit.stop(items)
