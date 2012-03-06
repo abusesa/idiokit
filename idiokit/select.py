@@ -32,7 +32,7 @@ class Select(object):
         while True:
             try:
                 return _select.select(*args, **keys)
-            except _select.error, se:
+            except _select.error as se:
                 if se.args[0] == errno.EINTR:
                     continue
                 raise se

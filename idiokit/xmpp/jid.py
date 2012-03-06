@@ -8,8 +8,6 @@
 # twisted.words.protocols.jabber.xmpp_stringprep module of Twisted
 # (http://twistedmatrix.com/) as a reference.
 
-from __future__ import with_statement
-
 import re
 import threading
 from stringprep import *
@@ -106,7 +104,7 @@ def prep_domain(domain):
     try:
         labels = map(idna.nameprep, labels)
         labels = map(idna.ToASCII, labels)
-    except UnicodeError, ue:
+    except UnicodeError as ue:
         raise JIDError("not an internationalized label: %s" % ue)
     labels = map(idna.ToUnicode, labels)
     domain = ".".join(labels)

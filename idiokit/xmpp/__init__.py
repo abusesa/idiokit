@@ -62,12 +62,12 @@ def _get_socket(domain, host, port):
         family, socktype, proto, _, addr = item
         try:
             sock = socket.Socket(family, socktype, proto)
-        except socket.SocketError, error:
+        except socket.SocketError as error:
             continue
 
         try:
             yield sock.connect(addr)
-        except socket.SocketError, error:
+        except socket.SocketError as error:
             yield sock.close()
             continue
 

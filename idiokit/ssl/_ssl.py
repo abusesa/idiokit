@@ -1,4 +1,4 @@
-from __future__ import with_statement, absolute_import
+from __future__ import absolute_import
 
 import os
 import shutil
@@ -58,7 +58,7 @@ def _wrapped(ssl, timeout, func, *args, **keys):
         for _, timeout in socket.countdown(timeout):
             try:
                 result = func(*args, **keys)
-            except _ssl.SSLError, err:
+            except _ssl.SSLError as err:
                 if err.args[0] == _ssl.SSL_ERROR_WANT_READ:
                     yield select.select((ssl,), (), (), timeout)
                 elif err.args[0] == _ssl.SSL_ERROR_WANT_WRITE:

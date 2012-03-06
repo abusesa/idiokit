@@ -1,4 +1,4 @@
-from __future__ import with_statement, absolute_import
+from __future__ import absolute_import
 
 import os
 import time
@@ -36,13 +36,13 @@ class SocketGAIError(SocketError):
 def wrapped_socket_errors():
     try:
         yield
-    except _socket.timeout, err:
+    except _socket.timeout as err:
         raise SocketTimeout(*err.args)
-    except _socket.gaierror, err:
+    except _socket.gaierror as err:
         raise SocketGAIError(*err.args)
-    except _socket.herror, err:
+    except _socket.herror as err:
         raise SocketHError(*err.args)
-    except _socket.error, err:
+    except _socket.error as err:
         raise SocketError(*err.args)
 
 def _countdown_none():
@@ -84,7 +84,7 @@ def _recv(socket, timeout, func, *args, **keys):
 
         try:
             data = func(*args, **keys)
-        except _socket.error, err:
+        except _socket.error as err:
             if err.args[0] not in _ALLOWED_SOCKET_ERRNOS:
                 raise
         else:
@@ -98,7 +98,7 @@ def _send(socket, timeout, func, *args, **keys):
 
         try:
             bytes = func(*args, **keys)
-        except _socket.error, err:
+        except _socket.error as err:
             if err.args[0] not in _ALLOWED_SOCKET_ERRNOS:
                 raise
         else:

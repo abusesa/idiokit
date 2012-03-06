@@ -222,7 +222,7 @@ class MUC(object):
                     jid, participants = yield join_room(jid,
                                                         self.xmpp, output,
                                                         password, history)
-                except MUCError, me:
+                except MUCError as me:
                     if (me.type, me.condition) != ("cancel", "conflict"):
                         raise
                     jid = JID(jid.node, jid.domain, nick+"-"+gen_random())

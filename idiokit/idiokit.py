@@ -1,4 +1,4 @@
-from __future__ import with_statement, absolute_import
+from __future__ import absolute_import
 
 import sys
 import inspect
@@ -8,21 +8,6 @@ import collections
 
 from . import callqueue
 from .values import Value
-
-def _isgenfunc(func):
-    # Return True if func is a generator function, False otherwise.
-
-    if not inspect.isfunction(func):
-        return False
-
-    # Python data model documentation:
-    # "The following flag bits are defined for co_flags: [...]
-    #  bit 0x20 is set if the function is a generator."
-    return func.func_code.co_flags & 0x20 != 0x00
-
-# Use inspect.isgeneratorfunction if available, fall back to
-# _isgenfunc otherwise.
-isgenfunc = getattr(inspect, "isgeneratorfunction", _isgenfunc)
 
 NULL = Value(None)
 
@@ -629,7 +614,7 @@ class Generator(Stream):
                 next = self._gen.throw(*args)
             else:
                 next = self._gen.send(peel_args(args))
-        except StopIteration, stop:
+        except StopIteration as stop:
             self._close(False, stop.args)
             del stop
         except:
@@ -806,7 +791,7 @@ class Proxy(Stream):
         return self._proxied.result(*args, **keys)
 
 def stream(func):
-    if not isgenfunc(func):
+    if not inspect.isgeneratorfunction(func):
         raise TypeError("%r is not a generator function" % func)
 
     @functools.wraps(func)
