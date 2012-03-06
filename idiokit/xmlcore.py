@@ -323,6 +323,3 @@ class TestElementNamespaces(unittest.TestCase):
 
         assert child.ns == "default_ns"
         assert not child.with_attrs("xmlns")
-
-if __name__ == "__main__":
-    unittest.main()
