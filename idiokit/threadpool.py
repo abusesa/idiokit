@@ -57,7 +57,7 @@ class ThreadPool(object):
                 queue = [(value, func, args, keys)]
 
                 thread = self._Thread(target=self._thread, args=(lock, queue))
-                thread.setDaemon(True)
+                thread.daemon = True
                 thread.start()
 
                 self.alive += 1

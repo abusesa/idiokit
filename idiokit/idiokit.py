@@ -852,7 +852,7 @@ def main_loop(main):
         signal.signal(signal.SIGTERM, _signal)
 
         thread.start()
-        while thread.isAlive():
+        while thread.is_alive():
             time.sleep(0.1)
     finally:
         signal.signal(signal.SIGINT, sigint)
