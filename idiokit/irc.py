@@ -72,12 +72,9 @@ def _init_ssl(sock, require_cert, ca_certs, identity):
     sock = yield ssl.wrap_socket(sock,
                                  require_cert=require_cert,
                                  ca_certs=ca_certs)
-    if not require_cert:
-        idiokit.stop(sock)
-
-    cert = yield sock.getpeercert()
-    if not ssl.match_identity(cert, identity):
-        raise ssl.SSLError("certificate identity check failed")
+    if require_cert:
+        cert = yield sock.getpeercert()
+        ssl.match_hostname(cert, identity)
     idiokit.stop(sock)
 
 @idiokit.stream

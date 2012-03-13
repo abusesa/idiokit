@@ -74,16 +74,13 @@ def _get_socket(domain, host, port):
         idiokit.stop(sock)
 
 @idiokit.stream
-def _init_ssl(sock, require_cert, ca_certs, identity):
+def _init_ssl(sock, require_cert, ca_certs, hostname):
     sock = yield ssl.wrap_socket(sock,
                                  require_cert=require_cert,
                                  ca_certs=ca_certs)
-    if not require_cert:
-        idiokit.stop(sock)
-
-    cert = yield sock.getpeercert()
-    if not ssl.match_identity(cert, identity):
-        raise ssl.SSLError("certificate identity check failed")
+    if require_cert:
+        cert = yield sock.getpeercert()
+        ssl.match_hostname(cert, hostname)
     idiokit.stop(sock)
 
 @idiokit.stream
@@ -97,8 +94,8 @@ def connect(jid, password,
     yield core.require_tls(elements)
     yield elements.throw(Restart)
 
-    identity = jid.domain if host is None else host
-    sock = yield _init_ssl(sock, ssl_verify_cert, ssl_ca_certs, identity)
+    hostname = jid.domain if host is None else host
+    sock = yield _init_ssl(sock, ssl_verify_cert, ssl_ca_certs, hostname)
     elements = element_stream(sock, jid.domain)
 
     yield core.require_sasl(elements, jid, password)

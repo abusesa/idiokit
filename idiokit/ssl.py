@@ -1,14 +1,17 @@
 from __future__ import absolute_import
 
 import os
+import re
 import shutil
 import tempfile
-
 import ssl as _ssl
 
-from .. import idiokit, select, socket, timer
+from . import idiokit, select, socket, timer
 
 class SSLError(socket.SocketError):
+    pass
+
+class SSLCertificateError(SSLError):
     pass
 
 PROTOCOL_SSLv23 = _ssl.PROTOCOL_SSLv23
@@ -73,10 +76,13 @@ def wrap_socket(sock,
                 keyfile=None,
                 certfile=None,
                 server_side=False,
-                ssl_version=PROTOCOL_SSLv23,
+                ssl_version=None,
                 require_cert=False,
                 ca_certs=None,
                 timeout=None):
+    if ssl_version is None:
+        ssl_version = PROTOCOL_SSLv23 if server_side else PROTOCOL_SSLv3
+
     keys = dict(
         keyfile=keyfile,
         certfile=certfile,
@@ -137,3 +143,128 @@ class _SSLSocket(object):
             offset += bytes
             if offset >= length:
                 break
+
+def identities(cert):
+    """
+    RFC2818: "If a subjectAltName extension of type dNSName is present,
+    that MUST be used as the identity."
+
+    >>> identities({
+    ...     "subject": ((("commonName", "a"),),),
+    ...     "subjectAltName": (("DNS", "x"),)
+    ... })
+    ['x']
+
+    RFC2818: "Otherwise, the (most specific) Common Name field in the
+    Subject field of the certificate MUST be used."
+
+    >>> identities({
+    ...     "subject": ((("commonName", "a"), ("commonName", "a.b")),)
+    ... })
+    ['a.b']
+
+    RFC2818: "If more than one identity of a given type is present in
+    the certificate (e.g., more than one dNSName name, a match in any one
+    of the set is considered acceptable.)"
+
+    >>> sorted(identities({
+    ...     "subjectAltName": (("DNS", "x"), ("DNS", "x.y"))
+    ... }))
+    ['x', 'x.y']
+    """
+
+    alt_name = cert.get("subjectAltName", ())
+    dns_names = [value for (key, value) in alt_name if key == "DNS"]
+    if dns_names:
+        return dns_names
+
+    common_names = list()
+    for fields in cert.get("subject", ()):
+        common_names.extend(value for (key, value) in fields if key == "commonName")
+    if common_names:
+        return common_names[-1:]
+
+    return []
+
+def _match_part(pattern, part):
+    rex_chars = list()
+    for ch in pattern:
+        if ch == "*":
+            rex_chars.append(".*")
+        else:
+            rex_chars.append(re.escape(ch))
+    rex_pattern = "".join(rex_chars)
+    return re.match(rex_pattern, part, re.I) is not None
+
+def _match_hostname(pattern, hostname):
+    """
+    >>> _match_hostname("a.b", "a.b")
+    True
+    >>> _match_hostname("*.b", "a.b")
+    True
+    >>> _match_hostname("a.*", "a.b")
+    True
+    >>> _match_hostname("a", "a.b")
+    False
+    >>> _match_hostname("a.b", "b")
+    False
+    """
+
+    pattern_parts = pattern.split(".")
+    hostname_parts = hostname.split(".")
+    if len(pattern_parts) != len(hostname_parts):
+        return False
+
+    for pattern_part, hostname_part in zip(pattern_parts, hostname_parts):
+        if not _match_part(pattern_part, hostname_part):
+            return False
+    return True
+
+def match_hostname(cert, hostname):
+    """
+    >>> cert = {
+    ...     "subject": ((("commonName", "a"),),),
+    ...     "subjectAltName": (("DNS", "b"), ("DNS", "c"))
+    ... }
+    >>> match_hostname(cert, "b")
+    >>> match_hostname(cert, "c")
+    >>> match_hostname(cert, "a")
+    Traceback (most recent call last):
+    ...
+    SSLCertificateError: hostname 'a' doesn't match 'b' or 'c'
+
+    >>> cert = {
+    ...     "subject": ((("commonName", "a"), ("commonName", "x")),)
+    ... }
+    >>> match_hostname(cert, "x")
+    >>> match_hostname(cert, "a")
+    Traceback (most recent call last):
+    ...
+    SSLCertificateError: hostname 'a' doesn't match 'x'
+
+    >>> match_hostname({}, "x")
+    Traceback (most recent call last):
+    ...
+    SSLCertificateError: certificate doesn't contain any hostname patterns
+    """
+
+    id_list = list(identities(cert))
+    if not id_list:
+        message = "certificate doesn't contain any hostname patterns"
+        raise SSLCertificateError(message)
+
+    for identity in id_list:
+        if _match_hostname(identity, hostname):
+            return
+
+    if len(id_list) == 1:
+        id_string = repr(id_list[0])
+    else:
+        id_string = ", ".join(map(repr, id_list[:-1]))
+        id_string += " or " + repr(id_list[-1])
+    message = "hostname {0!r} doesn't match {1}".format(hostname, id_string)
+    raise SSLCertificateError(message)
+
+if __name__ == "__main__":
+    import doctest
+    doctest.testmod()
