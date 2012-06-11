@@ -262,8 +262,10 @@ class _MapOutput(_Queue):
         if self._result.unsafe_is_set():
             return
 
+        args = None
+
         while True:
-            if self._gen is None:
+            if self._gen is None and args is None:
                 if not self._messages.unsafe_is_set():
                     return self._messages.unsafe_listen(self._got_message)
 
@@ -278,40 +280,52 @@ class _MapOutput(_Queue):
                 if not value.unsafe_is_set():
                     return value.unsafe_listen(self._got_message)
 
-                result = value.unsafe_get()
-                if result is not None:
-                    throw, args = result
-                    if throw:
-                        self._tail.unsafe_set(None)
-
-                        exc_type, exc_value, exc_tb = fill_exc(args)
-                        if isinstance(exc_value, StopIteration):
-                            self._result.unsafe_set((False, exc_value.args))
-                        else:
-                            self._result.unsafe_set((True, args))
-                        return
-
-                    self._gen = self._func(peel_args(args), *self._args, **self._keys)
-
-                if self._gen is not None:
-                    self._gen = iter(self._gen)
-
                 self._messages = head
-                continue
 
-            for obj in self._gen:
-                next_consumed = Value()
-                next_value = Value((False, (obj,)))
-                next_head = Value()
+                result = value.unsafe_get()
+                if result is None:
+                    continue
 
-                tail = self._tail
-                self._tail = next_head
-                tail.unsafe_set((next_consumed, next_value, next_head))
+                throw, args = result
+                if throw:
+                    self._tail.unsafe_set(None)
 
-                if not next_consumed.unsafe_is_set():
-                    return next_consumed.unsafe_listen(self._got_message)
-            else:
+                    exc_type, exc_value, exc_tb = fill_exc(args)
+                    if isinstance(exc_value, StopIteration):
+                        self._result.unsafe_set((False, exc_value.args))
+                    else:
+                        self._result.unsafe_set((True, args))
+                    return
+
+            try:
+                if self._gen is None:
+                    gen = self._func(peel_args(args), *self._args, **self._keys)
+                    args = None
+                    if gen is None:
+                        continue
+                    self._gen = iter(gen)
+
+                try:
+                    obj = self._gen.next()
+                except StopIteration:
+                    self._gen = None
+                    continue
+            except:
                 self._gen = None
+                self._tail.unsafe_set(None)
+                self._result.unsafe_set((True, sys.exc_info()))
+                return
+
+            next_consumed = Value()
+            next_value = Value((False, (obj,)))
+            next_head = Value()
+
+            tail = self._tail
+            self._tail = next_head
+            tail.unsafe_set((next_consumed, next_value, next_head))
+
+            if not next_consumed.unsafe_is_set():
+                return next_consumed.unsafe_listen(self._got_message)
 
     def result(self):
         return self._result
