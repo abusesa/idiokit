@@ -847,6 +847,8 @@ def main_loop(main):
 
     sigint = signal.getsignal(signal.SIGINT)
     sigterm = signal.getsignal(signal.SIGTERM)
+    sigusr1 = signal.getsignal(signal.SIGUSR1)
+    sigusr2 = signal.getsignal(signal.SIGUSR2)
 
     def loop():
         iterate = callqueue.iterate
@@ -864,6 +866,8 @@ def main_loop(main):
     try:
         signal.signal(signal.SIGINT, _signal)
         signal.signal(signal.SIGTERM, _signal)
+        signal.signal(signal.SIGUSR1, _signal)
+        signal.signal(signal.SIGUSR2, _signal)
 
         thread.start()
         while thread.is_alive():
@@ -871,6 +875,8 @@ def main_loop(main):
     finally:
         signal.signal(signal.SIGINT, sigint)
         signal.signal(signal.SIGTERM, sigterm)
+        signal.signal(signal.SIGUSR1, sigusr1)
+        signal.signal(signal.SIGUSR2, sigusr2)
 
     throw, args = main.result().unsafe_get()
     if throw:
