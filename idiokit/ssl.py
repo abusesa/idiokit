@@ -131,7 +131,7 @@ class _SSLSocket(object):
         idiokit.stop(result)
 
     @idiokit.stream
-    def sendall(self, string, flags=0, timeout=None, chunk_size=1024):
+    def sendall(self, string, flags=0, timeout=None, chunk_size=16384):
         offset = 0
         length = len(string)
 
