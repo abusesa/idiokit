@@ -226,11 +226,27 @@ class _Socket(object):
             result = yield _send(self._socket, timeout, self._socket.sendto, string, flags, address)
         idiokit.stop(result)
 
+    @idiokit.stream
+    def getsockopt(self, *args, **keys):
+        yield timer.sleep(0)
+
+        with wrapped_socket_errors():
+            result = self._socket.getsockopt(*args, **keys)
+        idiokit.stop(result)
+
+    @idiokit.stream
+    def setsockopt(self, *args, **keys):
+        yield timer.sleep(0)
+
+        with wrapped_socket_errors():
+            result = self._socket.setsockopt(*args, **keys)
+        idiokit.stop(result)
+
     # Not implemented:
     # connect_ex: Use connect(...)
     # recv_into, recvfrom_into: Use recv(...) and recvfrom(...)
     # setblocking, settimeout, gettimeout: Use Socket.<method>(..., timeout=<seconds>)
-    # ioctl, getsockopt, setsockopt
+    # ioctl
     # fileno, makefile
 
 class Socket(_Socket):

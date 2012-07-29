@@ -66,6 +66,7 @@ def _get_socket(domain, host, port):
             continue
 
         try:
+            yield sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             yield sock.connect(addr)
         except socket.SocketError as error:
             yield sock.close()
