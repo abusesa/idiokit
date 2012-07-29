@@ -8,17 +8,13 @@ import socket as _socket
 
 from . import idiokit, threadpool, select, timer
 
-SHUT_RD = _socket.SHUT_RD
-SHUT_WR = _socket.SHUT_WR
-SHUT_RDWR = _socket.SHUT_RDWR
-
-if hasattr(_socket, "AF_UNIX"):
-    AF_UNIX = _socket.AF_UNIX
-AF_INET = _socket.AF_INET
-AF_INET6 = _socket.AF_INET6
-
-SOCK_STREAM = _socket.SOCK_STREAM
-SOCK_DGRAM = _socket.SOCK_DGRAM
+# Import constants from the standard socket module.
+for _name in getattr(_socket, "__all__", dir(_socket)):
+    if not (_name.isupper() and "_" in _name):
+        continue
+    if any(_name.startswith(x) for x in ["_", "SSL_"]):
+        continue
+    globals()[_name] = getattr(_socket, _name)
 
 class SocketError(IOError):
     pass
