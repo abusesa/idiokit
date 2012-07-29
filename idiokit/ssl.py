@@ -136,9 +136,8 @@ class _SSLSocket(object):
         length = len(string)
 
         for _, timeout in socket.countdown(timeout):
-            chunk = string[offset:offset+chunk_size]
-
-            bytes = yield self.send(chunk, flags, timeout)
+            buf = buffer(string, offset, chunk_size)
+            bytes = yield self.send(buf, flags, timeout)
 
             offset += bytes
             if offset >= length:

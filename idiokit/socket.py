@@ -207,14 +207,13 @@ class _Socket(object):
         idiokit.stop(result)
 
     @idiokit.stream
-    def sendall(self, string, flags=0, timeout=None, chunk_size=16384):
+    def sendall(self, string, flags=0, timeout=None):
         offset = 0
         length = len(string)
 
         for _, timeout in countdown(timeout):
-            chunk = string[offset:offset+chunk_size]
-
-            bytes = yield self.send(chunk, flags, timeout=timeout)
+            buf = buffer(string, offset)
+            bytes = yield self.send(buf, flags, timeout=timeout)
 
             offset += bytes
             if offset >= length:
