@@ -125,18 +125,22 @@ class _SSLSocket(object):
 
     @idiokit.stream
     def send(self, data, flags=0, timeout=None):
+        socket.check_sendable_type(data)
+
         if flags != 0:
             raise ValueError("flags not supported by SSL sockets")
         result = yield _wrapped(self._ssl, timeout, self._ssl.write, data)
         idiokit.stop(result)
 
     @idiokit.stream
-    def sendall(self, string, flags=0, timeout=None, chunk_size=16384):
+    def sendall(self, data, flags=0, timeout=None, chunk_size=16384):
+        socket.check_sendable_type(data)
+
         offset = 0
-        length = len(string)
+        length = len(data)
 
         for _, timeout in socket.countdown(timeout):
-            buf = buffer(string, offset, chunk_size)
+            buf = buffer(data, offset, chunk_size)
             bytes = yield self.send(buf, flags, timeout)
 
             offset += bytes

@@ -65,6 +65,14 @@ def countdown(timeout):
         return _countdown_none()
     return _countdown_seconds(timeout)
 
+def check_sendable_type(value):
+    if isinstance(value, (str, buffer)):
+        return
+
+    name = type(value).__name__
+    msg = "expected string or buffer, got {0}".format(name)
+    raise TypeError(msg)
+
 _ALLOWED_SOCKET_ERRNOS = set([
     errno.EINTR,
     errno.ENOBUFS,
@@ -197,18 +205,22 @@ class _Socket(object):
         idiokit.stop(result)
 
     @idiokit.stream
-    def send(self, string, flags=0, timeout=None):
+    def send(self, data, flags=0, timeout=None):
+        check_sendable_type(data)
+
         with wrapped_socket_errors():
-            result = yield _send(self._socket, timeout, self._socket.send, string, flags)
+            result = yield _send(self._socket, timeout, self._socket.send, data, flags)
         idiokit.stop(result)
 
     @idiokit.stream
-    def sendall(self, string, flags=0, timeout=None):
+    def sendall(self, data, flags=0, timeout=None):
+        check_sendable_type(data)
+
         offset = 0
-        length = len(string)
+        length = len(data)
 
         for _, timeout in countdown(timeout):
-            buf = buffer(string, offset)
+            buf = buffer(data, offset)
             bytes = yield self.send(buf, flags, timeout=timeout)
 
             offset += bytes
@@ -216,14 +228,16 @@ class _Socket(object):
                 break
 
     @idiokit.stream
-    def sendto(self, *args, **keys):
+    def sendto(self, data, *args, **keys):
+        check_sendable_type(data)
+
         try:
-            string, flags, address, timeout = _sendto_with_flags(*args, **keys)
+            data, flags, address, timeout = _sendto_with_flags(data, *args, **keys)
         except TypeError:
-            string, flags, address, timeout = _sendto_without_flags(*args, **keys)
+            data, flags, address, timeout = _sendto_without_flags(data, *args, **keys)
 
         with wrapped_socket_errors():
-            result = yield _send(self._socket, timeout, self._socket.sendto, string, flags, address)
+            result = yield _send(self._socket, timeout, self._socket.sendto, data, flags, address)
         idiokit.stop(result)
 
     @idiokit.stream
