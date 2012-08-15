@@ -1,11 +1,9 @@
 from __future__ import absolute_import
 
 import random
-import string
 
 from .. import idiokit
 from ..xmlcore import Element
-from . import disco
 from .core import STANZA_NS, XMPPError
 from .jid import JID
 
@@ -20,7 +18,7 @@ class MUCError(XMPPError):
 
 
 def gen_random(length=8):
-    return "".join(random.choice(string.digits) for _ in xrange(length))
+    return "".join(random.choice("0123456789") for _ in xrange(length))
 
 
 def parse_presence(elements, own_jid):
@@ -88,6 +86,10 @@ def join_room(jid, xmpp, output, password=None, history=False):
 
 
 class MUCRoom(idiokit.Proxy):
+    @staticmethod
+    def _presences(elements):
+        return elements.named("presence").with_attrs("from")
+
     def __init__(self, jid, muc, output, participants):
         self.jid = JID(jid)
         self.participants = participants
@@ -97,9 +99,6 @@ class MUCRoom(idiokit.Proxy):
 
         idiokit.Proxy.__init__(self, self._input() | output)
         output | idiokit.map(self._presences) | self._output()
-
-    def _presences(self, elements):
-        return elements.named("presence").with_attrs("from")
 
     @idiokit.stream
     def _input(self):
@@ -142,7 +141,7 @@ class MUC(object):
     def __init__(self, xmpp):
         self.xmpp = xmpp
         self.xmpp.disco.add_feature(MUC_NS)
-        self.xmpp.disco.add_node(ROOMS_NODE, self._node_handler)
+        self.xmpp.disco.add_node(ROOMS_NODE, lambda: ([], [], []))
         self.rooms = dict()
 
         self._main = self.xmpp | idiokit.map(self._map)
@@ -153,12 +152,6 @@ class MUC(object):
             bare = JID(element.get_attr("from")).bare()
             for room in self.rooms.get(bare, ()):
                 room.send(element)
-
-    def _node_handler(self):
-        features = list()
-        identities = [disco.DiscoIdentity("client", "bot")]
-        items = [disco.DiscoItem(room) for room in self.rooms]
-        return features, identities, items
 
     def _exit_room(self, room):
         rooms = self.rooms.get(room.jid.bare(), set())
