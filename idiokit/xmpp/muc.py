@@ -14,11 +14,14 @@ USER_NS = MUC_NS + "#user"
 OWNER_NS = MUC_NS + "#owner"
 ROOMS_NODE = "http://jabber.org/protocol/muc#rooms"
 
+
 class MUCError(XMPPError):
     pass
 
+
 def gen_random(length=8):
     return "".join(random.choice(string.digits) for _ in xrange(length))
+
 
 def parse_presence(elements, own_jid):
     presences = elements.named("presence", STANZA_NS)
@@ -48,6 +51,7 @@ def parse_presence(elements, own_jid):
                                          presence.children(), jid)
             return participant, codes
     return None
+
 
 @idiokit.stream
 def join_room(jid, xmpp, output, password=None, history=False):
@@ -81,6 +85,7 @@ def join_room(jid, xmpp, output, password=None, history=False):
 
         if participant.name == jid or "110" in codes:
             idiokit.stop(participant.name, participants)
+
 
 class MUCRoom(idiokit.Proxy):
     def __init__(self, jid, muc, output, participants):
@@ -123,6 +128,7 @@ class MUCRoom(idiokit.Proxy):
         finally:
             self._muc._exit_room(self)
 
+
 class MUCParticipant(object):
     def __init__(self, name, affiliation, role, payload, jid=None):
         self.name = name
@@ -130,6 +136,7 @@ class MUCParticipant(object):
         self.role = role
         self.jid = jid
         self.payload = payload
+
 
 class MUC(object):
     def __init__(self, xmpp):
@@ -162,14 +169,11 @@ class MUC(object):
     @idiokit.stream
     def _test_muc(self, domain):
         info = yield self.xmpp.disco.info(domain)
-        if MUC_NS not in info.features:
-            raise MUCError("%r is not a multi-user chat service" % domain)
-
-        for identity in info.identities:
-            if identity.category == "conference" and identity.type == "text":
-                idiokit.stop(domain)
-
-        raise MUCError("%r is not a multi-user chat service" % domain)
+        if MUC_NS in info.features:
+            for identity in info.identities:
+                if identity.category == "conference" and identity.type == "text":
+                    idiokit.stop(domain)
+        raise MUCError("{0!r} is not a multi-user chat service".format(domain))
 
     @idiokit.stream
     def _resolve_muc(self):
@@ -190,7 +194,7 @@ class MUC(object):
         idiokit.stop(domain)
 
     @idiokit.stream
-    def _full_room_jid(self, room):
+    def get_full_room_jid(self, room):
         if "@" in unicode(room):
             jid = JID(room)
             if jid.resource is not None:
@@ -208,7 +212,7 @@ class MUC(object):
 
     @idiokit.stream
     def join(self, room, nick=None, password=None, history=False):
-        jid = yield self._full_room_jid(room)
+        jid = yield self.get_full_room_jid(room)
         if nick is None:
             nick = self.xmpp.jid.node
         jid = JID(jid.node, jid.domain, nick)
@@ -219,13 +223,11 @@ class MUC(object):
         try:
             while True:
                 try:
-                    jid, participants = yield join_room(jid,
-                                                        self.xmpp, output,
-                                                        password, history)
+                    jid, participants = yield join_room(jid, self.xmpp, output, password, history)
                 except MUCError as me:
                     if (me.type, me.condition) != ("cancel", "conflict"):
                         raise
-                    jid = JID(jid.node, jid.domain, nick+"-"+gen_random())
+                    jid = JID(jid.node, jid.domain, nick + "-" + gen_random())
                 else:
                     break
         except:
