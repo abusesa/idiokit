@@ -176,26 +176,21 @@ class Stream(object):
     def fork(self, *args, **keys):
         return Fork(self, *args, **keys)
 
-    def _send(self, signal, throw, args):
+    def _send(self, throw, args):
         send = _SendBase(self.result(), throw, args)
-        if signal:
+        if throw:
             self.pipe_left(NULL, send._output_head())
         else:
             self.pipe_left(send._output_head(), NULL)
         return send
 
     def send(self, *args):
-        return self._send(False, False, args)
+        return self._send(False, args)
 
     def throw(self, *args):
         if not args:
             args = sys.exc_info()
-        return self._send(False, True, args)
-
-    def signal(self, *args):
-        if not args:
-            args = sys.exc_info()
-        return self._send(True, True, args)
+        return self._send(True, args)
 
     def next(self):
         return Event() | self.fork() | Next()
@@ -841,9 +836,7 @@ def main_loop(main):
     import signal
 
     def _signal(code, _):
-        consume = Value()
-        value = Value((True, (Signal, Signal(code), None)))
-        main.pipe_left(NULL, Value((consume, value, NULL)))
+        main.throw(Signal(code))
 
     sigint = signal.getsignal(signal.SIGINT)
     sigterm = signal.getsignal(signal.SIGTERM)

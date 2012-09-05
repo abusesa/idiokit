@@ -228,7 +228,7 @@ class MUC(object):
             outputs.discard(output)
             if not outputs:
                 self.rooms.pop(jid.bare(), None)
-            output.signal(idiokit.Signal)
+            output.throw()
             raise
         else:
             idiokit.stop(MUCRoom(jid, self, output, participants))
