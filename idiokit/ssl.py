@@ -2,21 +2,26 @@ from __future__ import absolute_import
 
 import os
 import re
-import shutil
 import tempfile
+import platform
+import contextlib
 import ssl as _ssl
 
 from . import idiokit, select, socket, timer
 
+
 class SSLError(socket.SocketError):
     pass
+
 
 class SSLCertificateError(SSLError):
     pass
 
+
 PROTOCOL_SSLv23 = _ssl.PROTOCOL_SSLv23
 PROTOCOL_SSLv3 = _ssl.PROTOCOL_SSLv3
 PROTOCOL_TLSv1 = _ssl.PROTOCOL_TLSv1
+
 
 # A cert to make the ssl.wrap_socket to use the system CAs.
 CERT_DATA = """
@@ -55,6 +60,36 @@ O1m5HRRBQdjLoUrIsOby9i0rQyoEYE44YlUVgLbTKNL2zl+b+Sn/zg5Z+g==
 -----END CERTIFICATE-----
 """
 
+
+@contextlib.contextmanager
+def _dummy_cert():
+    fd, path = tempfile.mkstemp()
+    try:
+        index = 0
+        while index < len(CERT_DATA):
+            index += os.write(fd, CERT_DATA[index:])
+        os.fsync(fd)
+
+        yield path
+    finally:
+        os.close(fd)
+        os.remove(path)
+
+
+def _constant_cert(filename):
+    @contextlib.contextmanager
+    def _cert():
+        yield filename
+    return _cert
+
+
+_distro = platform.linux_distribution()[0].lower()
+if _distro == "ubuntu":
+    _default_cert = _constant_cert("/etc/ssl/certs/ca-certificates.crt")
+else:
+    _default_cert = _dummy_cert
+
+
 @idiokit.stream
 def _wrapped(ssl, timeout, func, *args, **keys):
     with socket.wrapped_socket_errors():
@@ -70,6 +105,7 @@ def _wrapped(ssl, timeout, func, *args, **keys):
                     raise SSLError(*err.args)
             else:
                 idiokit.stop(result)
+
 
 @idiokit.stream
 def wrap_socket(sock,
@@ -93,19 +129,15 @@ def wrap_socket(sock,
         suppress_ragged_eofs=True)
 
     if not require_cert or ca_certs is not None:
-        ssl = _ssl.wrap_socket(sock._socket, ca_certs=ca_certs, **keys)
-        yield _wrapped(ssl, timeout, ssl.do_handshake)
+        cert = _constant_cert(ca_certs)
     else:
-        tempdir = tempfile.mkdtemp()
-        try:
-            filename = os.path.join(tempdir, "cert")
-            with open(filename, "w+b") as temp:
-                temp.write(CERT_DATA)
-            ssl = _ssl.wrap_socket(sock._socket, ca_certs=filename, **keys)
-            yield _wrapped(ssl, timeout, ssl.do_handshake)
-        finally:
-            shutil.rmtree(tempdir)
+        cert = _default_cert
+
+    with cert() as cert_file:
+        ssl = _ssl.wrap_socket(sock._socket, ca_certs=cert_file, **keys)
+        yield _wrapped(ssl, timeout, ssl.do_handshake)
     idiokit.stop(_SSLSocket(ssl))
+
 
 class _SSLSocket(object):
     def __init__(self, ssl):
@@ -146,6 +178,7 @@ class _SSLSocket(object):
             offset += bytes
             if offset >= length:
                 break
+
 
 def identities(cert):
     """
@@ -189,6 +222,7 @@ def identities(cert):
 
     return []
 
+
 def _match_part(pattern, part):
     rex_chars = list()
     for ch in pattern:
@@ -198,6 +232,7 @@ def _match_part(pattern, part):
             rex_chars.append(re.escape(ch))
     rex_pattern = "".join(rex_chars)
     return re.match(rex_pattern, part, re.I) is not None
+
 
 def _match_hostname(pattern, hostname):
     """
@@ -222,6 +257,7 @@ def _match_hostname(pattern, hostname):
         if not _match_part(pattern_part, hostname_part):
             return False
     return True
+
 
 def match_hostname(cert, hostname):
     """
