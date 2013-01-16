@@ -16,17 +16,22 @@ for _name in getattr(_socket, "__all__", dir(_socket)):
         continue
     globals()[_name] = getattr(_socket, _name)
 
+
 class SocketError(IOError):
     pass
+
 
 class SocketHError(SocketError):
     pass
 
+
 class SocketTimeout(SocketError):
     pass
 
+
 class SocketGAIError(SocketError):
     pass
+
 
 @contextlib.contextmanager
 def wrapped_socket_errors():
@@ -41,11 +46,13 @@ def wrapped_socket_errors():
     except _socket.error as err:
         raise SocketError(*err.args)
 
+
 def _countdown_none():
     yield True, None
 
     while True:
         yield False, None
+
 
 def _countdown_seconds(seconds):
     prev = time.time()
@@ -60,10 +67,12 @@ def _countdown_seconds(seconds):
         prev = now
         yield False, max(seconds, 0.0)
 
+
 def countdown(timeout):
     if timeout is None:
         return _countdown_none()
     return _countdown_seconds(timeout)
+
 
 def check_sendable_type(value):
     if isinstance(value, (str, buffer)):
@@ -73,12 +82,14 @@ def check_sendable_type(value):
     msg = "expected string or buffer, got {0}".format(name)
     raise TypeError(msg)
 
+
 _ALLOWED_SOCKET_ERRNOS = set([
     errno.EINTR,
     errno.ENOBUFS,
     errno.EAGAIN,
     errno.EWOULDBLOCK
 ])
+
 
 @idiokit.stream
 def _recv(socket, timeout, func, *args, **keys):
@@ -94,6 +105,7 @@ def _recv(socket, timeout, func, *args, **keys):
         else:
             idiokit.stop(data)
 
+
 @idiokit.stream
 def _send(socket, timeout, func, *args, **keys):
     for first, timeout in countdown(timeout):
@@ -108,11 +120,14 @@ def _send(socket, timeout, func, *args, **keys):
         else:
             idiokit.stop(bytes)
 
+
 def _sendto_with_flags(string, flags, address, timeout=None):
     return string, flags, address, timeout
 
+
 def _sendto_without_flags(string, address, timeout=None):
     return string, 0, address, timeout
+
 
 class _Socket(object):
     @property
@@ -262,6 +277,7 @@ class _Socket(object):
     # setblocking, settimeout, gettimeout: Use Socket.<method>(..., timeout=<seconds>)
     # ioctl
     # fileno, makefile
+
 
 class Socket(_Socket):
     def __init__(self, *args, **keys):

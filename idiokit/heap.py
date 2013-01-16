@@ -1,6 +1,7 @@
 class HeapError(Exception):
     pass
 
+
 class Heap(object):
     def __init__(self, iterable=()):
         self._heap = list()
@@ -42,6 +43,7 @@ class Heap(object):
     def __nonzero__(self):
         return not not self._heap
 
+
 class _Node(object):
     __slots__ = "_index", "_value"
 
@@ -49,11 +51,13 @@ class _Node(object):
         self._index = index
         self._value = value
 
+
 def _swap(array, left, right):
     array[left._index] = right
     array[right._index] = left
     left._index, right._index = right._index, left._index
     return right, left
+
 
 def _up(array, node):
     while node._index > 0:
@@ -61,6 +65,7 @@ def _up(array, node):
         if parent._value <= node._value:
             break
         _swap(array, node, parent)
+
 
 def _down(array, node):
     length = len(array)
@@ -84,6 +89,7 @@ def _down(array, node):
             break
 
         _swap(array, node, smallest)
+
 
 if __name__ == "__main__":
     import unittest

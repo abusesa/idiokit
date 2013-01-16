@@ -6,6 +6,7 @@ from .. import idiokit, xmlcore
 PING_NS = "urn:xmpp:ping"
 PING_PAYLOAD = xmlcore.Element("ping", xmlns=PING_NS)
 
+
 class Ping(object):
     def __init__(self, xmpp):
         self.xmpp = xmpp

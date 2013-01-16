@@ -304,6 +304,7 @@ def match_hostname(cert, hostname):
     message = "hostname {0!r} doesn't match {1}".format(hostname, id_string)
     raise SSLCertificateError(message)
 
+
 if __name__ == "__main__":
     import doctest
     doctest.testmod()

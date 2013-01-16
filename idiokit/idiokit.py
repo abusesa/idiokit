@@ -9,10 +9,13 @@ import collections
 from . import callqueue
 from .values import Value
 
+
 NULL = Value(None)
+
 
 class BrokenPipe(Exception):
     pass
+
 
 class _Queue(object):
     _lock = threading.Lock()
@@ -52,6 +55,7 @@ class _Queue(object):
             if head is None:
                 head = self._tail
         return head
+
 
 class Piped(_Queue):
     def __init__(self, auto_consume=False):
@@ -162,6 +166,7 @@ class Piped(_Queue):
     def close(self):
         callqueue.asap(self._close)
 
+
 def peel_args(args):
     if not args:
         return None
@@ -169,8 +174,10 @@ def peel_args(args):
         return args[0]
     return args
 
+
 def fill_exc(args):
-    return args + (None,) * (3-len(args))
+    return args + (None,) * (3 - len(args))
+
 
 class Stream(object):
     def fork(self, *args, **keys):
@@ -197,6 +204,7 @@ class Stream(object):
 
     def __or__(self, other):
         return PipePair(self, other)
+
 
 class _MapOutput(_Queue):
     def __init__(self, messages, signals, func, args, keys):
@@ -325,6 +333,7 @@ class _MapOutput(_Queue):
     def result(self):
         return self._result
 
+
 class Map(Stream):
     def __init__(self, func, *args, **keys):
         Stream.__init__(self)
@@ -350,6 +359,7 @@ class Map(Stream):
 
     def head(self):
         return self._output.head()
+
 
 class _SendBase(Stream):
     _lock = threading.Lock()
@@ -436,12 +446,14 @@ class _SendBase(Stream):
     def result(self):
         return self._result
 
+
 class Send(_SendBase):
     def __init__(self, throw, args):
         _SendBase.__init__(self, None, throw, args)
 
     def head(self):
         return self._output_head()
+
 
 class Fork(Stream):
     def __init__(self, stream):
@@ -538,6 +550,7 @@ class Fork(Stream):
     def result(self):
         return self._result
 
+
 class _GeneratorOutput(_Queue):
     def __init__(self):
         _Queue.__init__(self)
@@ -594,6 +607,7 @@ class _GeneratorOutput(_Queue):
         if self._stack:
             return
         self._tail.unsafe_set(None)
+
 
 class Generator(Stream):
     _running = set()
@@ -671,6 +685,7 @@ class Generator(Stream):
     def result(self):
         return self._result
 
+
 class Next(Stream):
     def __init__(self):
         self._result = Value()
@@ -702,6 +717,7 @@ class Next(Stream):
     def result(self):
         return self._result
 
+
 class Event(Next):
     def set(self, args):
         Next.pipe_left(self, NULL, Value((NULL, Value(args), NULL)))
@@ -714,6 +730,7 @@ class Event(Next):
 
     def pipe_left(self, _, signal_head):
         Next.pipe_left(self, NULL, signal_head)
+
 
 class PipePair(Stream):
     def __init__(self, left, right):
@@ -781,6 +798,7 @@ class PipePair(Stream):
     def result(self):
         return self._result
 
+
 class Proxy(Stream):
     def __init__(self, proxied):
         Stream.__init__(self)
@@ -799,6 +817,7 @@ class Proxy(Stream):
     def result(self, *args, **keys):
         return self._proxied.result(*args, **keys)
 
+
 def stream(func):
     if not inspect.isgeneratorfunction(func):
         raise TypeError("%r is not a generator function" % func)
@@ -808,11 +827,14 @@ def stream(func):
         return Generator(func(*args, **keys))
     return _stream
 
+
 def send(*args):
     return Send(False, args)
 
+
 def map(func, *args, **keys):
     return Map(func, *args, **keys)
+
 
 def pipe(first, *rest):
     if not rest:
@@ -820,16 +842,21 @@ def pipe(first, *rest):
     cut = len(rest) // 2
     return PipePair(pipe(first, *rest[:cut]), pipe(*rest[cut:]))
 
+
 next = Next
+
 
 def stop(*args):
     raise StopIteration(*args)
 
+
 def consume():
     return map(lambda x: None)
 
+
 class Signal(BaseException):
     pass
+
 
 def main_loop(main):
     import time

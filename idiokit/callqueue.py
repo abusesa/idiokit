@@ -2,6 +2,7 @@ import threading
 import contextlib
 import collections
 
+
 class CallQueue(object):
     create_deque = staticmethod(collections.deque)
 
@@ -88,6 +89,7 @@ class CallQueue(object):
                     old_callback()
         finally:
             self.exclusive_lock.release()
+
 
 global_queue = CallQueue()
 

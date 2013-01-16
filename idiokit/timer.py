@@ -4,6 +4,7 @@ import threading
 
 from . import idiokit, threadpool, callqueue, heap
 
+
 class Timer(object):
     def __init__(self):
         self._heap = heap.Heap()

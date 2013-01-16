@@ -3,6 +3,7 @@ import getpass
 import idiokit
 from idiokit.xmpp import connect, jid
 
+
 @idiokit.stream
 def main():
     xmpp = yield connect(raw_input("Username: "), getpass.getpass())
@@ -18,6 +19,7 @@ def main():
 
             for body in message.children("body"):
                 yield room.send(body)
+
 
 if __name__ == "__main__":
     idiokit.main_loop(main())

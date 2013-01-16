@@ -4,6 +4,7 @@ from idiokit.irc import connect as irc_connect
 from idiokit.xmpp.jid import JID
 from idiokit.xmlcore import Element
 
+
 def guess_encoding(text):
     if isinstance(text, unicode):
         return text
@@ -14,6 +15,7 @@ def guess_encoding(text):
         except UnicodeDecodeError:
             pass
     return text.decode("latin-1", "replace")
+
 
 @idiokit.stream
 def xmpp_to_irc(own_jid, channel, encoding="latin-1"):
@@ -32,6 +34,7 @@ def xmpp_to_irc(own_jid, channel, encoding="latin-1"):
                     text = "<%s> %s" % (sender.resource, line)
                     yield idiokit.send("PRIVMSG", channel, text.encode(encoding))
 
+
 @idiokit.stream
 def irc_to_xmpp(channel):
     while True:
@@ -47,6 +50,7 @@ def irc_to_xmpp(channel):
         body = Element("body")
         body.text = text
         yield idiokit.send(body)
+
 
 @idiokit.stream
 def main(bot_name,
@@ -64,6 +68,7 @@ def main(bot_name,
            | irc
            | irc_to_xmpp(irc_channel)
            | room)
+
 
 if __name__ == "__main__":
     import getpass

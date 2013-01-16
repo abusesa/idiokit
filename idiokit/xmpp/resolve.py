@@ -6,6 +6,7 @@ from subprocess import Popen, PIPE
 DEFAULT_XMPP_PORT = 5222
 DEFAULT_XMPP_SERVICE = "xmpp-client"
 
+
 class Resolver(object):
     _resolvers = list()
 
@@ -43,6 +44,7 @@ class Resolver(object):
             for result in getaddrinfo(domain, DEFAULT_XMPP_PORT):
                 yield result
 
+
 def getaddrinfo(host_or_domain, port_or_service):
     try:
         for result in socket.getaddrinfo(host_or_domain,
@@ -54,6 +56,7 @@ def getaddrinfo(host_or_domain, port_or_service):
     except socket.gaierror:
         return
 Resolver._resolvers.append(getaddrinfo)
+
 
 def dig(domain, service):
     command = "dig", "+short", "srv", "_%s._tcp.%s" % (service, domain)

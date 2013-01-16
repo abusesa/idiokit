@@ -14,8 +14,10 @@ from stringprep import *
 from unicodedata import ucd_3_2_0 as unicodedata
 from encodings import idna
 
+
 class JIDError(Exception):
     pass
+
 
 def check_prohibited_and_unassigned(chars, prohibited_tables):
     for pos, ch in enumerate(chars):
@@ -23,6 +25,7 @@ def check_prohibited_and_unassigned(chars, prohibited_tables):
             raise JIDError("prohibited character %r at index %d" % (ch, pos))
         if in_table_a1(ch):
             raise JIDError("unassigned characted %r at index %d" % (ch, pos))
+
 
 def check_bidirectional(chars):
     # RFC 3454: If a string contains any RandALCat character, the
@@ -39,6 +42,7 @@ def check_bidirectional(chars):
     if not (in_table_d1(chars[0]) and in_table_d1(chars[-1])):
         raise JIDError("string must start and end with RandALCat characters")
 
+
 NODEPREP_PROHIBITED = [in_table_c11,
                        in_table_c12,
                        in_table_c21,
@@ -51,12 +55,15 @@ NODEPREP_PROHIBITED = [in_table_c11,
                        in_table_c8,
                        in_table_c9,
                        frozenset(u"\"&'/:<>@").__contains__]
+
+
 def nodeprep(string):
     string = u"".join(map_table_b2(ch) for ch in string if not in_table_b1(ch))
     string = unicodedata.normalize("NFKC", string)
     check_prohibited_and_unassigned(string, NODEPREP_PROHIBITED)
     check_bidirectional(string)
     return string
+
 
 RESOURCEPREP_PROHIBITED = [in_table_c12,
                            in_table_c21,
@@ -68,6 +75,8 @@ RESOURCEPREP_PROHIBITED = [in_table_c12,
                            in_table_c7,
                            in_table_c8,
                            in_table_c9]
+
+
 def resourceprep(string):
     string = u"".join(ch for ch in string if not in_table_b1(ch))
     string = unicodedata.normalize("NFKC", string)
@@ -75,17 +84,22 @@ def resourceprep(string):
     check_bidirectional(string)
     return string
 
+
 JID_REX = re.compile("^(?:(.*?)@)?([^\.\/]+(?:\.[^\.\/]+)*)(?:/(.*))?$", re.U)
+
+
 def split_jid(jid):
     match = JID_REX.match(jid)
     if not match:
         raise JIDError("not a valid JID")
     return match.groups()
 
+
 def check_length(identifier, value):
     if len(value) > 1023:
         raise JIDError("%s identifier too long" % identifier)
     return value
+
 
 def prep_node(node):
     if not node:
@@ -93,11 +107,13 @@ def prep_node(node):
     node = nodeprep(node)
     return check_length("node", node)
 
+
 def prep_resource(resource):
     if not resource:
         return None
     resource = resourceprep(resource)
     return check_length("resource", resource)
+
 
 def prep_domain(domain):
     labels = domain.split(".")
@@ -111,14 +127,16 @@ def prep_domain(domain):
 
     return check_length("domain", domain)
 
+
 def unicodify(item):
     if item is None:
         return None
     return unicode(item)
 
+
 class JID(object):
     cache = dict()
-    cache_size = 2**14
+    cache_size = 2 ** 14
     cache_lock = threading.Lock()
 
     __slots__ = "_node", "_domain", "_resource"
@@ -187,6 +205,7 @@ class JID(object):
 
         return jid
 
+
 if __name__ == "__main__":
     import unittest
 
@@ -232,9 +251,9 @@ if __name__ == "__main__":
             self.assertRaises(JIDError, JID, ".")
             self.assertRaises(JIDError, JID, "root.")
             self.assertRaises(JIDError, JID, ".sub")
-            self.assertRaises(JIDError, JID, u"\xe4"*63)
+            self.assertRaises(JIDError, JID, u"\xe4" * 63)
 
-            self.assertRaises(JIDError, JID, ".".join([u"\xe4"]*1024))
+            self.assertRaises(JIDError, JID, ".".join([u"\xe4"] * 1024))
 
         def test_invalid_node(self):
             self.assertRaises(JIDError, JID, "@", "domain", "resource")

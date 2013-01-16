@@ -7,11 +7,13 @@ from .jid import JID
 DISCO_INFO_NS = "http://jabber.org/protocol/disco#info"
 DISCO_ITEMS_NS = "http://jabber.org/protocol/disco#items"
 
+
 class DiscoItem(object):
     def __init__(self, jid, node=None, name=None):
         self.jid = JID(jid)
         self.node = node
         self.name = name
+
 
 class DiscoIdentity(object):
     def __init__(self, category, type, name=None):
@@ -19,10 +21,12 @@ class DiscoIdentity(object):
         self.type = type
         self.name = name
 
+
 class DiscoInfo(object):
     def __init__(self, identities, features):
         self.identities = set(identities)
         self.features = set(features)
+
 
 class Disco(object):
     def __init__(self, xmpp):
@@ -59,7 +63,7 @@ class Disco(object):
                 item_element.set_attr("name", item.name)
             result.add(item_element)
 
-        self.xmpp.core.iq_result(element, result)            
+        self.xmpp.core.iq_result(element, result)
         return True
 
     def _info_iq(self, element, payload):

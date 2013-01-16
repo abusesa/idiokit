@@ -2,6 +2,7 @@ from __future__ import absolute_import
 
 from . import callqueue
 
+
 class Value(object):
     __slots__ = "_value", "_listeners"
 

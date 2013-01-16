@@ -15,6 +15,7 @@ SESSION_NS = "urn:ietf:params:xml:ns:xmpp-session"
 STANZA_NS = "jabber:client"
 STARTTLS_NS = "urn:ietf:params:xml:ns:xmpp-tls"
 
+
 class XMPPError(Exception):
     def __init__(self, message, elements=(), ns=STANZA_ERROR_NS):
         self.type = None
@@ -41,6 +42,7 @@ class XMPPError(Exception):
             return self.args[0]
         return self.args[0] + " (%s)" % extra
 
+
 def _iq_build(type, query, **attrs):
     uid = uuid.uuid4().hex[:16]
     attrs["id"] = uid
@@ -48,6 +50,7 @@ def _iq_build(type, query, **attrs):
     iq = xmlcore.Element("iq", type=type, **attrs)
     iq.add(query)
     return uid, iq
+
 
 @idiokit.stream
 def _iq_wait(uid):
@@ -67,6 +70,7 @@ def _iq_wait(uid):
             if type is None:
                 raise XMPPError("type attribute missing for iq stanza")
 
+
 @idiokit.stream
 def _iq(stream, iq_type, query, **attrs):
     uid, iq = _iq_build(iq_type, query, **attrs)
@@ -75,6 +79,7 @@ def _iq(stream, iq_type, query, **attrs):
     yield forked.send(iq)
     result = yield idiokit.Event() | forked | _iq_wait(uid)
     idiokit.stop(result)
+
 
 @idiokit.stream
 def require_features(stream):
@@ -85,6 +90,7 @@ def require_features(stream):
         if features:
             idiokit.stop(features)
 
+
 @idiokit.stream
 def require_tls(stream):
     features = yield require_features(stream)
@@ -93,6 +99,7 @@ def require_tls(stream):
     if not tls:
         raise XMPPError("server does not support starttls")
     yield starttls(stream)
+
 
 @idiokit.stream
 def require_sasl(stream, jid, password):
@@ -105,6 +112,7 @@ def require_sasl(stream, jid, password):
         result = yield sasl_plain(stream, jid, password)
         idiokit.stop(result)
     raise XMPPError("server does not support plain sasl")
+
 
 @idiokit.stream
 def require_bind_and_session(stream, jid):
@@ -120,6 +128,7 @@ def require_bind_and_session(stream, jid):
     yield session(stream)
     idiokit.stop(jid)
 
+
 @idiokit.stream
 def starttls(stream):
     yield stream.send(xmlcore.Element("starttls", xmlns=STARTTLS_NS))
@@ -130,6 +139,7 @@ def starttls(stream):
             raise XMPPError("starttls failed", elements)
         if elements.named("proceed", STARTTLS_NS):
             break
+
 
 @idiokit.stream
 def sasl_plain(stream, jid, password):
@@ -148,6 +158,7 @@ def sasl_plain(stream, jid, password):
         if elements.named("success", SASL_NS):
             break
 
+
 @idiokit.stream
 def bind_resource(stream, resource=None):
     bind = xmlcore.Element("bind", xmlns=BIND_NS)
@@ -161,10 +172,12 @@ def bind_resource(stream, resource=None):
         idiokit.stop(JID(jid.text))
     raise XMPPError("no jid supplied by bind")
 
+
 @idiokit.stream
 def session(stream):
     session = xmlcore.Element("session", xmlns=SESSION_NS)
     yield _iq(stream, "set", session)
+
 
 class Core(object):
     VALID_ERROR_TYPES = set(["cancel", "continue", "modify", "auth", "wait"])

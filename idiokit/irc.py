@@ -2,8 +2,10 @@ import re
 
 from . import idiokit, socket, ssl
 
+
 class IRCError(Exception):
     pass
+
 
 class IRCParser(object):
     def __init__(self):
@@ -45,14 +47,18 @@ class IRCParser(object):
 
         return prefix, command, params
 
+
 def format_message(command, *params):
     message = [command] + list(params[:-1]) + [":" + "".join(params[-1:])]
     return " ".join(message) + "\r\n"
 
+
 ERROR_REX = re.compile("^(4|5)\d\d$")
+
 
 class NickAlreadyInUse(IRCError):
     pass
+
 
 def mutations(*nicks):
     for nick in nicks:
@@ -60,12 +66,13 @@ def mutations(*nicks):
 
     for suffix in ["_", "-", "~", "^"]:
         for nick in nicks:
-            yield nick[:9-len(suffix)] + suffix
+            yield nick[:9 - len(suffix)] + suffix
 
     for nick in nicks:
         for i in range(1000000):
             suffix = str(i)
-            yield nick[:9-len(suffix)] + suffix
+            yield nick[:9 - len(suffix)] + suffix
+
 
 @idiokit.stream
 def _init_ssl(sock, require_cert, ca_certs, identity):
@@ -76,6 +83,7 @@ def _init_ssl(sock, require_cert, ca_certs, identity):
         cert = yield sock.getpeercert()
         ssl.match_hostname(cert, identity)
     idiokit.stop(sock)
+
 
 @idiokit.stream
 def connect(host, port, nick, password=None,
@@ -117,6 +125,7 @@ def connect(host, port, nick, password=None,
                 if ERROR_REX.match(command):
                     raise IRCError("".join(params[-1:]))
 
+
 def _main(sock, parser):
     @idiokit.stream
     def _input():
@@ -142,6 +151,7 @@ def _main(sock, parser):
                 raise IRCError("connection lost")
 
     return _input() | _output()
+
 
 class IRC(idiokit.Proxy):
     def __init__(self, proxied, nick):

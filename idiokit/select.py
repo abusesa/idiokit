@@ -6,6 +6,7 @@ import select as _select
 
 from . import idiokit, threadpool, values
 
+
 class _ValueStream(idiokit.Stream):
     _head = values.Value(None)
 
@@ -23,6 +24,7 @@ class _ValueStream(idiokit.Stream):
 
     def result(self):
         return self._value
+
 
 class Select(object):
     def __init__(self):
@@ -61,5 +63,6 @@ class Select(object):
             self._pipes.append((rfd, wfd))
 
         idiokit.stop(result)
+
 
 select = Select().select

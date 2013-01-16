@@ -1,6 +1,7 @@
 import xml.parsers.expat
 from xml.sax.saxutils import escape as _escape, quoteattr as _quoteattr
 
+
 class Elements(object):
     __slots__ = ["_elements"]
 
@@ -31,15 +32,14 @@ class Elements(object):
     def __nonzero__(self):
         return not not self._elements
 
+
 def namespace_split(name):
     if ":" not in name:
         return "xmlns", name
     split = name.rsplit(":", 1)
-    return "xmlns:"+split[0], split[1]
+    return "xmlns:" + split[0], split[1]
 
-_quoteattr_cache = dict()
-_quoteattr_cache_size = 0
-_quoteattr_cache_max_size = 2**16
+
 def quoteattr(attr):
     global _quoteattr_cache_size
 
@@ -58,12 +58,17 @@ def quoteattr(attr):
     _quoteattr_cache[attr] = value
     _quoteattr_cache_size += length
     return value
+_quoteattr_cache = dict()
+_quoteattr_cache_size = 0
+_quoteattr_cache_max_size = 2 ** 16
+
 
 def escape(text):
     escaped = _escape(text)
     if len(escaped) - len(text) > 12 and "]]>" not in text:
         return "<![CDATA[" + text + "]]>"
     return escaped
+
 
 class Element(object):
     @property
@@ -198,6 +203,7 @@ class Element(object):
         self._serialize(bites.append)
         return u"".join(bites).encode("utf-8")
 
+
 class ElementParser(object):
     def __init__(self):
         self.parser = xml.parsers.expat.ParserCreate("utf-8")
@@ -240,7 +246,9 @@ class ElementParser(object):
         self.collected = list()
         return collected
 
+
 import unittest
+
 
 def is_valid_xml_data(data):
     try:
@@ -248,6 +256,7 @@ def is_valid_xml_data(data):
     except xml.parsers.expat.ExpatError:
         return False
     return True
+
 
 class TestEncoding(unittest.TestCase):
     def test_escape(self):
@@ -277,6 +286,7 @@ class TestEncoding(unittest.TestCase):
         element = Element("name")
         element.text = u"\ud800\U00100000"
         assert is_valid_xml_data(element.serialize())
+
 
 class TestElementNamespaces(unittest.TestCase):
     def test_default_ns(self):

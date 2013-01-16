@@ -7,6 +7,7 @@ import collections
 
 from . import idiokit, values, callqueue
 
+
 class MonotonicTimer(object):
     _time = staticmethod(time.time)
 
@@ -22,6 +23,7 @@ class MonotonicTimer(object):
             self._origin = now
         self._previous = now
         return self._elapsed + (now - self._origin)
+
 
 class ThreadPool(object):
     _Value = staticmethod(values.Value)
@@ -114,7 +116,9 @@ class ThreadPool(object):
 
             self._callqueue_add(value.set, (throw, args))
 
+
 run = ThreadPool().run
+
 
 def thread(func, *args, **keys):
     value = run(func, *args, **keys)
