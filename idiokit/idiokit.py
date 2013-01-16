@@ -551,7 +551,7 @@ class Fork(Stream):
         return self._result
 
 
-class _GeneratorOutput(_Queue):
+class _GeneratorBasedStreamOutput(_Queue):
     def __init__(self):
         _Queue.__init__(self)
 
@@ -609,7 +609,7 @@ class _GeneratorOutput(_Queue):
         self._tail.unsafe_set(None)
 
 
-class Generator(Stream):
+class GeneratorBasedStream(Stream):
     _running = set()
 
     def __init__(self, gen):
@@ -619,7 +619,7 @@ class Generator(Stream):
         self._signals = Piped()
         self._broken = Piped()
 
-        self._output = _GeneratorOutput()
+        self._output = _GeneratorBasedStreamOutput()
 
         self._result = Value()
 
@@ -824,7 +824,7 @@ def stream(func):
 
     @functools.wraps(func)
     def _stream(*args, **keys):
-        return Generator(func(*args, **keys))
+        return GeneratorBasedStream(func(*args, **keys))
     return _stream
 
 
