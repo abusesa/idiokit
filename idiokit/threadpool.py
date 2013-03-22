@@ -5,24 +5,7 @@ import time
 import threading
 import collections
 
-from . import idiokit, values, callqueue
-
-
-class MonotonicTimer(object):
-    _time = staticmethod(time.time)
-
-    def __init__(self):
-        self._elapsed = 0
-        self._origin = self._time()
-        self._previous = self._origin
-
-    def elapsed(self):
-        now = self._time()
-        if now < self._previous:
-            self._elapsed += self._previous - self._origin
-            self._origin = now
-        self._previous = now
-        return self._elapsed + (now - self._origin)
+from . import idiokit, values, callqueue, _time
 
 
 class ThreadPool(object):
@@ -33,11 +16,10 @@ class ThreadPool(object):
     _Lock = staticmethod(threading.Lock)
     _exc_info = staticmethod(sys.exc_info)
     _callqueue_add = staticmethod(callqueue.add)
+    _monotonic = _time.monotonic
 
     def __init__(self, idle_time=1.0):
         self.idle_time = idle_time
-
-        self.timer = MonotonicTimer()
 
         self.lock = self._Lock()
         self.supervisor = None
@@ -80,7 +62,7 @@ class ThreadPool(object):
                     if self.alive == 0:
                         break
 
-                    cut = self.timer.elapsed() - self.idle_time
+                    cut = self._monotonic() - self.idle_time
                     while self.threads and self.threads[0][0] < cut:
                         _, lock, queue = self.threads.popleft()
                         queue.append(None)
@@ -112,7 +94,7 @@ class ThreadPool(object):
                 args = self._exc_info()
 
             with self.lock:
-                self.threads.append((self.timer.elapsed(), lock, queue))
+                self.threads.append((self._monotonic(), lock, queue))
 
             self._callqueue_add(value.set, (throw, args))
 

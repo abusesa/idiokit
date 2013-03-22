@@ -2,21 +2,22 @@ from __future__ import absolute_import
 
 import threading
 
-from . import idiokit, threadpool, callqueue, heap
+from . import idiokit, threadpool, callqueue, heap, _time
 
 
 class Timer(object):
+    _monotonic = _time.monotonic
+
     def __init__(self):
         self._heap = heap.Heap()
         self._event = threading.Event()
         self._running = None
-        self._timer = threadpool.MonotonicTimer()
 
     @idiokit.stream
     def _main(self):
         try:
             while True:
-                now = self._timer.elapsed()
+                now = self._monotonic()
 
                 while self._heap and self._heap.peek()[0] <= now:
                     _, event = self._heap.pop()
@@ -41,7 +42,7 @@ class Timer(object):
             yield event
             return
 
-        expire = self._timer.elapsed() + delay
+        expire = self._monotonic() + delay
 
         if self._running is None:
             self._running = self._main()
