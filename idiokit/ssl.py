@@ -83,9 +83,11 @@ def _constant_cert(filename):
     return _cert
 
 
-_distro = platform.linux_distribution()[0].lower()
+_distro = platform.linux_distribution(full_distribution_name=False)[0].lower()
 if _distro == "ubuntu":
     _default_cert = _constant_cert("/etc/ssl/certs/ca-certificates.crt")
+elif _distro == "centos":
+    _default_cert = _constant_cert("/etc/pki/tls/certs/ca-bundle.crt")
 else:
     _default_cert = _dummy_cert
 
