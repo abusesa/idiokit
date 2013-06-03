@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, unicode_literals
 
 import random
 
@@ -18,7 +18,7 @@ class MUCError(XMPPError):
 
 
 def gen_random(length=8):
-    return "".join(random.choice("0123456789") for _ in xrange(length))
+    return "".join(random.choice("0123456789") for _ in range(length))
 
 
 def parse_presence(elements, own_jid):
@@ -45,8 +45,7 @@ def parse_presence(elements, own_jid):
 
             affiliation = item.get_attr("affiliation")
             role = item.get_attr("role")
-            participant = MUCParticipant(other_jid, affiliation, role,
-                                         presence.children(), jid)
+            participant = MUCParticipant(other_jid, affiliation, role, presence.children(), jid)
             return participant, codes
     return None
 
@@ -95,7 +94,6 @@ class MUCRoom(idiokit.Proxy):
         self.participants = participants
 
         self._muc = muc
-        self._xmpp = muc.xmpp
 
         idiokit.Proxy.__init__(self, self._input() | output)
         output | idiokit.map(self._presences) | self._output()
@@ -105,9 +103,12 @@ class MUCRoom(idiokit.Proxy):
         bare_jid = self.jid.bare()
         attrs = dict(type="groupchat")
 
-        while True:
-            elements = yield idiokit.next()
-            yield self._xmpp.core.message(bare_jid, *elements, **attrs)
+        try:
+            while True:
+                elements = yield idiokit.next()
+                yield self._muc.xmpp.core.message(bare_jid, *elements, **attrs)
+        finally:
+            self._muc.xmpp.core.presence(to=self.jid, type="unavailable")
 
     @idiokit.stream
     def _output(self):
@@ -122,7 +123,7 @@ class MUCRoom(idiokit.Proxy):
                     return
 
                 for x in presence.children("x", USER_NS):
-                    if x.children("status").with_attrs("code", "110"):
+                    if x.children("status").with_attrs(code="110"):
                         return
         finally:
             self._muc._exit_room(self)
@@ -142,7 +143,8 @@ class MUC(object):
         self.xmpp = xmpp
         self.xmpp.disco.add_feature(MUC_NS)
         self.xmpp.disco.add_node(ROOMS_NODE, lambda: ([], [], []))
-        self.rooms = dict()
+
+        self._rooms = dict()
 
         self._main = self.xmpp | idiokit.map(self._map)
         self._muc = None
@@ -150,14 +152,14 @@ class MUC(object):
     def _map(self, elements):
         for element in elements.with_attrs("from"):
             bare = JID(element.get_attr("from")).bare()
-            for room in self.rooms.get(bare, ()):
+            for room in self._rooms.get(bare, ()):
                 room.send(element)
 
     def _exit_room(self, room):
-        rooms = self.rooms.get(room.jid.bare(), set())
+        rooms = self._rooms.get(room.jid.bare(), set())
         rooms.discard(room)
         if not rooms:
-            self.rooms.pop(room.room_jid.bare(), None)
+            self._rooms.pop(room.room_jid.bare(), None)
 
     @idiokit.stream
     def _test_muc(self, domain):
@@ -188,7 +190,7 @@ class MUC(object):
 
     @idiokit.stream
     def get_full_room_jid(self, room):
-        if "@" in unicode(room):
+        if "@" in str(room):
             jid = JID(room)
             if jid.resource is not None:
                 raise MUCError("illegal room JID (contains a resource)")
@@ -212,7 +214,7 @@ class MUC(object):
 
         output = idiokit.map(lambda x: (x,))
         idiokit.pipe(self._main.fork(), output)
-        self.rooms.setdefault(jid.bare(), set()).add(output)
+        self._rooms.setdefault(jid.bare(), set()).add(output)
         try:
             while True:
                 try:
@@ -224,10 +226,10 @@ class MUC(object):
                 else:
                     break
         except:
-            outputs = self.rooms.get(jid.bare(), set())
+            outputs = self._rooms.get(jid.bare(), set())
             outputs.discard(output)
             if not outputs:
-                self.rooms.pop(jid.bare(), None)
+                self._rooms.pop(jid.bare(), None)
             output.throw()
             raise
         else:
