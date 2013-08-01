@@ -16,7 +16,7 @@ class Heap(object):
         if node is None:
             node = self._heap[0]
 
-        if self._heap[node._index] is not node:
+        if len(self._heap) <= node._index or self._heap[node._index] is not node:
             raise HeapError("node not in the heap")
 
         return node
