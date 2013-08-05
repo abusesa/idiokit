@@ -1,12 +1,13 @@
 from __future__ import absolute_import
 
 import sys
+import signal
 import inspect
 import threading
 import functools
 import collections
 
-from . import callqueue
+from . import _selectloop
 from .values import Value
 
 
@@ -158,13 +159,13 @@ class Piped(_Queue):
             head.unsafe_unlisten(listener)
 
     def add(self, head):
-        callqueue.asap(self._add, head)
+        _selectloop.asap(self._add, head)
 
     def seal(self):
-        callqueue.asap(self._seal)
+        _selectloop.asap(self._seal)
 
     def close(self):
-        callqueue.asap(self._close)
+        _selectloop.asap(self._close)
 
 
 def peel_args(args):
@@ -180,6 +181,8 @@ def fill_exc(args):
 
 
 class Stream(object):
+    is_stream = True
+
     def fork(self, *args, **keys):
         return Fork(self, *args, **keys)
 
@@ -623,8 +626,8 @@ class GeneratorBasedStream(Stream):
 
         self._result = Value()
 
-        self._step = functools.partial(callqueue.add, self._next)
-        callqueue.add(self._start)
+        self._step = functools.partial(_selectloop.next, self._next)
+        _selectloop.asap(self._start)
 
     def _start(self):
         self._running.add(self)
@@ -643,18 +646,17 @@ class GeneratorBasedStream(Stream):
         except:
             self._close(True, sys.exc_info())
         else:
-            if not isinstance(next, Stream):
-                error = TypeError("expected a stream, got %r" % (next,))
+            if isinstance(next, Stream):
+                next.pipe_left(self._messages.head(), self._signals.head())
+                next.pipe_right(self._broken.head())
+
+                self._output.unsafe_stack(next)
+
+                next.result().unsafe_listen(self._step)
+            else:
+                error = TypeError("expected a stream, got {0!r}".format(next))
                 self._step((True, (TypeError, error, None)))
                 del error
-                return
-
-            next.pipe_left(self._messages.head(), self._signals.head())
-            next.pipe_right(self._broken.head())
-
-            self._output.unsafe_stack(next)
-
-            next.result().unsafe_listen(self._step)
             del next
         del self, throw, args
 
@@ -858,45 +860,25 @@ class Signal(BaseException):
     pass
 
 
-def main_loop(main):
-    import time
-    import signal
-
-    def _signal(code, _):
-        main.throw(Signal(code))
-
-    sigint = signal.getsignal(signal.SIGINT)
-    sigterm = signal.getsignal(signal.SIGTERM)
-    sigusr1 = signal.getsignal(signal.SIGUSR1)
-    sigusr2 = signal.getsignal(signal.SIGUSR2)
-
-    def loop():
-        iterate = callqueue.iterate
-        result = main.result()
-        lock = threading.Lock()
-        acquire = lock.acquire
-
-        acquire()
-        with callqueue.exclusive(lock.release):
-            while not result.unsafe_is_set():
-                acquire()
-                iterate()
-
-    thread = threading.Thread(target=loop)
-    try:
-        signal.signal(signal.SIGINT, _signal)
-        signal.signal(signal.SIGTERM, _signal)
-        signal.signal(signal.SIGUSR1, _signal)
-        signal.signal(signal.SIGUSR2, _signal)
-
+def main_loop(main, catch_signals=(signal.SIGINT, signal.SIGTERM, signal.SIGUSR1, signal.SIGUSR2)):
+    def handle_signal(code, _):
+        thread = threading.Thread(target=main.throw, args=(Signal(code),))
+        thread.daemon = True
         thread.start()
-        while thread.is_alive():
-            time.sleep(0.1)
+
+    previous_signal_handlers = []
+    try:
+        for signum in set(catch_signals):
+            previous_signal_handlers.append((signum, signal.getsignal(signum)))
+            signal.signal(signum, handle_signal)
+
+        iterate = _selectloop.iterate
+        is_set = main.result().unsafe_is_set
+        while not is_set():
+            iterate()
     finally:
-        signal.signal(signal.SIGINT, sigint)
-        signal.signal(signal.SIGTERM, sigterm)
-        signal.signal(signal.SIGUSR1, sigusr1)
-        signal.signal(signal.SIGUSR2, sigusr2)
+        for signum, handler in previous_signal_handlers:
+            signal.signal(signum, handler)
 
     throw, args = main.result().unsafe_get()
     if throw:

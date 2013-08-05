@@ -40,8 +40,11 @@ class Heap(object):
             _down(self._heap, last)
         return node._value
 
-    def __nonzero__(self):
-        return not not self._heap
+    def head(self):
+        return self._get(None)
+
+    def __len__(self):
+        return len(self._heap)
 
 
 class _Node(object):

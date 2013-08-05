@@ -1,6 +1,6 @@
 from __future__ import absolute_import
 
-from . import callqueue
+from . import _selectloop
 
 
 class Value(object):
@@ -33,7 +33,7 @@ class Value(object):
         self._listeners = None
 
         for callback in listeners:
-            callqueue.asap(callback, value)
+            _selectloop.asap(callback, value)
         return True
 
     def unsafe_listen(self, callback):
@@ -45,7 +45,7 @@ class Value(object):
             listeners.add(callback)
             return
 
-        callqueue.asap(callback, self._value)
+        _selectloop.asap(callback, self._value)
 
     def unsafe_unlisten(self, callback):
         listeners = self._listeners
@@ -53,10 +53,10 @@ class Value(object):
             listeners.discard(callback)
 
     def set(self, value=None):
-        callqueue.asap(self.unsafe_set, value)
+        _selectloop.asap(self.unsafe_set, value)
 
     def listen(self, callback):
-        callqueue.asap(self.unsafe_listen, callback)
+        _selectloop.asap(self.unsafe_listen, callback)
 
     def unlisten(self, callback):
-        callqueue.asap(self.unsafe_unlisten, callback)
+        _selectloop.asap(self.unsafe_unlisten, callback)
