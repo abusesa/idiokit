@@ -34,12 +34,20 @@ class SelectLoop(object):
 
         with self._lock:
             node = self._heap.push((timestamp, tuple(rfds), tuple(wfds), callback, args, keys))
-            for fd in rfds:
-                self._reads.setdefault(fd, set()).add(node)
-            for fd in wfds:
-                self._writes.setdefault(fd, set()).add(node)
+            should_wake = node is self._heap.head()
 
-            if not self._pending and self._heap.head() is node:
+            for fd in rfds:
+                if fd not in self._reads:
+                    should_wake = True
+                    self._reads[fd] = set()
+                self._reads[fd].add(node)
+            for fd in wfds:
+                if fd not in self._writes:
+                    should_wake = True
+                    self._writes[fd] = set()
+                self._writes[fd].add(node)
+
+            if should_wake and not self._pending:
                 os.write(self._wfd, "\x00")
                 self._pending = True
         return node
@@ -74,7 +82,9 @@ class SelectLoop(object):
         current.append((callback, args, keys))
         return None
 
-    def _cancel(self, node, rfds, wfds):
+    def _cancel(self, node):
+        _, rfds, wfds, _, _, _ = self._heap.pop(node)
+
         for fd in rfds:
             nodes = self._reads[fd]
             nodes.discard(node)
@@ -93,8 +103,7 @@ class SelectLoop(object):
 
         try:
             with self._lock:
-                _, rfds, wfds, _, _, _ = self._heap.pop(node)
-                self._cancel(node, rfds, wfds)
+                self._cancel(node)
         except heap.HeapError:
             return False
         return True
@@ -136,35 +145,34 @@ class SelectLoop(object):
     def _process(self, rfds, wfds):
         nodes = {}
         calls = self._deque()
+        now = self._monotonic()
 
         with self._lock:
             for fd in rfds:
-                for node in self._reads.pop(fd, ()):
+                for node in self._reads.get(fd, ()):
                     _, _, _, func, args, keys = self._heap.peek(node)
                     if node not in nodes:
                         nodes[node] = [], [], func, args, keys
                     nodes[node][0].append(fd)
 
             for fd in wfds:
-                for node in self._writes.pop(fd, ()):
+                for node in self._writes.get(fd, ()):
                     _, _, _, func, args, keys = self._heap.peek(node)
                     if node not in nodes:
                         nodes[node] = [], [], func, args, keys
                     nodes[node][1].append(fd)
 
             for node, (rfds, wfds, func, args, keys) in nodes.iteritems():
-                self._heap.pop(node)
+                self._cancel(node)
                 calls.append((func, (rfds, wfds) + args, keys))
 
-            now = self._monotonic()
             while self._heap:
                 node = self._heap.head()
                 timestamp, rfds, wfds, func, args, keys = self._heap.peek(node)
                 if timestamp > now:
                     break
-                self._cancel(node, rfds, wfds)
-                self._heap.pop(node)
-                calls.append((func, (rfds, wfds) + args, keys))
+                self._cancel(node)
+                calls.append((func, ((), ()) + args, keys))
 
             calls.extend(self._immediate)
             self._immediate = []
