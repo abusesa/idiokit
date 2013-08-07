@@ -131,6 +131,9 @@ class SelectLoop(object):
         return rfds, wfds, timeout
 
     def _select(self, rfds, wfds, timeout):
+        if timeout is not None and timeout <= 0.0 and not rfds and not wfds:
+            return (), ()
+
         while True:
             try:
                 rfds, wfds, _ = _select.select(rfds, wfds, [], timeout)
