@@ -142,6 +142,8 @@ def wrap_socket(sock,
 
 
 class _SSLSocket(object):
+    CHUNK_SIZE = 8 * 1024
+
     def __init__(self, ssl):
         self._ssl = ssl
 
@@ -154,28 +156,32 @@ class _SSLSocket(object):
     def recv(self, bufsize, flags=0, timeout=None):
         if flags != 0:
             raise ValueError("flags not supported by SSL sockets")
+
         result = yield _wrapped(self._ssl, timeout, self._ssl.read, bufsize)
         idiokit.stop(result)
 
     @idiokit.stream
     def send(self, data, flags=0, timeout=None):
         socket.check_sendable_type(data)
-
         if flags != 0:
             raise ValueError("flags not supported by SSL sockets")
-        result = yield _wrapped(self._ssl, timeout, self._ssl.write, data)
+
+        buf = buffer(data, 0, self.CHUNK_SIZE)
+        result = yield _wrapped(self._ssl, timeout, self._ssl.write, buf)
         idiokit.stop(result)
 
     @idiokit.stream
-    def sendall(self, data, flags=0, timeout=None, chunk_size=16384):
+    def sendall(self, data, flags=0, timeout=None):
         socket.check_sendable_type(data)
+        if flags != 0:
+            raise ValueError("flags not supported by SSL sockets")
 
         offset = 0
         length = len(data)
 
         for _, timeout in socket.countdown(timeout):
-            buf = buffer(data, offset, chunk_size)
-            bytes = yield self.send(buf, flags, timeout)
+            buf = buffer(data, offset, self.CHUNK_SIZE)
+            bytes = yield _wrapped(self._ssl, timeout, self._ssl.write, buf)
 
             offset += bytes
             if offset >= length:

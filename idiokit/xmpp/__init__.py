@@ -6,9 +6,7 @@ from .jid import JID
 
 class StreamError(core.XMPPError):
     def __init__(self, element):
-        core.XMPPError.__init__(self,
-            "stream level error",
-            element, core.STREAM_ERROR_NS)
+        core.XMPPError.__init__(self, "stream level error", element, core.STREAM_ERROR_NS)
 
 
 class Restart(Exception):
@@ -82,7 +80,8 @@ def _get_socket(domain, host, port):
 
 @idiokit.stream
 def _init_ssl(sock, require_cert, ca_certs, hostname):
-    sock = yield ssl.wrap_socket(sock,
+    sock = yield ssl.wrap_socket(
+        sock,
         require_cert=require_cert,
         ca_certs=ca_certs)
     if require_cert:
