@@ -36,7 +36,7 @@ def element_stream(sock, domain):
     @idiokit.stream
     def read():
         while True:
-            data = yield sock.recv(4096)
+            data = yield sock.recv(65536)
             if not data:
                 raise core.XMPPError("connection lost")
 
