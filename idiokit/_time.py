@@ -58,8 +58,38 @@ class DarwinTime(object):
         return ns * (10 ** -9)
 
 
+class LinuxTime(object):
+    CLOCK_MONOTONIC = 1
+
+    def __init__(self):
+        time_t = ctypes.c_long
+
+        class timespec(ctypes.Structure):
+            _fields_ = [
+                ("tv_sec", time_t),
+                ("tv_nsec", ctypes.c_long)
+            ]
+        self._timespec = timespec
+
+        libc = load_libc()
+        self._clock_gettime = libc.clock_gettime
+        self._clock_gettime.restype = ctypes.c_int
+        self._clock_gettime.argtypes = [ctypes.c_int, ctypes.POINTER(timespec)]
+
+        res = self._clock_gettime(self.CLOCK_MONOTONIC, ctypes.byref(timespec()))
+        if res == -1:
+            raise RuntimeError("can not use CLOCK_MONOTONIC")
+
+    def monotonic(self):
+        spec = self._timespec()
+        self._clock_gettime(self.CLOCK_MONOTONIC, ctypes.byref(spec))
+        return spec.tv_sec + spec.tv_nsec * (10 ** -9)
+
+
 if sys.platform == "darwin":
     _global = DarwinTime()
+elif sys.platform.startswith("linux"):
+    _global = LinuxTime()
 else:
     _global = FallbackTime()
 monotonic = _global.monotonic
