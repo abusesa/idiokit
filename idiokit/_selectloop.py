@@ -12,7 +12,6 @@ from . import heap, _time
 class SelectLoop(object):
     _inf = float("inf")
     _monotonic = _time.monotonic
-    _deque = collections.deque
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -24,7 +23,8 @@ class SelectLoop(object):
         self._heap = heap.Heap()
         self._local = threading.local()
 
-        self._immediate = []
+        self._immediate = collections.deque()
+        self._calls = collections.deque()
 
     def select(self, rfds, wfds, timeout, callback, *args, **keys):
         if timeout is None:
@@ -113,21 +113,21 @@ class SelectLoop(object):
             rfds = self._reads.keys()
             wfds = self._writes.keys()
 
-            timeout = None
-
-            if self._heap:
-                timestamp = self._heap.peek()[0]
-                if timestamp < self._inf:
-                    timeout = max(0.0, timestamp - self._monotonic())
-
             if self._immediate:
                 timeout = 0.0
+            else:
+                timeout = None
 
-            if timeout is None or timeout > 0.0:
-                if self._pending:
-                    os.read(self._rfd, 1)
-                    self._pending = False
-                rfds.append(self._rfd)
+                if self._heap:
+                    timestamp = self._heap.peek()[0]
+                    if timestamp < self._inf:
+                        timeout = max(0.0, timestamp - self._monotonic())
+
+                if timeout is None or timeout > 0.0:
+                    if self._pending:
+                        os.read(self._rfd, 1)
+                        self._pending = False
+                    rfds.append(self._rfd)
         return rfds, wfds, timeout
 
     def _select(self, rfds, wfds, timeout):
@@ -147,10 +147,11 @@ class SelectLoop(object):
 
     def _process(self, rfds, wfds):
         nodes = {}
-        calls = self._deque()
         now = self._monotonic()
 
         with self._lock:
+            calls = self._immediate
+
             for fd in rfds:
                 for node in self._reads.get(fd, ()):
                     _, _, _, func, args, keys = self._heap.peek(node)
@@ -177,8 +178,8 @@ class SelectLoop(object):
                 self._cancel(node)
                 calls.append((func, ((), ()) + args, keys))
 
-            calls.extend(self._immediate)
-            self._immediate = []
+            self._immediate = self._calls
+            self._calls = calls
 
         return calls
 
