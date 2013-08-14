@@ -134,15 +134,13 @@ class SelectLoop(object):
         if timeout is not None and timeout <= 0.0 and not rfds and not wfds:
             return (), ()
 
-        while True:
-            try:
-                rfds, wfds, _ = _select.select(rfds, wfds, [], timeout)
-            except _select.error as error:
-                if error.args[0] == errno.EINTR:
-                    continue
-                raise
-            else:
-                break
+        try:
+            rfds, wfds, _ = _select.select(rfds, wfds, [], timeout)
+        except _select.error as error:
+            if error.args[0] != errno.EINTR:
+                raise error
+            return (), ()
+
         return rfds, wfds
 
     def _process(self, rfds, wfds):
