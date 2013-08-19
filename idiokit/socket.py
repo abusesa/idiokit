@@ -271,12 +271,15 @@ class _Socket(object):
             result = self._socket.setsockopt(*args, **keys)
         idiokit.stop(result)
 
+    def fileno(self):
+        return self._socket.fileno()
+
     # Not implemented:
     # connect_ex: Use connect(...)
     # recv_into, recvfrom_into: Use recv(...) and recvfrom(...)
     # setblocking, settimeout, gettimeout: Use Socket.<method>(..., timeout=<seconds>)
     # ioctl
-    # fileno, makefile
+    # makefile
 
 
 class Socket(_Socket):

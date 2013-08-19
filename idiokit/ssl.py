@@ -187,6 +187,9 @@ class _SSLSocket(object):
             if offset >= length:
                 break
 
+    def fileno(self):
+        return self._ssl.fileno()
+
 
 def identities(cert):
     """
