@@ -14,7 +14,7 @@ class Restart(Exception):
 
 
 @idiokit.stream
-def element_stream(sock, domain):
+def element_stream(sock, domain, timeout=120.0, ws_ping_interval=10.0):
     parser = xmlcore.ElementParser()
 
     stream_element = xmlcore.Element("stream:stream")
@@ -23,13 +23,19 @@ def element_stream(sock, domain):
     stream_element.set_attr("xmlns:stream", core.STREAM_NS)
     stream_element.set_attr("version", "1.0")
 
-    yield sock.sendall(stream_element.serialize_open())
+    yield sock.sendall(stream_element.serialize_open(), timeout=timeout)
 
     @idiokit.stream
     def write():
         while True:
-            element = yield idiokit.next()
-            yield sock.sendall(element.serialize())
+            try:
+                element = yield timer.timeout(ws_ping_interval, idiokit.next())
+            except timer.Timeout:
+                # Send a whitespace heartbeat when no XML output data has
+                # appeared after ws_ping_interval seconds of waiting.
+                yield sock.sendall(" ", timeout=timeout)
+            else:
+                yield sock.sendall(element.serialize(), timeout=timeout)
 
     @idiokit.stream
     def read():
