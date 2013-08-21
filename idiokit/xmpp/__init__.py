@@ -19,7 +19,6 @@ def throw(exception):
     raise exception
 
 
-@idiokit.stream
 def element_stream(sock, domain, timeout=120.0, ws_ping_interval=10.0):
     @idiokit.stream
     def write():
@@ -44,20 +43,20 @@ def element_stream(sock, domain, timeout=120.0, ws_ping_interval=10.0):
     def read():
         parser = xmlcore.ElementParser()
 
-        while True:
-            data = yield sock.recv(65536)
-            if not data:
-                raise core.XMPPError("connection lost")
+        try:
+            while True:
+                data = yield sock.recv(65536)
+                if not data:
+                    raise core.XMPPError("connection lost")
 
-            for element in parser.feed(data):
-                if element.named("error", core.STREAM_NS):
-                    raise StreamError(element)
-                yield idiokit.send(element)
+                for element in parser.feed(data):
+                    if element.named("error", core.STREAM_NS):
+                        raise StreamError(element)
+                    yield idiokit.send(element)
+        except Restart:
+            pass
 
-    try:
-        yield write() | read()
-    except Restart:
-        pass
+    return idiokit.pipe(write(), read())
 
 
 @idiokit.stream
