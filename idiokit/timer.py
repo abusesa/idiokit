@@ -1,29 +1,29 @@
-from . import idiokit, _selectloop
+from __future__ import absolute_import
+
+from functools import partial
+
+from . import idiokit
+from ._selectloop import cancel as selectloop_cancel, sleep as selectloop_sleep
 
 
-@idiokit.stream
+def _cancel(node, _):
+    selectloop_cancel(node)
+
+
 def sleep(delay):
     event = idiokit.Event()
-    node = _selectloop.sleep(delay, event.succeed)
-    try:
-        yield event
-    except:
-        _selectloop.cancel(node)
-        raise
+    node = selectloop_sleep(delay, event.succeed)
+    event.result().unsafe_listen(partial(_cancel, node))
+    return event
 
 
 class Timeout(Exception):
     pass
 
 
-@idiokit.stream
 def timeout(timeout, stream=None, throw=Timeout()):
     if stream is None:
         stream = idiokit.Event()
-
-    node = _selectloop.sleep(timeout, stream.throw, throw)
-    try:
-        result = yield stream
-    finally:
-        _selectloop.cancel(node)
-    idiokit.stop(result)
+    node = selectloop_sleep(timeout, stream.throw, throw)
+    stream.result().unsafe_listen(partial(_cancel, node))
+    return stream
