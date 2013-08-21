@@ -14,19 +14,22 @@ class Restart(Exception):
 
 
 @idiokit.stream
+def throw(exception):
+    yield timer.sleep(0.0)
+    raise exception
+
+
+@idiokit.stream
 def element_stream(sock, domain, timeout=120.0, ws_ping_interval=10.0):
-    parser = xmlcore.ElementParser()
-
-    stream_element = xmlcore.Element("stream:stream")
-    stream_element.set_attr("to", domain)
-    stream_element.set_attr("xmlns", core.STANZA_NS)
-    stream_element.set_attr("xmlns:stream", core.STREAM_NS)
-    stream_element.set_attr("version", "1.0")
-
-    yield sock.sendall(stream_element.serialize_open(), timeout=timeout)
-
     @idiokit.stream
     def write():
+        stream_element = xmlcore.Element("stream:stream")
+        stream_element.set_attr("to", domain)
+        stream_element.set_attr("xmlns", core.STANZA_NS)
+        stream_element.set_attr("xmlns:stream", core.STREAM_NS)
+        stream_element.set_attr("version", "1.0")
+        yield sock.sendall(stream_element.serialize_open(), timeout=timeout)
+
         while True:
             try:
                 element = yield timer.timeout(ws_ping_interval, idiokit.next())
@@ -39,6 +42,8 @@ def element_stream(sock, domain, timeout=120.0, ws_ping_interval=10.0):
 
     @idiokit.stream
     def read():
+        parser = xmlcore.ElementParser()
+
         while True:
             data = yield sock.recv(65536)
             if not data:
@@ -105,18 +110,17 @@ def connect(jid, password,
 
     elements = element_stream(sock, jid.domain)
     yield core.require_tls(elements)
-    yield elements.throw(Restart())
+    yield throw(Restart()) | elements | idiokit.consume()
 
     hostname = jid.domain if host is None else host
     sock = yield _init_ssl(sock, ssl_verify_cert, ssl_ca_certs, hostname)
-    elements = element_stream(sock, jid.domain)
 
+    elements = element_stream(sock, jid.domain)
     yield core.require_sasl(elements, jid, password)
-    yield elements.throw(Restart())
+    yield throw(Restart()) | elements | idiokit.consume()
+
     elements = element_stream(sock, jid.domain)
-
     jid = yield core.require_bind_and_session(elements, jid)
-
     idiokit.stop(XMPP(jid, elements))
 
 
