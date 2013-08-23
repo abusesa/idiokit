@@ -181,8 +181,6 @@ def fill_exc(args):
 
 
 class Stream(object):
-    is_stream = True
-
     def fork(self, *args, **keys):
         return Fork(self, *args, **keys)
 
