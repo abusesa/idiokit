@@ -38,6 +38,7 @@ class Heap(object):
             self._heap[node._index] = last
             last._index = node._index
             _down(self._heap, last)
+            _up(self._heap, last)
         return node._value
 
     def head(self):
