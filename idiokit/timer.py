@@ -13,7 +13,7 @@ def _cancel(node, _):
 def sleep(delay):
     event = idiokit.Event()
     node = selectloop_sleep(delay, event.succeed)
-    event.result().unsafe_listen(partial(_cancel, node))
+    event.result().listen(partial(_cancel, node))
     return event
 
 
@@ -25,5 +25,5 @@ def timeout(timeout, stream=None, throw=Timeout()):
     if stream is None:
         stream = idiokit.Event()
     node = selectloop_sleep(timeout, stream.throw, throw)
-    stream.result().unsafe_listen(partial(_cancel, node))
+    stream.result().listen(partial(_cancel, node))
     return stream
