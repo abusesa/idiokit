@@ -1,6 +1,8 @@
 from __future__ import absolute_import
 
 import sys
+import time
+import signal
 import inspect
 import threading
 import functools
@@ -855,15 +857,40 @@ def consume():
 
 
 class Signal(BaseException):
-    pass
+    _signames = dict()
+
+    for name in dir(signal):
+        if not name.startswith("SIG"):
+            continue
+        if name.startswith("SIG_"):
+            continue
+
+        signum = getattr(signal, name)
+        if type(signum) != int:
+            continue
+
+        _signames[signum] = name
+    del name
+
+    def __init__(self, signum):
+        BaseException.__init__(self, signum)
+
+    @property
+    def signum(self):
+        return self.args[0]
+
+    def __str__(self):
+        signum = self.signum
+
+        result = "caught signal " + repr(signum)
+        if signum in self._signames:
+            result += " (" + self._signames[signum] + ")"
+        return result
 
 
 def main_loop(main):
-    import time
-    import signal
-
-    def _signal(code, _):
-        main.throw(Signal(code))
+    def _signal(signum, _):
+        main.throw(Signal(signum))
 
     sigint = signal.getsignal(signal.SIGINT)
     sigterm = signal.getsignal(signal.SIGTERM)
