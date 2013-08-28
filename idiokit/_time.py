@@ -63,32 +63,30 @@ class DarwinTime(object):
 class LinuxTime(object):
     CLOCK_MONOTONIC = 1
 
+    _byref = ctypes.byref
+    _strerror = os.strerror
+    _get_errno = ctypes.get_errno
+
+    class _timespec(ctypes.Structure):
+        _fields_ = [
+            ("tv_sec", ctypes.c_long),
+            ("tv_nsec", ctypes.c_long)
+        ]
+
     def __init__(self):
-        time_t = ctypes.c_long
-
-        class timespec(ctypes.Structure):
-            _fields_ = [
-                ("tv_sec", time_t),
-                ("tv_nsec", ctypes.c_long)
-            ]
-        self._timespec = timespec
-
         lib = load_lib("rt", use_errno=True)
         self._clock_gettime = lib.clock_gettime
         self._clock_gettime.restype = ctypes.c_int
-        self._clock_gettime.argtypes = [ctypes.c_int, ctypes.POINTER(timespec)]
+        self._clock_gettime.argtypes = [ctypes.c_int, ctypes.POINTER(self._timespec)]
 
-        res = self._clock_gettime(self.CLOCK_MONOTONIC, ctypes.byref(timespec()))
-        if res == -1:
-            error = ctypes.get_errno()
-            raise OSError(error, os.strerror(error))
+        self.monotonic()
 
     def monotonic(self):
         spec = self._timespec()
-        res = self._clock_gettime(self.CLOCK_MONOTONIC, ctypes.byref(spec))
+        res = self._clock_gettime(self.CLOCK_MONOTONIC, self._byref(spec))
         if res == -1:
-            error = ctypes.get_errno()
-            raise OSError(error, os.strerror(error))
+            error = self._get_errno()
+            raise OSError(error, self._strerror(error))
         return spec.tv_sec + spec.tv_nsec * (10 ** -9)
 
 
