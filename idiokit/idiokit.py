@@ -28,7 +28,7 @@ class _Queue(object):
             self._head = self._tail
             self._head.listen(self._move)
 
-    def _move(self, _):
+    def _move(self, _, __):
         while True:
             if not self._head.unsafe_is_set():
                 return self._head.unsafe_listen(self._move)
@@ -62,22 +62,19 @@ class Piped(_Queue):
         self._sealed = False
 
         self._ready = collections.deque()
-        self._heads = dict()
+        self._heads = set()
 
     def _add(self, head):
         if self._sealed:
             return
 
-        key = object()
-        listener = partial(self._promise, key)
-        self._heads[key] = head, listener
+        self._heads.add(head)
+        head.unsafe_listen(self._promise)
 
-        head.unsafe_listen(listener)
-
-    def _promise(self, key, promise):
+    def _promise(self, head, promise):
         if self._closed:
             return
-        del self._heads[key]
+        self._heads.remove(head)
 
         if promise is None:
             if self._sealed and not self._ready and not self._heads:
@@ -100,17 +97,12 @@ class Piped(_Queue):
         tail.unsafe_set((next_consumed, next_value, next))
         next_consumed.unsafe_listen(partial(self._consumed, next_value))
 
-    def _consumed(self, value, _):
+    def _consumed(self, value, _, __):
         if self._closed:
             value.unsafe_set(None)
             return
 
         consumed, original, head = self._ready.popleft()
-
-        key = object()
-        listener = partial(self._promise, key)
-        self._heads[key] = head, listener
-
         if self._ready:
             next = Value()
             tail = self._tail
@@ -122,8 +114,10 @@ class Piped(_Queue):
             next_consumed.unsafe_listen(partial(self._consumed, next_value))
 
         consumed.unsafe_set()
-        original.unsafe_listen(value.unsafe_set)
-        head.unsafe_listen(listener)
+        original.unsafe_listen(value.unsafe_proxy)
+
+        self._heads.add(head)
+        head.unsafe_listen(self._promise)
 
     def _seal(self):
         if self._sealed:
@@ -148,8 +142,8 @@ class Piped(_Queue):
         self._tail.unsafe_set(None)
         self._head = NULL
 
-        for head, listener in heads.itervalues():
-            head.unsafe_unlisten(listener)
+        for head in heads:
+            head.unsafe_unlisten(self._promise)
 
     def add(self, head):
         if head is NULL:
@@ -220,12 +214,12 @@ class _MapOutput(_Queue):
         self._messages.listen(self._got_message)
         self._result.listen(self._close)
 
-    def _close(self, _):
+    def _close(self, _, __):
         self._gen = None
         self._signals = None
         self._messages = None
 
-    def _got_signal(self, _):
+    def _got_signal(self, _, __):
         if self._result.unsafe_is_set():
             return
 
@@ -257,7 +251,7 @@ class _MapOutput(_Queue):
             self._result.unsafe_set((True, fill_exc(args)))
             return
 
-    def _got_message(self, _):
+    def _got_message(self, _, __):
         if self._result.unsafe_is_set():
             return
 
@@ -339,7 +333,7 @@ class Map(Stream):
         self._output = _MapOutput(self._messages.head(), self._signals.head(), func, args, keys)
         self._output.result().listen(self._got_result)
 
-    def _got_result(self, _):
+    def _got_result(self, _, __):
         self._messages.close()
         self._signals.close()
 
@@ -376,28 +370,28 @@ class _SendBase(Stream):
             self._parent.listen(self._on_parent)
         self._input.head().listen(self._on_input)
 
-    def _on_consumed(self, _):
+    def _on_consumed(self, _, __):
         if self._consumed is None:
             return
 
         self._consumed = None
         self._input.add(Value((NULL, Value(self._CONSUMED), NULL)))
 
-    def _on_parent(self, (throw, args)):
+    def _on_parent(self, _, (throw, args)):
         if self._parent is None:
             return
-
         self._parent = None
+
         if not throw:
             args = (BrokenPipe, BrokenPipe(*args), None)
         self._input.add(Value((NULL, Value((True, args)), NULL)))
 
-    def _on_input(self, promise):
+    def _on_input(self, _, promise):
         consume, value, head = promise
         consume.unsafe_set()
         value.unsafe_listen(partial(self._on_value, head))
 
-    def _on_value(self, head, result):
+    def _on_value(self, head, _, result):
         if result is None:
             head.unsafe_listen(self._on_input)
             return
@@ -463,21 +457,20 @@ class Fork(Stream):
         self._stream.pipe_left(self._current, NULL)
         self._stream.result().listen(self._stream_result)
 
-    def _stream_result(self, result):
+    def _stream_result(self, _, result):
         if self._result.unsafe_set(result):
             self._messages.close()
             self._signals.close()
             self._stream = None
 
-    def _signal_promise(self, promise):
+    def _signal_promise(self, _, promise):
         if promise is None:
             return
-
         consume, value, head = promise
         consume.unsafe_set()
         value.unsafe_listen(partial(self._signal_value, head))
 
-    def _signal_value(self, head, result):
+    def _signal_value(self, head, _, result):
         if result is None or not result[0]:
             head.unsafe_listen(self._signal_promise)
             return
@@ -492,7 +485,7 @@ class Fork(Stream):
             self._stream.result().unsafe_unlisten(self._stream_result)
             self._stream = None
 
-    def _message_promise(self, promise):
+    def _message_promise(self, _, promise):
         if promise is None:
             self._current.unsafe_set(None)
             self._current = None
@@ -507,7 +500,7 @@ class Fork(Stream):
         current.unsafe_set((consume, next_value, next_message))
         value.unsafe_listen(partial(self._message_value, head, next_value, next_message))
 
-    def _message_value(self, head, next_value, next_message, result):
+    def _message_value(self, head, next_value, next_message, _, result):
         if result is None or not result[0]:
             next_value.unsafe_set(result)
             head.unsafe_listen(self._message_promise)
@@ -557,9 +550,9 @@ class _GeneratorBasedStreamOutput(_Queue):
         head = stream.head()
         if head is not NULL:
             self._stack.append(head)
-            self._handle(None)
+            self._handle(None, None)
 
-    def _handle(self, _):
+    def _handle(self, _, __):
         while self._stack:
             head = self._stack[0]
             if not head.unsafe_is_set():
@@ -616,10 +609,12 @@ class GeneratorBasedStream(Stream):
 
     def _start(self):
         self._running.add(self)
-        self._next((False, ()))
+        self._next(None, (False, ()))
         del self
 
-    def _next(self, (throw, args)):
+    def _next(self, _, (throw, args)):
+        del _
+
         try:
             if throw:
                 next = self._gen.throw(*args)
@@ -679,12 +674,12 @@ class Next(Stream):
         self._input = Piped(True)
         self._input.head().listen(self._promise)
 
-    def _promise(self, promise):
+    def _promise(self, _, promise):
         consume, value, head = promise
         consume.unsafe_set()
         value.unsafe_listen(partial(self._value, head))
 
-    def _value(self, head, result):
+    def _value(self, head, _, result):
         if result is None:
             head.unsafe_listen(self._promise)
         else:
@@ -736,20 +731,20 @@ class PipePair(Stream):
         self._left.result().listen(self._left_result)
         self._left.head().listen(self._message_promise)
 
-    def _left_result(self, (throw, args)):
+    def _left_result(self, _, (throw, args)):
         if throw:
             self._signal_head.unsafe_set((NULL, Value((True, args)), NULL))
         else:
             self._signal_head.unsafe_set(None)
-        self._right.result().unsafe_listen(self._result.unsafe_set)
+        self._right.result().unsafe_listen(self._result.unsafe_proxy)
 
-    def _right_result(self, (throw, args)):
+    def _right_result(self, _, (throw, args)):
         if not throw:
             throw = True
             args = (BrokenPipe, BrokenPipe(*args), None)
         self._broken_head.unsafe_set((NULL, Value((throw, args)), NULL))
 
-    def _message_promise(self, promise):
+    def _message_promise(self, _, promise):
         if self._right.result().unsafe_is_set():
             return
 
@@ -768,7 +763,7 @@ class PipePair(Stream):
 
         head.unsafe_listen(self._message_promise)
 
-    def _message_final(self, (throw, args)):
+    def _message_final(self, _, (throw, args)):
         if not throw:
             args = StopIteration, StopIteration(*args), None
             self._message_head.unsafe_set((NULL, Value((True, args)), NULL))

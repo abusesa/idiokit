@@ -6,7 +6,7 @@ from . import idiokit
 from ._selectloop import cancel as selectloop_cancel, sleep as selectloop_sleep
 
 
-def _cancel(node, _):
+def _cancel(node, _, __):
     selectloop_cancel(node)
 
 

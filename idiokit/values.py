@@ -22,6 +22,9 @@ class Value(object):
             raise ValueError("value has not been set")
         return value
 
+    def unsafe_proxy(self, _, value):
+        return self.unsafe_set(value)
+
     def unsafe_set(self, value=None):
         if self._value is not _UNDEFINED:
             return False
@@ -33,7 +36,7 @@ class Value(object):
         self._listeners = None
 
         for callback in listeners:
-            asap(callback, value)
+            asap(callback, self, value)
         return True
 
     def unsafe_listen(self, callback):
@@ -45,7 +48,7 @@ class Value(object):
             listeners.add(callback)
             return
 
-        asap(callback, self._value)
+        asap(callback, self, self._value)
 
     def unsafe_unlisten(self, callback):
         listeners = self._listeners
