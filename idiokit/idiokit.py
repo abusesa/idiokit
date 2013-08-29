@@ -125,7 +125,7 @@ class Piped(_Queue):
             next_consumed.unsafe_listen(partial(self._consumed, next_value))
 
         consumed.unsafe_set()
-        original.unsafe_listen(value.set)
+        original.unsafe_listen(value.unsafe_set)
         head.unsafe_listen(listener)
 
     def _seal(self):
@@ -742,7 +742,7 @@ class PipePair(Stream):
             self._signal_head.unsafe_set((NULL, Value((True, args)), NULL))
         else:
             self._signal_head.unsafe_set(None)
-        self._right.result().unsafe_listen(self._result.set)
+        self._right.result().unsafe_listen(self._result.unsafe_set)
 
     def _right_result(self, (throw, args)):
         if not throw:
