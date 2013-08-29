@@ -65,9 +65,6 @@ class Piped(_Queue):
         self._heads = dict()
 
     def _add(self, head):
-        if head is NULL:
-            return
-
         if self._sealed:
             return
 
@@ -155,6 +152,8 @@ class Piped(_Queue):
             head.unsafe_unlisten(listener)
 
     def add(self, head):
+        if head is NULL:
+            return
         _selectloop.asap(self._add, head)
 
     def seal(self):
