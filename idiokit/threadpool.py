@@ -101,7 +101,4 @@ class ThreadPool(object):
 
 
 global_threadpool = ThreadPool()
-
-
-def thread(func, *args, **keys):
-    return global_threadpool.run(func, *args, **keys)
+thread = global_threadpool.run
