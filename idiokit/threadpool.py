@@ -15,7 +15,6 @@ class ThreadPool(object):
     _Lock = staticmethod(threading.Lock)
     _exc_info = staticmethod(sys.exc_info)
     _asap = staticmethod(_selectloop.asap)
-    _selectloop_sleep = staticmethod(_selectloop.sleep)
     _monotonic = _time.monotonic
 
     def __init__(self, idle_time=1.0):
