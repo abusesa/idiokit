@@ -14,7 +14,8 @@ class ThreadPool(object):
     _Thread = staticmethod(threading.Thread)
     _Lock = staticmethod(threading.Lock)
     _exc_info = staticmethod(sys.exc_info)
-    _next = staticmethod(_selectloop.next)
+    _asap = staticmethod(_selectloop.asap)
+    _selectloop_sleep = staticmethod(_selectloop.sleep)
     _monotonic = _time.monotonic
 
     def __init__(self, idle_time=1.0):
@@ -95,9 +96,9 @@ class ThreadPool(object):
                 self.threads.append((self._monotonic(), lock, queue))
 
             if throw:
-                self._next(event.throw, *args)
+                self._asap(event.throw, *args)
             else:
-                self._next(event.succeed, *args)
+                self._asap(event.succeed, *args)
 
 
 global_threadpool = ThreadPool()

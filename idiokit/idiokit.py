@@ -604,7 +604,7 @@ class GeneratorBasedStream(Stream):
 
         self._result = Value()
 
-        self._step = partial(_selectloop.next, self._next)
+        self._step = partial(_selectloop.sleep, 0.0, self._next)
         _selectloop.asap(self._start)
 
     def _start(self):
