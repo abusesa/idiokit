@@ -95,7 +95,7 @@ class ThreadPool(object):
                 self.threads.append((self._monotonic(), lock, queue))
 
             if throw:
-                self._asap(event.throw, *args)
+                self._asap(event.fail, *args)
             else:
                 self._asap(event.succeed, *args)
 
