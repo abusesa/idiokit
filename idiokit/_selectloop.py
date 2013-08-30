@@ -76,10 +76,10 @@ class SelectLoop(object):
             if types is None and timestamp == 0.0:
                 self._immediate.append((callback, args, keys))
                 node = None
-                should_wake = not self._pending
+                should_wake = True
             else:
                 node = self._heap.push((timestamp, types, callback, args, keys))
-                should_wake = not self._pending and node is self._heap.head()
+                should_wake = node is self._heap.head()
 
             if types is not None:
                 rfds, wfds, xfds = types
@@ -87,7 +87,7 @@ class SelectLoop(object):
                 should_wake = self._select_add_type(node, wfds, self._writes) or should_wake
                 should_wake = self._select_add_type(node, xfds, self._excepts) or should_wake
 
-            if should_wake:
+            if should_wake and not self._pending:
                 self._write(self._wfd, "\x00")
                 self._pending = True
         return node
