@@ -236,7 +236,7 @@ class _Socket(object):
 
         for _, timeout in countdown(timeout):
             buf = buffer(data, offset)
-            bytes = yield self.send(buf, flags, timeout=timeout)
+            bytes = yield _send(self._socket, timeout, self._socket.send, buf, flags)
 
             offset += bytes
             if offset >= length:

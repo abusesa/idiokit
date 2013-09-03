@@ -4,7 +4,7 @@ class HeapError(Exception):
 
 class Heap(object):
     def __init__(self, iterable=()):
-        self._heap = list()
+        self._heap = []
 
         for value in iterable:
             self.push(value)
@@ -14,7 +14,7 @@ class Heap(object):
             raise HeapError("empty heap")
 
         if node is None:
-            node = self._heap[0]
+            return self._heap[0]
 
         if len(self._heap) <= node._index or self._heap[node._index] is not node:
             raise HeapError("node not in the heap")
@@ -38,10 +38,14 @@ class Heap(object):
             self._heap[node._index] = last
             last._index = node._index
             _down(self._heap, last)
+            _up(self._heap, last)
         return node._value
 
-    def __nonzero__(self):
-        return not not self._heap
+    def head(self):
+        return self._get(None)
+
+    def __len__(self):
+        return len(self._heap)
 
 
 class _Node(object):
@@ -56,7 +60,6 @@ def _swap(array, left, right):
     array[left._index] = right
     array[right._index] = left
     left._index, right._index = right._index, left._index
-    return right, left
 
 
 def _up(array, node):
@@ -102,5 +105,18 @@ if __name__ == "__main__":
             assert h.pop() == 2
             assert h.pop() == 3
             self.assertRaises(HeapError, h.pop)
+
+        def test_ordering_regression(self):
+            heap = Heap()
+            nodes = {}
+            for i in [0, 5, 1, 6, 7, 2, 3, 8, 9, 10, 11, 4]:
+                nodes[i] = heap.push(i)
+
+            heap.pop(nodes[6])
+
+            values = []
+            while heap:
+                values.append(heap.pop())
+            self.assertEqual(values, sorted(values))
 
     unittest.main()

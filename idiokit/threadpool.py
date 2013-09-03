@@ -1,21 +1,20 @@
 from __future__ import absolute_import
 
 import sys
-import time
 import threading
 import collections
 
-from . import idiokit, values, callqueue, _time
+from . import idiokit, timer, _time, _selectloop
 
 
 class ThreadPool(object):
-    _Value = staticmethod(values.Value)
-    _sleep = staticmethod(time.sleep)
+    _Event = idiokit.Event
+    _sleep = staticmethod(timer.sleep)
     _deque = staticmethod(collections.deque)
     _Thread = staticmethod(threading.Thread)
     _Lock = staticmethod(threading.Lock)
     _exc_info = staticmethod(sys.exc_info)
-    _callqueue_add = staticmethod(callqueue.add)
+    _asap = staticmethod(_selectloop.asap)
     _monotonic = _time.monotonic
 
     def __init__(self, idle_time=1.0):
@@ -29,16 +28,16 @@ class ThreadPool(object):
         self.queue = self._deque()
 
     def run(self, func, *args, **keys):
-        value = self._Value()
+        event = self._Event()
 
         with self.lock:
             if self.threads:
                 _, lock, queue = self.threads.pop()
-                queue.append((value, func, args, keys))
+                queue.append((event, func, args, keys))
                 lock.release()
             else:
                 lock = self._Lock()
-                queue = [(value, func, args, keys)]
+                queue = [(event, func, args, keys)]
 
                 thread = self._Thread(target=self._thread, args=(lock, queue))
                 thread.daemon = True
@@ -47,16 +46,15 @@ class ThreadPool(object):
                 self.alive += 1
 
             if self.supervisor is None:
-                self.supervisor = self._Thread(target=self._supervisor)
-                self.supervisor.setDaemon(True)
-                self.supervisor.start()
+                self.supervisor = self._supervisor()
 
-        return value
+        return event
 
+    @idiokit.stream
     def _supervisor(self):
         while True:
             while True:
-                self._sleep(self.idle_time / 2.0)
+                yield self._sleep(self.idle_time / 2.0)
 
                 with self.lock:
                     if self.alive == 0:
@@ -68,7 +66,7 @@ class ThreadPool(object):
                         queue.append(None)
                         lock.release()
 
-            self._sleep(self.idle_time)
+            yield self._sleep(self.idle_time)
             with self.lock:
                 if self.alive == 0:
                     self.supervisor = None
@@ -84,7 +82,7 @@ class ThreadPool(object):
                     self.alive -= 1
                 return
 
-            value, func, args, keys = item
+            event, func, args, keys = item
 
             try:
                 throw = False
@@ -96,18 +94,11 @@ class ThreadPool(object):
             with self.lock:
                 self.threads.append((self._monotonic(), lock, queue))
 
-            self._callqueue_add(value.set, (throw, args))
+            if throw:
+                self._asap(event.fail, *args)
+            else:
+                self._asap(event.succeed, *args)
 
 
-run = ThreadPool().run
-
-
-def thread(func, *args, **keys):
-    value = run(func, *args, **keys)
-    event = idiokit.Event()
-    value.listen(event.set)
-
-    # Return the Event instance directly instead of yielding it.
-    # This way StopIterations are also raised instead of them
-    # turning into valid exits.
-    return event
+global_threadpool = ThreadPool()
+thread = global_threadpool.run

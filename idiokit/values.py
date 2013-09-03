@@ -1,29 +1,32 @@
 from __future__ import absolute_import
 
-from . import callqueue
+from ._selectloop import asap
+
+
+_UNDEFINED = object()
 
 
 class Value(object):
     __slots__ = "_value", "_listeners"
-
-    _UNDEFINED = object()
-    _ERROR = ValueError("value has not been set")
 
     def __init__(self, value=_UNDEFINED):
         self._value = value
         self._listeners = None
 
     def unsafe_is_set(self):
-        return self._value is not self._UNDEFINED
+        return self._value is not _UNDEFINED
 
     def unsafe_get(self):
         value = self._value
-        if value is self._UNDEFINED:
-            raise self._ERROR
+        if value is _UNDEFINED:
+            raise ValueError("value has not been set")
         return value
 
+    def unsafe_proxy(self, _, value):
+        return self.unsafe_set(value)
+
     def unsafe_set(self, value=None):
-        if self._value is not self._UNDEFINED:
+        if self._value is not _UNDEFINED:
             return False
         self._value = value
 
@@ -33,11 +36,11 @@ class Value(object):
         self._listeners = None
 
         for callback in listeners:
-            callqueue.asap(callback, value)
+            asap(callback, self, value)
         return True
 
     def unsafe_listen(self, callback):
-        if self._value is self._UNDEFINED:
+        if self._value is _UNDEFINED:
             listeners = self._listeners
             if listeners is None:
                 listeners = set()
@@ -45,7 +48,7 @@ class Value(object):
             listeners.add(callback)
             return
 
-        callqueue.asap(callback, self._value)
+        asap(callback, self, self._value)
 
     def unsafe_unlisten(self, callback):
         listeners = self._listeners
@@ -53,10 +56,10 @@ class Value(object):
             listeners.discard(callback)
 
     def set(self, value=None):
-        callqueue.asap(self.unsafe_set, value)
+        asap(self.unsafe_set, value)
 
     def listen(self, callback):
-        callqueue.asap(self.unsafe_listen, callback)
+        asap(self.unsafe_listen, callback)
 
     def unlisten(self, callback):
-        callqueue.asap(self.unsafe_unlisten, callback)
+        asap(self.unsafe_unlisten, callback)

@@ -1,0 +1,221 @@
+from __future__ import absolute_import
+
+import os
+import errno
+import select
+import threading
+import collections
+
+from . import heap, _time
+
+
+class SelectLoop(object):
+    _INFINITY = float("inf")
+    _EINTR = errno.EINTR
+
+    _read = os.read
+    _write = os.write
+    _monotonic = _time.monotonic
+    _native_select = select.select
+    _select_error = select.error
+    _HeapError = heap.HeapError
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._rfd, self._wfd = os.pipe()
+        self._pending = False
+
+        self._reads = {}
+        self._writes = {}
+        self._excepts = {}
+
+        self._heap = heap.Heap()
+        self._immediate = collections.deque()
+        self._calls = collections.deque()
+        self._local = threading.local()
+
+    def select(self, rfds, wfds, xfds, timeout, callback, *args, **keys):
+        types = tuple(rfds), tuple(wfds), tuple(xfds)
+        return self._select_add(types, timeout, callback, args, keys)
+
+    def sleep(self, timeout, callback, *args, **keys):
+        return self._select_add(None, timeout, callback, args, keys)
+
+    def asap(self, callback, *args, **keys):
+        try:
+            current = self._local.current
+        except AttributeError:
+            current = None
+            self._local.current = None
+
+        if current is None:
+            return self._select_add(None, 0.0, callback, args, keys)
+        current.append((callback, args, keys))
+        return None
+
+    def cancel(self, node):
+        if node is None:
+            return
+
+        try:
+            with self._lock:
+                self._cancel(node)
+        except self._HeapError:
+            return False
+        return True
+
+    def _select_add(self, types, timeout, callback, args, keys):
+        if timeout is None:
+            timestamp = self._INFINITY
+        elif timeout <= 0.0:
+            timestamp = 0.0
+        else:
+            timestamp = self._monotonic() + timeout
+
+        with self._lock:
+            if types is None and timestamp == 0.0:
+                self._immediate.append((callback, args, keys))
+                node = None
+                should_wake = True
+            else:
+                node = self._heap.push((timestamp, types, callback, args, keys))
+                should_wake = node is self._heap.head()
+
+            if types is not None:
+                rfds, wfds, xfds = types
+                should_wake = self._select_add_type(node, rfds, self._reads) or should_wake
+                should_wake = self._select_add_type(node, wfds, self._writes) or should_wake
+                should_wake = self._select_add_type(node, xfds, self._excepts) or should_wake
+
+            if should_wake and not self._pending:
+                self._write(self._wfd, "\x00")
+                self._pending = True
+        return node
+
+    def _select_add_type(self, node, fds, target):
+        should_wake = False
+
+        for fd in fds:
+            if fd not in target:
+                should_wake = True
+                target[fd] = set()
+            target[fd].add(node)
+
+        return should_wake
+
+    def _cancel(self, node):
+        _, types, _, _, _ = self._heap.pop(node)
+
+        if types is not None:
+            rfds, wfds, xfds = types
+            self._cancel_type(node, rfds, self._reads)
+            self._cancel_type(node, wfds, self._writes)
+            self._cancel_type(node, xfds, self._excepts)
+
+    def _cancel_type(self, node, fds, target):
+        for fd in fds:
+            nodes = target[fd]
+            nodes.discard(node)
+            if not nodes:
+                del target[fd]
+
+    def _prepare(self):
+        with self._lock:
+            rfds = self._reads.keys()
+            wfds = self._writes.keys()
+            xfds = self._excepts.keys()
+
+            timeout = None
+
+            if self._immediate:
+                timeout = 0.0
+            elif self._heap:
+                timestamp = self._heap.peek()[0]
+                if timestamp < self._INFINITY:
+                    timeout = max(0.0, timestamp - self._monotonic())
+
+            if timeout != 0.0:
+                if self._pending:
+                    self._read(self._rfd, 1)
+                    self._pending = False
+                rfds.append(self._rfd)
+        return rfds, wfds, xfds, timeout
+
+    def _select(self, rfds, wfds, xfds, timeout):
+        if timeout is not None and timeout <= 0.0 and not rfds and not wfds and not xfds:
+            return (), (), ()
+
+        try:
+            rfds, wfds, xfds = self._native_select(rfds, wfds, xfds, timeout)
+        except self._select_error as error:
+            if error.args[0] != self._EINTR:
+                raise error
+            return (), (), ()
+
+        return rfds, wfds, xfds
+
+    def _process(self, rfds, wfds, xfds):
+        nodes = {}
+        now = self._monotonic()
+
+        with self._lock:
+            calls = self._immediate
+
+            for fd in rfds:
+                for node in self._reads.get(fd, ()):
+                    _, _, func, args, keys = self._heap.peek(node)
+                    if node not in nodes:
+                        nodes[node] = ([], [], []), func, args, keys
+                    nodes[node][0][0].append(fd)
+            for fd in wfds:
+                for node in self._writes.get(fd, ()):
+                    _, _, func, args, keys = self._heap.peek(node)
+                    if node not in nodes:
+                        nodes[node] = ([], [], []), func, args, keys
+                    nodes[node][0][1].append(fd)
+            for fd in xfds:
+                for node in self._excepts.get(fd, ()):
+                    _, _, func, args, keys = self._heap.peek(node)
+                    if node not in nodes:
+                        nodes[node] = ([], [], []), func, args, keys
+                    nodes[node][0][2].append(fd)
+
+            for node, (types, func, args, keys) in nodes.iteritems():
+                calls.append((func, types + args, keys))
+                self._cancel(node)
+
+            while self._heap:
+                timestamp, types, func, args, keys = self._heap.peek()
+                if timestamp > now:
+                    break
+
+                if types is None:
+                    calls.append((func, args, keys))
+                else:
+                    calls.append((func, ((), (), ()) + args, keys))
+                self._cancel(self._heap.head())
+
+            self._immediate = self._calls
+            self._calls = calls
+
+        return calls
+
+    def _perform(self, calls):
+        self._local.current = calls
+        while calls:
+            func, args, keys = calls.popleft()
+            func(*args, **keys)
+        self._local.current = None
+
+    def iterate(self):
+        rfds, wfds, xfds, timeout = self._prepare()
+        rfds, wfds, xfds = self._select(rfds, wfds, xfds, timeout)
+        calls = self._process(rfds, wfds, xfds)
+        self._perform(calls)
+
+global_select_loop = SelectLoop()
+select = global_select_loop.select
+sleep = global_select_loop.sleep
+asap = global_select_loop.asap
+cancel = global_select_loop.cancel
+iterate = global_select_loop.iterate

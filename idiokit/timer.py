@@ -1,62 +1,29 @@
 from __future__ import absolute_import
 
-import threading
+from functools import partial
 
-from . import idiokit, threadpool, callqueue, heap, _time
+from . import idiokit
+from ._selectloop import cancel as selectloop_cancel, sleep as selectloop_sleep
 
 
-class Timer(object):
-    _monotonic = _time.monotonic
+def _cancel(node, _, __):
+    selectloop_cancel(node)
 
-    def __init__(self):
-        self._heap = heap.Heap()
-        self._event = threading.Event()
-        self._running = None
 
-    @idiokit.stream
-    def _main(self):
-        try:
-            while True:
-                now = self._monotonic()
+def sleep(delay):
+    event = idiokit.Event()
+    node = selectloop_sleep(delay, event.succeed)
+    event.result().listen(partial(_cancel, node))
+    return event
 
-                while self._heap and self._heap.peek()[0] <= now:
-                    _, event = self._heap.pop()
-                    event.succeed()
 
-                if not self._heap:
-                    return
+class Timeout(Exception):
+    pass
 
-                first, _ = self._heap.peek()
 
-                self._event.clear()
-                yield threadpool.thread(self._event.wait, first - now)
-        finally:
-            self._running = None
-
-    @idiokit.stream
-    def sleep(self, delay):
-        event = idiokit.Event()
-
-        if delay <= 0:
-            callqueue.add(event.succeed)
-            yield event
-            return
-
-        expire = self._monotonic() + delay
-
-        if self._running is None:
-            self._running = self._main()
-
-        if not self._heap or self._heap.peek()[0] > expire:
-            self._event.set()
-        node = self._heap.push((expire, event))
-
-        try:
-            yield event
-        finally:
-            try:
-                self._heap.pop(node)
-            except heap.HeapError:
-                pass
-
-sleep = Timer().sleep
+def timeout(timeout, stream=None, throw=Timeout()):
+    if stream is None:
+        stream = idiokit.Event()
+    node = selectloop_sleep(timeout, stream.throw, throw)
+    stream.result().listen(partial(_cancel, node))
+    return stream

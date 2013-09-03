@@ -80,23 +80,18 @@ def join_room(jid, xmpp, output, password=None, history=False):
             query.add(submit)
             xmpp.core.iq_set(query, to=jid.bare())
 
-        if participant.name == jid or "110" in codes:
+        if "110" in codes:
             idiokit.stop(participant.name, participants)
 
 
 class MUCRoom(idiokit.Proxy):
-    @staticmethod
-    def _presences(elements):
-        return elements.named("presence").with_attrs("from")
-
-    def __init__(self, jid, muc, output, participants):
+    def __init__(self, jid, xmpp, output, participants):
         self.jid = JID(jid)
         self.participants = participants
 
-        self._muc = muc
+        self._xmpp = xmpp
 
         idiokit.Proxy.__init__(self, self._input() | output)
-        output | idiokit.map(self._presences) | self._output()
 
     @idiokit.stream
     def _input(self):
@@ -106,27 +101,9 @@ class MUCRoom(idiokit.Proxy):
         try:
             while True:
                 elements = yield idiokit.next()
-                yield self._muc.xmpp.core.message(bare_jid, *elements, **attrs)
+                yield self._xmpp.core.message(bare_jid, *elements, **attrs)
         finally:
-            self._muc.xmpp.core.presence(to=self.jid, type="unavailable")
-
-    @idiokit.stream
-    def _output(self):
-        try:
-            while True:
-                presence = yield idiokit.next()
-                if presence.get_attr("type", None) != "unavailable":
-                    continue
-
-                sender = JID(presence.get_attr("from"))
-                if sender == self.jid:
-                    return
-
-                for x in presence.children("x", USER_NS):
-                    if x.children("status").with_attrs(code="110"):
-                        return
-        finally:
-            self._muc._exit_room(self)
+            self._xmpp.core.presence(to=self.jid, type="unavailable")
 
 
 class MUCParticipant(object):
@@ -151,15 +128,19 @@ class MUC(object):
 
     def _map(self, elements):
         for element in elements.with_attrs("from"):
-            bare = JID(element.get_attr("from")).bare()
-            for room in self._rooms.get(bare, ()):
-                room.send(element)
+            sender = JID(element.get_attr("from"))
+            outputs = self._rooms.get(sender.bare(), None)
+            if not outputs:
+                continue
 
-    def _exit_room(self, room):
-        rooms = self._rooms.get(room.jid.bare(), set())
-        rooms.discard(room)
-        if not rooms:
-            self._rooms.pop(room.room_jid.bare(), None)
+            for output in outputs:
+                output.send(element)
+
+            for presence in element.named("presence").with_attrs(type="unavailable"):
+                if presence.children("x", USER_NS).children("status").with_attrs(code="110"):
+                    for output in outputs:
+                        output.throw(StopIteration())
+                    self._rooms.pop(sender.bare())
 
     @idiokit.stream
     def _test_muc(self, domain):
@@ -233,4 +214,4 @@ class MUC(object):
             output.throw()
             raise
         else:
-            idiokit.stop(MUCRoom(jid, self, output, participants))
+            idiokit.stop(MUCRoom(jid, self.xmpp, output, participants))

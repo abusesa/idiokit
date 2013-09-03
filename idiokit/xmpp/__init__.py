@@ -6,9 +6,7 @@ from .jid import JID
 
 class StreamError(core.XMPPError):
     def __init__(self, element):
-        core.XMPPError.__init__(self,
-            "stream level error",
-            element, core.STREAM_ERROR_NS)
+        core.XMPPError.__init__(self, "stream level error", element, core.STREAM_ERROR_NS)
 
 
 class Restart(Exception):
@@ -16,39 +14,49 @@ class Restart(Exception):
 
 
 @idiokit.stream
-def element_stream(sock, domain):
-    parser = xmlcore.ElementParser()
+def throw(exception):
+    yield timer.sleep(0.0)
+    raise exception
 
-    stream_element = xmlcore.Element("stream:stream")
-    stream_element.set_attr("to", domain)
-    stream_element.set_attr("xmlns", core.STANZA_NS)
-    stream_element.set_attr("xmlns:stream", core.STREAM_NS)
-    stream_element.set_attr("version", "1.0")
 
-    yield sock.sendall(stream_element.serialize_open())
-
+def element_stream(sock, domain, timeout=120.0, ws_ping_interval=10.0):
     @idiokit.stream
     def write():
+        stream_element = xmlcore.Element("stream:stream")
+        stream_element.set_attr("to", domain)
+        stream_element.set_attr("xmlns", core.STANZA_NS)
+        stream_element.set_attr("xmlns:stream", core.STREAM_NS)
+        stream_element.set_attr("version", "1.0")
+        yield sock.sendall(stream_element.serialize_open(), timeout=timeout)
+
         while True:
-            element = yield idiokit.next()
-            yield sock.sendall(element.serialize())
+            try:
+                element = yield timer.timeout(ws_ping_interval, idiokit.next())
+            except timer.Timeout:
+                # Send a whitespace heartbeat when no XML output data has
+                # appeared after ws_ping_interval seconds of waiting.
+                yield sock.sendall(" ", timeout=timeout)
+            else:
+                yield sock.sendall(element.serialize(), timeout=timeout)
 
     @idiokit.stream
     def read():
-        while True:
-            data = yield sock.recv(4096)
-            if not data:
-                raise core.XMPPError("connection lost")
+        parser = xmlcore.ElementParser()
 
-            for element in parser.feed(data):
-                if element.named("error", core.STREAM_NS):
-                    raise StreamError(element)
-                yield idiokit.send(element)
+        try:
+            while True:
+                data = yield sock.recv(65536)
+                if not data:
+                    raise core.XMPPError("connection lost")
 
-    try:
-        yield write() | read()
-    except Restart:
-        pass
+                for element in parser.feed(data):
+                    if element.named("error", core.STREAM_NS):
+                        raise StreamError(element)
+                    yield idiokit.send(element)
+        except Restart:
+            pass
+
+    return idiokit.pipe(write(), read())
 
 
 @idiokit.stream
@@ -82,7 +90,8 @@ def _get_socket(domain, host, port):
 
 @idiokit.stream
 def _init_ssl(sock, require_cert, ca_certs, hostname):
-    sock = yield ssl.wrap_socket(sock,
+    sock = yield ssl.wrap_socket(
+        sock,
         require_cert=require_cert,
         ca_certs=ca_certs)
     if require_cert:
@@ -100,18 +109,17 @@ def connect(jid, password,
 
     elements = element_stream(sock, jid.domain)
     yield core.require_tls(elements)
-    yield elements.throw(Restart())
+    yield throw(Restart()) | elements | idiokit.consume()
 
     hostname = jid.domain if host is None else host
     sock = yield _init_ssl(sock, ssl_verify_cert, ssl_ca_certs, hostname)
-    elements = element_stream(sock, jid.domain)
 
+    elements = element_stream(sock, jid.domain)
     yield core.require_sasl(elements, jid, password)
-    yield elements.throw(Restart())
+    yield throw(Restart()) | elements | idiokit.consume()
+
     elements = element_stream(sock, jid.domain)
-
     jid = yield core.require_bind_and_session(elements, jid)
-
     idiokit.stop(XMPP(jid, elements))
 
 
