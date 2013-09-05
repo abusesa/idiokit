@@ -42,6 +42,32 @@ class _Dig(object):
             parts.append("".join("\\{0:03d}".format(ord(ch)) for ch in part))
         return ".".join(parts)
 
+    _txt_unescape_rex = re.compile(r"\\(;|\\|\"|\d{3})", re.I)
+
+    @classmethod
+    def _txt_unescape(cls, match):
+        group = match.group(1)
+        if group.isdigit():
+            return chr(int(group))
+        return group
+
+    @classmethod
+    def txt_unescape(cls, string):
+        r"""
+        Return TXT data with dig escaping reversed.
+
+        >>> _Dig.txt_unescape('"text"')
+        'text'
+
+        >>> _Dig.txt_unescape('"\\"\\;\\\\"')
+        '";\\'
+
+        >>> _Dig.txt_unescape('"\\255"')
+        '\xff'
+        """
+
+        return cls._txt_unescape_rex.sub(cls._txt_unescape, string[1:-1])
+
     @idiokit.stream
     def dig(self, type, name, tcp="auto", dns_servers=(), ignore_errors=True):
         if not self.type_rex.match(type):
@@ -308,12 +334,18 @@ class Resolver(object):
 
         return self._resolve("aaaa", name, **options)
 
+    @idiokit.stream
     def txt(self, name, **options):
         """
         Perform a TXT query and return a list of the results.
         """
 
-        return self._resolve("txt", name, **options)
+        answers = yield self._resolve("txt", name, **options)
+
+        results = []
+        for answer in answers:
+            results.append(self._dig.txt_unescape(answer))
+        idiokit.stop(results)
 
     @idiokit.stream
     def srv(self, name, **options):
