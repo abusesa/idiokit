@@ -127,33 +127,7 @@ class _Dig(object):
         raise ResolverError("dig exited with return value {0}".format(retcode))
 
 
-def _is_ip(string):
-    """
-    Return whether the given string is a valid IPv4 or IPv6 address.
-
-    >>> _is_ip("127.0.0.1")
-    True
-    >>> _is_ip("::1")
-    True
-    >>> _is_ip("x")
-    False
-
-    For convenience the function also accepts unicode values. Only
-    those that can be ASCII encoded will be tested though.
-
-    >>> _is_ip(u"127.0.0.1")
-    True
-    >>> _is_ip(u"::1")
-    True
-    >>> _is_ip(u"\xe4")
-    False
-
-    Other types are right out.
-
-    >>> _is_ip(object())
-    False
-    """
-
+def _is_ip(ip_type, string):
     if not isinstance(string, basestring):
         return False
 
@@ -163,13 +137,120 @@ def _is_ip(string):
         except ValueError:
             return False
 
-    for _type in (socket.AF_INET, socket.AF_INET6):
-        try:
-            socket.inet_pton(_type, string)
-        except socket.error:
-            continue
-        return True
-    return False
+    try:
+        socket.inet_pton(ip_type, string)
+    except socket.error:
+        return False
+    return True
+
+
+def is_ipv4(string):
+    """
+    Return whether the given string is a valid IPv4 address.
+
+    >>> is_ipv4("127.0.0.1")
+    True
+    >>> is_ipv4("::1")
+    False
+    >>> is_ipv4("x")
+    False
+
+    For convenience the function also accepts unicode values. Only
+    those that can be ASCII encoded will be tested though.
+
+    >>> is_ipv4(u"127.0.0.1")
+    True
+    >>> is_ipv4(u"\xe4")
+    False
+
+    Other types are right out.
+
+    >>> is_ipv4(object())
+    False
+    """
+
+    return _is_ip(socket.AF_INET, string)
+
+
+def is_ipv6(string):
+    """
+    Return whether the given string is a valid IPv6 address.
+
+    >>> is_ipv6("::1")
+    True
+    >>> is_ipv6("127.0.0.1")
+    False
+    >>> is_ipv6("x")
+    False
+
+    For convenience the function also accepts unicode values. Only
+    those that can be ASCII encoded will be tested though.
+
+    >>> is_ipv6(u"::1")
+    True
+    >>> is_ipv6(u"\xe4")
+    False
+
+    Other types are right out.
+
+    >>> is_ipv6(object())
+    False
+    """
+
+    return _is_ip(socket.AF_INET6, string)
+
+
+def reverse_ipv4(string):
+    """
+    >>> reverse_ipv4("192.0.2.1")
+    '1.2.0.192'
+
+    >>> reverse_ipv4("256.0.0.0")
+    Traceback (most recent call last):
+        ...
+    ValueError: '256.0.0.0' is not a valid IPv4 address
+
+    >>> reverse_ipv4("test")
+    Traceback (most recent call last):
+        ...
+    ValueError: 'test' is not a valid IPv4 address
+    """
+
+    try:
+        data = socket.inet_pton(socket.AF_INET, string)
+    except socket.error:
+        raise ValueError("{0!r} is not a valid IPv4 address".format(string))
+
+    return ".".join(str(ord(x)) for x in reversed(data))
+
+
+def reverse_ipv6(string):
+    """
+    >>> reverse_ipv6("2001:db8::1234:5678")
+    '8.7.6.5.4.3.2.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2'
+
+    >>> reverse_ipv6("2001:db8::12345")
+    Traceback (most recent call last):
+        ...
+    ValueError: '2001:db8::12345' is not a valid IPv6 address
+
+    >>> reverse_ipv6("test")
+    Traceback (most recent call last):
+        ...
+    ValueError: 'test' is not a valid IPv6 address
+    """
+
+    try:
+        data = socket.inet_pton(socket.AF_INET6, string)
+    except socket.error:
+        raise ValueError("{0!r} is not a valid IPv6 address".format(string))
+
+    nibbles = []
+    for ch in reversed(data):
+        num = ord(ch)
+        nibbles.append("{0:x}.{1:x}".format(num & 0xf, num >> 4))
+
+    return ".".join(nibbles)
 
 
 class Resolver(object):
@@ -315,7 +396,7 @@ class Resolver(object):
     def dns_servers(self, dns_servers):
         servers = []
         for server in dns_servers:
-            if not _is_ip(server):
+            if not is_ipv6(server) and not is_ipv4(server):
                 raise ValueError("invalid DNS server address " + repr(server))
             servers.append(server)
         self._dns_servers = tuple(servers)
@@ -333,6 +414,13 @@ class Resolver(object):
         """
 
         return self._resolve("aaaa", name, **options)
+
+    def ptr(self, name, **options):
+        """
+        Perform a PTR query and return a list of the results.
+        """
+
+        return self._resolve("ptr", name, **options)
 
     @idiokit.stream
     def txt(self, name, **options):
@@ -368,6 +456,20 @@ class Resolver(object):
 
         results.sort()
         idiokit.stop([(host, port) for (_, host, port) in results])
+
+    def reverse_lookup(self, addr, **options):
+        """
+        Perform a reverse DNS lookup for the given IPv4/6 address
+        and return a list of the results.
+        """
+
+        if is_ipv4(addr):
+            name = reverse_ipv4(addr) + ".in-addr.arpa"
+        elif is_ipv6(addr):
+            name = reverse_ipv6(addr) + ".ip6.arpa"
+        else:
+            raise ValueError("not a valid address")
+        return self.ptr(name, **options)
 
     @idiokit.stream
     def _resolve(self, type, name, **options):
@@ -409,7 +511,9 @@ global_resolver = Resolver()
 
 a = global_resolver.a
 aaaa = global_resolver.aaaa
+ptr = global_resolver.ptr
 txt = global_resolver.txt
 srv = global_resolver.srv
+reverse_lookup = global_resolver.reverse_lookup
 
 del global_resolver
