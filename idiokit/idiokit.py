@@ -7,7 +7,7 @@ import threading
 import collections
 from functools import partial, wraps
 
-from . import _selectloop
+from ._selectloop import sleep, asap, iterate
 from .values import Value
 
 
@@ -148,13 +148,13 @@ class Piped(_Queue):
     def add(self, head):
         if head is NULL:
             return
-        _selectloop.asap(self._add, head)
+        asap(self._add, head)
 
     def seal(self):
-        _selectloop.asap(self._seal)
+        asap(self._seal)
 
     def close(self):
-        _selectloop.asap(self._close)
+        asap(self._close)
 
 
 def peel_args(args):
@@ -601,20 +601,20 @@ class GeneratorBasedStream(Stream):
         self._broken = Piped()
 
         self._output = _GeneratorBasedStreamOutput()
-
         self._result = Value()
 
-        self._step = partial(_selectloop.sleep, 0.0, self._next)
-        _selectloop.asap(self._start)
+        asap(self._start)
 
     def _start(self):
         self._running.add(self)
-        self._next(None, (False, ()))
+        self._next(False, ())
         del self
 
-    def _next(self, _, (throw, args)):
-        del _
+    def _step(self, _, (throw, args)):
+        sleep(0.0, self._next, throw, args)
+        del self, throw, args
 
+    def _next(self, throw, args):
         try:
             if throw:
                 next = self._gen.throw(*args)
@@ -651,7 +651,6 @@ class GeneratorBasedStream(Stream):
 
         self._gen.close()
         self._gen = None
-        self._step = None
         self._running.discard(self)
 
     def pipe_left(self, messages, signals):
@@ -880,7 +879,6 @@ def main_loop(main, catch_signals=(signal.SIGINT, signal.SIGTERM, signal.SIGUSR1
             previous_signal_handlers.append((signum, signal.getsignal(signum)))
             signal.signal(signum, handle_signal)
 
-        iterate = _selectloop.iterate
         is_set = main.result().unsafe_is_set
         while not is_set():
             iterate()

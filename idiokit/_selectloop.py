@@ -30,6 +30,8 @@ class SelectLoop(object):
         self._excepts = {}
 
         self._heap = heap.Heap()
+        self._nodes = collections.defaultdict(lambda: ([], [], []))
+
         self._immediate = collections.deque()
         self._calls = collections.deque()
         self._local = threading.local()
@@ -59,7 +61,7 @@ class SelectLoop(object):
 
         try:
             with self._lock:
-                self._cancel(node)
+                self._pop_node(node)
         except self._HeapError:
             return False
         return True
@@ -103,16 +105,18 @@ class SelectLoop(object):
 
         return should_wake
 
-    def _cancel(self, node):
-        _, types, _, _, _ = self._heap.pop(node)
+    def _pop_node(self, node):
+        _, types, func, args, keys = self._heap.pop(node)
 
         if types is not None:
             rfds, wfds, xfds = types
-            self._cancel_type(node, rfds, self._reads)
-            self._cancel_type(node, wfds, self._writes)
-            self._cancel_type(node, xfds, self._excepts)
+            self._pop_type(node, rfds, self._reads)
+            self._pop_type(node, wfds, self._writes)
+            self._pop_type(node, xfds, self._excepts)
 
-    def _cancel_type(self, node, fds, target):
+        return func, args, keys
+
+    def _pop_type(self, node, fds, target):
         for fd in fds:
             nodes = target[fd]
             nodes.discard(node)
@@ -155,34 +159,25 @@ class SelectLoop(object):
         return rfds, wfds, xfds
 
     def _process(self, rfds, wfds, xfds):
-        nodes = {}
         now = self._monotonic()
+        nodes = self._nodes
 
         with self._lock:
             calls = self._immediate
 
             for fd in rfds:
                 for node in self._reads.get(fd, ()):
-                    _, _, func, args, keys = self._heap.peek(node)
-                    if node not in nodes:
-                        nodes[node] = ([], [], []), func, args, keys
-                    nodes[node][0][0].append(fd)
+                    nodes[node][0].append(fd)
             for fd in wfds:
                 for node in self._writes.get(fd, ()):
-                    _, _, func, args, keys = self._heap.peek(node)
-                    if node not in nodes:
-                        nodes[node] = ([], [], []), func, args, keys
-                    nodes[node][0][1].append(fd)
+                    nodes[node][1].append(fd)
             for fd in xfds:
                 for node in self._excepts.get(fd, ()):
-                    _, _, func, args, keys = self._heap.peek(node)
-                    if node not in nodes:
-                        nodes[node] = ([], [], []), func, args, keys
-                    nodes[node][0][2].append(fd)
+                    nodes[node][2].append(fd)
 
-            for node, (types, func, args, keys) in nodes.iteritems():
-                calls.append((func, types + args, keys))
-                self._cancel(node)
+            for node, (rfds, wfds, xfds) in nodes.iteritems():
+                func, args, keys = self._pop_node(node)
+                calls.append((func, (rfds, wfds, xfds) + args, keys))
 
             while self._heap:
                 timestamp, types, func, args, keys = self._heap.peek()
@@ -193,11 +188,12 @@ class SelectLoop(object):
                     calls.append((func, args, keys))
                 else:
                     calls.append((func, ((), (), ()) + args, keys))
-                self._cancel(self._heap.head())
+                self._pop_node(self._heap.head())
 
             self._immediate = self._calls
             self._calls = calls
 
+        nodes.clear()
         return calls
 
     def _perform(self, calls):
