@@ -234,13 +234,14 @@ class _Socket(object):
         offset = 0
         length = len(data)
 
-        for _, timeout in countdown(timeout):
-            buf = buffer(data, offset)
-            bytes = yield _send(self._socket, timeout, self._socket.send, buf, flags)
+        with wrapped_socket_errors():
+            for _, timeout in countdown(timeout):
+                buf = buffer(data, offset)
+                bytes = yield _send(self._socket, timeout, self._socket.send, buf, flags)
 
-            offset += bytes
-            if offset >= length:
-                break
+                offset += bytes
+                if offset >= length:
+                    break
 
     @idiokit.stream
     def sendto(self, data, *args, **keys):
