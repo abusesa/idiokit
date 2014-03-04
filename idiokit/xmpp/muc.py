@@ -90,8 +90,15 @@ class MUCRoom(idiokit.Proxy):
         self.participants = participants
 
         self._xmpp = xmpp
+        self._exit_sent = False
 
         idiokit.Proxy.__init__(self, self._input() | output)
+
+    @idiokit.stream
+    def _exit(self):
+        if not self._exit_sent:
+            self._exit_sent = True
+            yield self._xmpp.core.presence(to=self.jid, type="unavailable")
 
     @idiokit.stream
     def _input(self):
@@ -100,10 +107,15 @@ class MUCRoom(idiokit.Proxy):
 
         try:
             while True:
-                elements = yield idiokit.next()
+                try:
+                    elements = yield idiokit.next()
+                except StopIteration:
+                    yield self._exit()
+                    continue
+
                 yield self._xmpp.core.message(bare_jid, *elements, **attrs)
         finally:
-            self._xmpp.core.presence(to=self.jid, type="unavailable")
+            self._exit()
 
 
 class MUCParticipant(object):
