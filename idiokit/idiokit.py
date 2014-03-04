@@ -166,7 +166,12 @@ def peel_args(args):
 
 
 def fill_exc(args):
-    return args + (None,) * (3 - len(args))
+    exc_type, exc_value, exc_tb = args + (None,) * (3 - len(args))
+    try:
+        raise exc_type, exc_value, exc_tb
+    except:
+        exc_type, exc_value, _ = sys.exc_info()
+    return exc_type, exc_value, exc_tb
 
 
 class Stream(object):
@@ -219,6 +224,13 @@ class _MapOutput(_Queue):
         self._signals = None
         self._messages = None
 
+    def _set_exception_result(self, args):
+        exc_type, exc_value, exc_tb = fill_exc(args)
+        if issubclass(exc_type, StopIteration):
+            self._result.unsafe_set((False, exc_value.args))
+        else:
+            self._result.unsafe_set((True, args))
+
     def _got_signal(self, _, __):
         if self._result.unsafe_is_set():
             return
@@ -248,7 +260,7 @@ class _MapOutput(_Queue):
                 continue
 
             self._tail.unsafe_set(None)
-            self._result.unsafe_set((True, fill_exc(args)))
+            self._set_exception_result(args)
             return
 
     def _got_message(self, _, __):
@@ -282,12 +294,7 @@ class _MapOutput(_Queue):
                 throw, args = result
                 if throw:
                     self._tail.unsafe_set(None)
-
-                    exc_type, exc_value, exc_tb = fill_exc(args)
-                    if isinstance(exc_value, StopIteration):
-                        self._result.unsafe_set((False, exc_value.args))
-                    else:
-                        self._result.unsafe_set((True, args))
+                    self._set_exception_result(args)
                     return
 
             try:
