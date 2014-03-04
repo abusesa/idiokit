@@ -174,9 +174,15 @@ def fill_exc(args):
     return exc_type, exc_value, exc_tb
 
 
+def require_stream(obj):
+    if isinstance(obj, Stream):
+        return obj
+    raise TypeError("expected a stream, got {0!r}".format(obj))
+
+
 class Stream(object):
     def fork(self, *args, **keys):
-        return Fork(self, *args, **keys)
+        return _Fork(self, *args, **keys)
 
     def _send(self, throw, args):
         send = _SendBase(self.result(), throw, args)
@@ -198,7 +204,10 @@ class Stream(object):
         return Event() | self.fork() | Next()
 
     def __or__(self, other):
-        return PipePair(self, other)
+        return _PipePair(self, require_stream(other))
+
+    def __ror__(self, other):
+        return _PipePair(require_stream(other), self)
 
 
 class _MapOutput(_Queue):
@@ -444,7 +453,7 @@ class Send(_SendBase):
         return self._head
 
 
-class Fork(Stream):
+class _Fork(Stream):
     def __init__(self, stream):
         self._stream = stream
 
@@ -624,26 +633,21 @@ class GeneratorBasedStream(Stream):
     def _next(self, throw, args):
         try:
             if throw:
-                next = self._gen.throw(*args)
+                next = require_stream(self._gen.throw(*args))
             else:
-                next = self._gen.send(peel_args(args))
+                next = require_stream(self._gen.send(peel_args(args)))
         except StopIteration as stop:
             self._close(False, stop.args)
             del stop
         except:
             self._close(True, sys.exc_info())
         else:
-            if isinstance(next, Stream):
-                next.pipe_left(self._messages.head(), self._signals.head())
-                next.pipe_right(self._broken.head())
+            next.pipe_left(self._messages.head(), self._signals.head())
+            next.pipe_right(self._broken.head())
 
-                self._output.unsafe_stack(next)
+            self._output.unsafe_stack(next)
 
-                next.result().unsafe_listen(self._step)
-            else:
-                error = TypeError("expected a stream, got {0!r}".format(next))
-                self._step((True, (TypeError, error, None)))
-                del error
+            next.result().unsafe_listen(self._step)
             del next
         del self, throw, args
 
@@ -720,7 +724,7 @@ class Event(Next):
         Next.pipe_left(self, NULL, signal_head)
 
 
-class PipePair(Stream):
+class _PipePair(Stream):
     def __init__(self, left, right):
         self._left = left
         self._right = right
@@ -791,7 +795,7 @@ class Proxy(Stream):
     def __init__(self, proxied):
         Stream.__init__(self)
 
-        self._proxied = proxied
+        self._proxied = require_stream(proxied)
 
     def pipe_right(self, *args, **keys):
         return self._proxied.pipe_right(*args, **keys)
@@ -826,9 +830,9 @@ def map(func, *args, **keys):
 
 def pipe(first, *rest):
     if not rest:
-        return first
+        return require_stream(first)
     cut = len(rest) // 2
-    return PipePair(pipe(first, *rest[:cut]), pipe(*rest[cut:]))
+    return _PipePair(pipe(first, *rest[:cut]), pipe(*rest[cut:]))
 
 
 next = Next
