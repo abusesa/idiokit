@@ -28,7 +28,6 @@ def _resolve_host(host, port):
     idiokit.stop(len(a) + len(aaaa))
 
 
-
 @idiokit.stream
 def resolve(domain, forced_host=None, forced_port=None):
     if forced_host is not None:
