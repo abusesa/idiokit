@@ -878,8 +878,11 @@ def srv(name, resolver=None):
 def ordered_srv_records(srv_records):
     # Implement server selection as described in RFC 2782.
 
-    priorities = dict()
+    srv_records = tuple(srv_records)
+    if len(srv_records) == 1 and srv_records[0].target == "":
+        return
 
+    priorities = dict()
     for srv in srv_records:
         priorities.setdefault(srv.priority, []).append((srv.weight, srv))
 
