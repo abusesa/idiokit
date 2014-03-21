@@ -1,6 +1,5 @@
-from .. import idiokit, socket, ssl, xmlcore, timer, threadpool
-from . import resolve
-from . import core, disco, muc, ping
+from .. import idiokit, socket, ssl, xmlcore, timer
+from . import core, disco, muc, ping, _resolve
 from .jid import JID
 
 
@@ -60,27 +59,23 @@ def element_stream(sock, domain, timeout=120.0, ws_ping_interval=10.0):
 
 
 @idiokit.stream
-def _get_socket(domain, host, port):
-    resolver = resolve.Resolver(host, port)
+def _get_socket():
     error = core.XMPPError("could not resolve server address")
-
-    results = iter(resolver.resolve(domain))
 
     while True:
         try:
-            item = yield threadpool.thread(results.next)
+            family, host, port = yield idiokit.next()
         except StopIteration:
             raise error
 
-        family, socktype, proto, _, addr = item
         try:
-            sock = socket.Socket(family, socktype, proto)
+            sock = socket.Socket(family)
         except socket.SocketError as error:
             continue
 
         try:
             yield sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            yield sock.connect(addr)
+            yield sock.connect((host, port))
         except socket.SocketError as error:
             yield sock.close()
             continue
@@ -101,11 +96,12 @@ def _init_ssl(sock, require_cert, ca_certs, hostname):
 
 
 @idiokit.stream
-def connect(jid, password,
-            host=None, port=None,
-            ssl_verify_cert=True, ssl_ca_certs=None):
+def connect(
+        jid, password,
+        host=None, port=None,
+        ssl_verify_cert=True, ssl_ca_certs=None):
     jid = JID(jid)
-    sock = yield _get_socket(jid.domain, host, port)
+    sock = yield _resolve.resolve(jid.domain, host, port) | _get_socket()
 
     elements = element_stream(sock, jid.domain)
     yield core.require_tls(elements)
