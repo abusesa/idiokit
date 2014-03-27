@@ -8,6 +8,7 @@ import socket as _socket
 
 from .. import idiokit, socket, timer
 from ._iputils import parse_ip, reverse_ipv4, reverse_ipv6
+from ._conf import resolv_conf
 
 
 system_random = random.SystemRandom()
@@ -595,62 +596,12 @@ def find_answers(msg, question):
     raise DNSError("CNAME loop")
 
 
-def parse_server(server):
-    """
-    >>> parse_server("192.0.2.0") == (socket.AF_INET, "192.0.2.0", 53)
-    True
-    >>> parse_server("2001:db8::") == (socket.AF_INET6, "2001:db8::", 53)
-    True
-    """
-
-    family, ip = parse_ip(server)
-    return family, ip, 53
-
-
-def read_conf(line_iterator):
-    for line in line_iterator:
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-
-        pieces = line.split(None, 1)
-        if len(pieces) < 2:
-            continue
-
-        key, value = pieces
-        yield key.lower(), value
-
-
 class Resolver(object):
-    _resolv_conf = None
-
-    @classmethod
-    def _system_conf(cls, path="/etc/resolv.conf", force_reload=False):
-        if force_reload or cls._resolv_conf is None:
-            with open("/etc/resolv.conf", "rb") as resolv_conf:
-                cls._resolv_conf = tuple(read_conf(resolv_conf))
-
-        server_list = []
-        server_set = set()
-        for key, value in cls._resolv_conf:
-            if key != "nameserver":
-                continue
-
-            try:
-                _, ip, port = parse_server(value)
-            except ValueError:
-                pass
-            else:
-                pair = ip, port
-                if pair not in server_set:
-                    server_list.append(pair)
-                    server_set.add(pair)
-
-        return server_list
+    _resolv_conf = resolv_conf()
 
     def __init__(self, servers=None):
         if servers is None:
-            servers = self._system_conf()
+            servers = self._resolv_conf.load().servers
 
         self._servers = []
         self._timeout = 5.0
