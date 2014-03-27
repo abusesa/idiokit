@@ -1,31 +1,26 @@
 from __future__ import absolute_import
 
-import socket
 from .. import idiokit, dns
 
 DEFAULT_XMPP_PORT = 5222
 
 
 @idiokit.stream
-def _resolve_host(host, port):
-    for family in [socket.AF_INET, socket.AF_INET6]:
+def _add_port_and_count(port):
+    count = 0
+
+    while True:
         try:
-            socket.inet_pton(family, host)
-        except socket.error:
-            continue
+            family, ip = yield idiokit.next()
+        except StopIteration:
+            idiokit.stop(count)
 
-        yield idiokit.send(family, host, port)
-        idiokit.stop(1)
+        yield idiokit.send(family, ip, port)
+        count += 1
 
-    a = yield dns.a(host)
-    for ip in a:
-        yield idiokit.send(socket.AF_INET, ip, port)
 
-    aaaa = yield dns.aaaa(host)
-    for ip in aaaa:
-        yield idiokit.send(socket.AF_INET6, ip, port)
-
-    idiokit.stop(len(a) + len(aaaa))
+def _resolve_host(host, port):
+    return dns.host_lookup(host) | _add_port_and_count(port)
 
 
 @idiokit.stream
