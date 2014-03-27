@@ -20,7 +20,7 @@ def parse_server(server):
 def read_resolv_conf(line_iterator):
     for line in line_iterator:
         line = line.strip()
-        if not line or line.startswith("#"):
+        if not line or line.startswith("#") or line.startswith(";"):
             continue
 
         pieces = line.split(None, 1)
@@ -33,8 +33,12 @@ def read_resolv_conf(line_iterator):
 
 def read_hosts(line_iterator):
     for line in line_iterator:
+        comment_start = line.find("#")
+        if comment_start >= -1:
+            line = line[:comment_start]
+
         line = line.strip()
-        if not line or line.startswith("#"):
+        if not line:
             continue
 
         pieces = line.split()
