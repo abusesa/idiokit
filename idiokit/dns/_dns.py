@@ -3,11 +3,10 @@ from __future__ import absolute_import
 import errno
 import struct
 import random
-import idiokit
 import inspect
 import socket as _socket
 
-from idiokit import socket, timer
+from .. import idiokit, socket, timer
 
 
 system_random = random.SystemRandom()
