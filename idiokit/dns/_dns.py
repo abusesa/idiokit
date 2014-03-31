@@ -4,6 +4,7 @@ import errno
 import struct
 import random
 import inspect
+import collections
 import socket as _socket
 
 from .. import idiokit, socket, timer
@@ -72,6 +73,8 @@ def unpack(_struct, data, offset=0):
         raise NotEnoughData()
     return _struct.unpack_from(data, offset), offset + size
 
+
+DNS_PORT = 53
 
 FLAGS_RA = 0b0000000010000000
 FLAGS_RD = 0b0000000100000000
@@ -599,19 +602,32 @@ def find_answers(msg, question):
 class Resolver(object):
     _resolv_conf = resolv_conf()
 
+    @classmethod
+    def _normalize_server(self, server):
+        if isinstance(server, basestring):
+            return (server, DNS_PORT)
+
+        if not isinstance(server, collections.Sequence):
+            raise TypeError("expected a host string or a (host, port) sequence, got {0!r}".format(server))
+        if len(server) != 2:
+            raise ValueError("sequence contains {0} items, expected 2".format(len(server)))
+        return server
+
     def __init__(self, servers=None):
         if servers is None:
             servers = self._resolv_conf.load().servers
+        else:
+            servers = map(self._normalize_server, servers)
 
         self._servers = []
         self._timeout = 5.0
         self._tries = 3
         self._use_tcp = True
 
-        for ip, port in servers:
-            self.append_server(ip, port)
+        for host, port in servers:
+            self.append_server(host, port)
 
-    def append_server(self, ip, port=53):
+    def append_server(self, ip, port=DNS_PORT):
         family, ip = parse_ip(ip)
         self._servers.append((family, ip, port))
 
