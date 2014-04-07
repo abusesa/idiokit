@@ -80,7 +80,7 @@ def join_room(jid, xmpp, output, password=None, history=False):
             query.add(submit)
             xmpp.core.iq_set(query, to=jid.bare())
 
-        if "110" in codes:
+        if participant.name == jid or "110" in codes:
             idiokit.stop(participant.name, participants)
 
 
