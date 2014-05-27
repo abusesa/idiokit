@@ -581,7 +581,7 @@ def find_answers(msg, question):
     for answer in msg.answers:
         if answer.type == CNAME.code:
             cnames[answer.name] = answer.data.name
-        elif answer.type == question.type:
+        if answer.type == question.type:
             answers.setdefault(answer.name, []).append(answer)
 
     name = question.name
@@ -819,6 +819,13 @@ def txt(name, resolver=None):
 def ptr(name, resolver=None):
     resolver = _get_resolver(resolver)
     _, answers, _ = yield resolver.query(name, PTR.code)
+    idiokit.stop([x.data.name for x in answers])
+
+
+@idiokit.stream
+def cname(name, resolver=None):
+    resolver = _get_resolver(resolver)
+    _, answers, _ = yield resolver.query(name, CNAME.code)
     idiokit.stop([x.data.name for x in answers])
 
 
