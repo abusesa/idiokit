@@ -10,10 +10,11 @@ def _cancel(node, _, __):
     selectloop_cancel(node)
 
 
-def sleep(delay):
+def sleep(delay=None):
     event = idiokit.Event()
-    node = selectloop_sleep(delay, event.succeed)
-    event.result().listen(partial(_cancel, node))
+    if delay is not None:
+        node = selectloop_sleep(delay, event.succeed)
+        event.result().listen(partial(_cancel, node))
     return event
 
 
