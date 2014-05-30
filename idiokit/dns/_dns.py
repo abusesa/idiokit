@@ -58,6 +58,10 @@ class DNSError(Exception):
     pass
 
 
+class DNSTimeout(DNSError):
+    pass
+
+
 class MessageError(DNSError):
     pass
 
@@ -636,6 +640,9 @@ class Resolver(object):
 
     @idiokit.stream
     def query(self, name, type, cls=CLASS_INET):
+        if not self._servers:
+            raise DNSError("no DNS servers specified")
+
         if isinstance(name, unicode):
             name = str(name)
         question = Question(name, type, cls)
@@ -663,7 +670,7 @@ class Resolver(object):
             cname, answers = find_answers(result, question)
             idiokit.stop(cname, answers, (addr, port))
 
-        raise DNSError()
+        raise DNSTimeout("DNS query timed out")
 
     @idiokit.stream
     def _query_udp(self, question, family, server_addr, server_port):
