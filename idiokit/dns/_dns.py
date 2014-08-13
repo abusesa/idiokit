@@ -1,6 +1,5 @@
 from __future__ import absolute_import
 
-import errno
 import struct
 import random
 import inspect
@@ -17,25 +16,6 @@ system_random = random.SystemRandom()
 
 def gen_id():
     return system_random.randint(0, 65535)
-
-
-@idiokit.stream
-def bind_to_random_port(sock, addr="", first_port=32768, last_port=61000):
-    tries_left = last_port - first_port + 1
-
-    while True:
-        port = system_random.randint(first_port, last_port)
-
-        try:
-            yield sock.bind((addr, port))
-        except socket.SocketError as error:
-            if error.errno == errno.EADDRINUSE and tries_left > 0:
-                continue
-            raise
-        else:
-            break
-
-        tries_left -= 1
 
 
 class _ReprMixin(object):
@@ -677,7 +657,8 @@ class Resolver(object):
         query = Message(questions=[question])
         sock = socket.Socket(family, socket.SOCK_DGRAM)
         try:
-            yield bind_to_random_port(sock)
+            # Trust the platform's ephemeral source port generation method
+            # to adequately randomize the source port.
             yield sock.sendto(query.pack(), (server_addr, server_port))
 
             while True:
@@ -699,7 +680,6 @@ class Resolver(object):
         query = Message(questions=[question])
         sock = socket.Socket(family, socket.SOCK_STREAM)
         try:
-            yield bind_to_random_port(sock)
             yield sock.connect((server_addr, server_port))
 
             query_data = query.pack()
