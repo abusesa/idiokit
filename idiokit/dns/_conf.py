@@ -122,8 +122,16 @@ class _Loader(object):
 
     def load(self, force_reload=False):
         if self._instance is None:
-            with open(self._path, "rb") as opened:
+            opened = None
+            try:
+                opened = open(self._path, "rb")
+            except IOError:
+                self._instance = self._type.from_lines([])
+            else:
                 self._instance = self._type.from_lines(opened)
+            finally:
+                if opened is not None:
+                    opened.close()
         return self._instance
 
 
