@@ -1,8 +1,8 @@
 import doctest
 
-from .. import dns
+from .. import _conf
 
 
 def load_tests(loader, tests, ignore):
-    tests.addTests(doctest.DocTestSuite(dns))
+    tests.addTests(doctest.DocTestSuite(_conf))
     return tests
