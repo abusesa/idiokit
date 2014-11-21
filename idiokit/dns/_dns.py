@@ -89,6 +89,7 @@ RCODE_STRINGS = {
     RCODE_REFUSED: "refused"
 }
 
+
 class ResponseError(DNSError):
     def __init__(self, rcode, string=None):
         if string is None:
@@ -146,7 +147,8 @@ class Message(_ReprMixin):
             results.append(result)
         return results, offset
 
-    def __init__(self,
+    def __init__(
+            self,
             id=None,
             query=True,
             opcode=OPCODE_QUERY,
@@ -354,7 +356,7 @@ class A(_ReprMixin):
     def unpack(cls, data, offset, length):
         if length != 4:
             raise MessageError("expected 4 bytes of RDATA, got {0}".format(length))
-        ip = _socket.inet_ntop(_socket.AF_INET, data[offset:offset+length])
+        ip = _socket.inet_ntop(_socket.AF_INET, data[offset:offset + length])
         return cls(ip)
 
     def __init__(self, ip):
@@ -376,7 +378,7 @@ class AAAA(_ReprMixin):
     def unpack(cls, data, offset, length):
         if length != 16:
             raise MessageError("expected 16 bytes of RDATA, got {0}".format(length))
-        ip = _socket.inet_ntop(_socket.AF_INET6, data[offset:offset+length])
+        ip = _socket.inet_ntop(_socket.AF_INET6, data[offset:offset + length])
         return cls(ip)
 
     def __init__(self, ip):
@@ -406,7 +408,7 @@ class TXT(_ReprMixin):
             if offset + amount > end:
                 raise MessageError("a character string spans over the end of RDATA")
 
-            strings.append(data[offset:offset+amount])
+            strings.append(data[offset:offset + amount])
             offset += amount
 
         return cls(strings)
@@ -727,6 +729,7 @@ class Resolver(object):
 
 
 _global_resolver = None
+
 
 def _get_resolver(resolver):
     global _global_resolver
