@@ -1,0 +1,5 @@
+# Files to be included to or excluded from the default file list ones
+# when building source distributions (e.g. 'python setup.py sdist').
+
+include LICENSE
+include setuphelpers.py
