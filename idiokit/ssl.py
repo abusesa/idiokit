@@ -157,6 +157,10 @@ class _SSLSocket(object):
         if flags != 0:
             raise ValueError("flags not supported by SSL sockets")
 
+        if bufsize <= 0:
+            yield timer.sleep(0.0)
+            idiokit.stop("")
+
         result = yield _wrapped(self._ssl, timeout, self._ssl.read, bufsize)
         idiokit.stop(result)
 

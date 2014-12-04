@@ -209,12 +209,20 @@ class _Socket(object):
 
     @idiokit.stream
     def recv(self, bufsize, flags=0, timeout=None):
+        if bufsize <= 0:
+            yield timer.sleep(0.0)
+            idiokit.stop("")
+
         with wrapped_socket_errors():
             result = yield _recv(self._socket, timeout, self._socket.recv, bufsize, flags)
         idiokit.stop(result)
 
     @idiokit.stream
     def recvfrom(self, bufsize, flags=0, timeout=None):
+        if bufsize <= 0:
+            yield timer.sleep(0.0)
+            idiokit.stop("")
+
         with wrapped_socket_errors():
             result = yield _recv(self._socket, timeout, self._socket.recvfrom, bufsize, flags)
         idiokit.stop(result)
