@@ -22,9 +22,9 @@ class JIDError(Exception):
 def check_prohibited_and_unassigned(chars, prohibited_tables):
     for pos, ch in enumerate(chars):
         if any(table(ch) for table in prohibited_tables):
-            raise JIDError("prohibited character %r at index %d" % (ch, pos))
+            raise JIDError("prohibited character {0!r} at index {1}".format(ch, pos))
         if in_table_a1(ch):
-            raise JIDError("unassigned characted %r at index %d" % (ch, pos))
+            raise JIDError("unassigned characted {0!r} at index {1}".format(ch, pos))
 
 
 def check_bidirectional(chars):
@@ -43,18 +43,20 @@ def check_bidirectional(chars):
         raise JIDError("string must start and end with RandALCat characters")
 
 
-NODEPREP_PROHIBITED = [in_table_c11,
-                       in_table_c12,
-                       in_table_c21,
-                       in_table_c22,
-                       in_table_c3,
-                       in_table_c4,
-                       in_table_c5,
-                       in_table_c6,
-                       in_table_c7,
-                       in_table_c8,
-                       in_table_c9,
-                       frozenset(u"\"&'/:<>@").__contains__]
+NODEPREP_PROHIBITED = (
+    in_table_c11,
+    in_table_c12,
+    in_table_c21,
+    in_table_c22,
+    in_table_c3,
+    in_table_c4,
+    in_table_c5,
+    in_table_c6,
+    in_table_c7,
+    in_table_c8,
+    in_table_c9,
+    frozenset(u"\"&'/:<>@").__contains__
+)
 
 
 def nodeprep(string):
@@ -65,16 +67,18 @@ def nodeprep(string):
     return string
 
 
-RESOURCEPREP_PROHIBITED = [in_table_c12,
-                           in_table_c21,
-                           in_table_c22,
-                           in_table_c3,
-                           in_table_c4,
-                           in_table_c5,
-                           in_table_c6,
-                           in_table_c7,
-                           in_table_c8,
-                           in_table_c9]
+RESOURCEPREP_PROHIBITED = (
+    in_table_c12,
+    in_table_c21,
+    in_table_c22,
+    in_table_c3,
+    in_table_c4,
+    in_table_c5,
+    in_table_c6,
+    in_table_c7,
+    in_table_c8,
+    in_table_c9
+)
 
 
 def resourceprep(string):
@@ -97,7 +101,7 @@ def split_jid(jid):
 
 def check_length(identifier, value):
     if len(value) > 1023:
-        raise JIDError("%s identifier too long" % identifier)
+        raise JIDError("{0} identifier too long".format(identifier))
     return value
 
 
@@ -121,7 +125,7 @@ def prep_domain(domain):
         labels = map(idna.nameprep, labels)
         labels = map(idna.ToASCII, labels)
     except UnicodeError as ue:
-        raise JIDError("not an internationalized label: %s" % ue)
+        raise JIDError("not an internationalized label: {0}".format(ue))
     labels = map(idna.ToUnicode, labels)
     domain = ".".join(labels)
 
@@ -193,7 +197,7 @@ class JID(object):
         return hash(unicode(self))
 
     def __repr__(self):
-        return "%s(%s)" % (type(self).__name__, repr(unicode(self)))
+        return "{0}({1!r})".format(type(self).__name__, unicode(self))
 
     def __unicode__(self):
         jid = self.domain
