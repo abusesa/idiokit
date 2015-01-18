@@ -640,7 +640,7 @@ class Resolver(object):
                 else:
                     break
 
-            if result and result.truncated and self._use_tcp:
+            if result is not None and result.truncated and self._use_tcp:
                 try:
                     result = yield timer.timeout(self._timeout, self._query_tcp(question, family, addr, port))
                 except timer.Timeout:
