@@ -180,7 +180,7 @@ def session(stream):
 
 
 class Core(object):
-    VALID_ERROR_TYPES = set(["cancel", "continue", "modify", "auth", "wait"])
+    _VALID_ERROR_TYPES = frozenset(["cancel", "continue", "modify", "auth", "wait"])
 
     def __init__(self, xmpp):
         self.xmpp = xmpp
@@ -208,8 +208,8 @@ class Core(object):
                 self.iq_error(iq, error)
 
     def build_error(self, type, condition, text=None, special=None):
-        if type not in self.VALID_ERROR_TYPES:
-            expected = "/".join(self.VALID_ERROR_TYPES)
+        if type not in self._VALID_ERROR_TYPES:
+            expected = "/".join(self._VALID_ERROR_TYPES)
             raise XMPPError("wrong error type (got '{0}', expected '{1}')".format(type, expected))
 
         error = xmlcore.Element("error", type=type)

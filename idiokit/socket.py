@@ -83,7 +83,7 @@ def check_sendable_type(value):
     raise TypeError(msg)
 
 
-_ALLOWED_SOCKET_ERRNOS = set([
+_ALLOWED_SOCKET_ERRNOS = frozenset([
     errno.EINTR,
     errno.ENOBUFS,
     errno.EAGAIN,
