@@ -15,24 +15,6 @@ def rmtree(path):
         if err.errno != errno.ENOENT:
             raise
 
-def install_other(subdir):
-    cwd = os.getcwd()
-    path = os.path.join(cwd, subdir)
-
-    try:
-        os.chdir(path)
-    except OSError, error:
-        if error.errno not in (errno.ENOENT, errno.ENOTDIR):
-            raise
-        print >> sys.stderr, "Could not find directory %r" % path
-        return
-
-    try:
-        module_info = imp.find_module("setup", ["."])
-        imp.load_module("setup", *module_info)
-    finally:
-        os.chdir(cwd)
-
 def setup(*args, **keys):
     keys = dict(keys)
     cmdclass = dict(keys.pop("cmdclass", dict()))
