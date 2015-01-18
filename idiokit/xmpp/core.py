@@ -40,7 +40,7 @@ class XMPPError(Exception):
             extra = self.condition.replace("-", " ")
         if extra is None:
             return self.args[0]
-        return self.args[0] + " (%s)" % extra
+        return "{0} ({1})".format(self.args[0], extra)
 
 
 def _iq_build(type, query, **attrs):
@@ -210,8 +210,7 @@ class Core(object):
     def build_error(self, type, condition, text=None, special=None):
         if type not in self.VALID_ERROR_TYPES:
             expected = "/".join(self.VALID_ERROR_TYPES)
-            message = "wrong error type (got '%s', expected '%s')"
-            raise XMPPError(message % (type, expected))
+            raise XMPPError("wrong error type (got '{0}', expected '{1}')".format(type, expected))
 
         error = xmlcore.Element("error", type=type)
         error.add(xmlcore.Element(condition, xmlns=STANZA_ERROR_NS))

@@ -812,7 +812,7 @@ class Proxy(Stream):
 
 def stream(func):
     if not inspect.isgeneratorfunction(func):
-        raise TypeError("%r is not a generator function" % func)
+        raise TypeError("{0!r} is not a generator function".format(func))
 
     @wraps(func)
     def _stream(*args, **keys):
