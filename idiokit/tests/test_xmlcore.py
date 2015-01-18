@@ -33,7 +33,7 @@ class TestEncoding(unittest.TestCase):
                 element.text = unichr(value)
                 assert is_valid_xml_data(element.serialize())
 
-        element = Element("name")
+        element = xmlcore.Element("name")
         element.text = u"\ud800\ud800"
         assert is_valid_xml_data(element.serialize())
 
