@@ -100,7 +100,7 @@ def _recv(socket, timeout, func, *args, **keys):
         try:
             data = func(*args, **keys)
         except _socket.error as err:
-            if err.args[0] not in _ALLOWED_SOCKET_ERRNOS:
+            if err.errno not in _ALLOWED_SOCKET_ERRNOS:
                 raise
         else:
             idiokit.stop(data)
@@ -115,7 +115,7 @@ def _send(socket, timeout, func, *args, **keys):
         try:
             bytes = func(*args, **keys)
         except _socket.error as err:
-            if err.args[0] not in _ALLOWED_SOCKET_ERRNOS:
+            if err.errno not in _ALLOWED_SOCKET_ERRNOS:
                 raise
         else:
             idiokit.stop(bytes)

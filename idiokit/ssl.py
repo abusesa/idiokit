@@ -99,9 +99,9 @@ def _wrapped(ssl, timeout, func, *args, **keys):
             try:
                 result = func(*args, **keys)
             except _ssl.SSLError as err:
-                if err.args[0] == _ssl.SSL_ERROR_WANT_READ:
+                if err.errno == _ssl.SSL_ERROR_WANT_READ:
                     yield select.select((ssl,), (), (), timeout)
-                elif err.args[0] == _ssl.SSL_ERROR_WANT_WRITE:
+                elif err.errno == _ssl.SSL_ERROR_WANT_WRITE:
                     yield select.select((), (ssl,), (), timeout)
                 else:
                     raise SSLError(*err.args)
