@@ -14,7 +14,14 @@ class UnpackNameTests(unittest.TestCase):
         self.assertEqual(_dns.unpack_name("\x00"), ("", 1))
         self.assertEqual(_dns.unpack_name("\x01a\x01b\x01c\x00"), ("a.b.c", 7))
         self.assertEqual(_dns.unpack_name("\x01a\x01b\x01c\x00", offset=2), ("b.c", 7))
-        self.assertEqual(_dns.unpack_name("\x01a\x01b\x01c\x00\x40\x00", offset=7), ("a.b.c", 9))
+        self.assertEqual(_dns.unpack_name("\x01a\x01b\x01c\x00\xc0\x00", offset=7), ("a.b.c", 9))
+
+    def test_invalid_label_lengths(self):
+        # If two highest bits of a label length octet are 00, then it's a length.
+        # If the bits are 11, then interpret it as a pointer.
+        # Cases 01 and 10 are reserved for future use.
+        self.assertRaises(_dns.MessageError, _dns.unpack_name, "\x00\x40\x00", offset=1)
+        self.assertRaises(_dns.MessageError, _dns.unpack_name, "\x00\x70\x00", offset=1)
 
     def test_max_name_length(self):
         """
@@ -44,17 +51,17 @@ class UnpackNameTests(unittest.TestCase):
 
         # Check neither octets in the pointers do not consume the octet budget
         self.assertEqual(
-            _dns.unpack_name(octets_254 + "\x40\x00", offset=len(octets_254)),
+            _dns.unpack_name(octets_254 + "\xc0\x00", offset=len(octets_254)),
             (label_254, 256)
         )
         self.assertEqual(
-            _dns.unpack_name(octets_255 + "\x40\x00", offset=len(octets_255)),
+            _dns.unpack_name(octets_255 + "\xc0\x00", offset=len(octets_255)),
             (label_255, 257)
         )
         self.assertRaises(
             _dns.MessageError,
             _dns.unpack_name,
-            octets_256 + "\x40\x00",
+            octets_256 + "\xc0\x00",
             offset=len(octets_256)
         )
 
@@ -67,7 +74,7 @@ class UnpackNameTests(unittest.TestCase):
 
     def test_pointer_outside_data(self):
         # Point to offset=255 in a 2 byte chunk of data.
-        self.assertRaises(_dns.NotEnoughData, _dns.unpack_name, "\x40\xff")
+        self.assertRaises(_dns.NotEnoughData, _dns.unpack_name, "\xc0\xff")
 
     def test_pointer_loop(self):
-        self.assertRaises(_dns.MessageError, _dns.unpack_name, "\x40\x00")
+        self.assertRaises(_dns.MessageError, _dns.unpack_name, "\xc0\x00")

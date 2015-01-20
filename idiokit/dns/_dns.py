@@ -541,7 +541,8 @@ def unpack_name(data, offset=0, max_octet_count=255):
         byte = ord(data[offset])
         offset += 1
 
-        if byte >= 64:
+        hi_bits = (byte >> 6) & 0b11
+        if hi_bits == 0b11:
             if jump_count == 0:
                 real_offset = offset + 1
 
@@ -552,23 +553,24 @@ def unpack_name(data, offset=0, max_octet_count=255):
             if offset >= length:
                 raise NotEnoughData("not enough data for name")
             offset = ((byte & 0x3f) << 8) + ord(data[offset])
-            continue
+        elif hi_bits == 0b00:
+            octet_count += 1
 
-        octet_count += 1
+            if byte != 0:
+                labels.append((offset, offset + byte))
+                offset += byte
+                octet_count += byte
 
-        if byte != 0:
-            labels.append((offset, offset + byte))
-            offset += byte
-            octet_count += byte
+            if octet_count > max_octet_count:
+                raise MessageError("name longer than {0} octets".format(max_octet_count))
 
-        if octet_count > max_octet_count:
-            raise MessageError("name longer than {0} octets".format(max_octet_count))
-
-        if byte == 0:
-            if real_offset is None:
-                real_offset = offset
-            name = ".".join(data[start:end] for (start, end) in labels)
-            return name, real_offset
+            if byte == 0:
+                if real_offset is None:
+                    real_offset = offset
+                name = ".".join(data[start:end] for (start, end) in labels)
+                return name, real_offset
+        else:
+            raise MessageError("invalid octet")
 
     raise NotEnoughData("not enough data for name")
 
