@@ -16,10 +16,13 @@ class UnpackNameTests(unittest.TestCase):
         self.assertEqual(_dns.unpack_name("\x01a\x01b\x01c\x00", offset=2), ("b.c", 7))
         self.assertEqual(_dns.unpack_name("\x01a\x01b\x01c\x00\xc0\x00", offset=7), ("a.b.c", 9))
 
-    def test_invalid_label_lengths(self):
-        # If two highest bits of a label length octet are 00, then it's a length.
-        # If the bits are 11, then interpret it as a pointer.
-        # Cases 01 and 10 are reserved for future use.
+    def test_invalid_octets(self):
+        """
+        Raise MessageError when an octet that should be either start a label
+        (two highest bits 00) or a pointer (two highest bits 11) has its two
+        highest bits set to 01 or 10 instead.
+        """
+
         self.assertRaises(_dns.MessageError, _dns.unpack_name, "\x00\x40\x00", offset=1)
         self.assertRaises(_dns.MessageError, _dns.unpack_name, "\x00\x70\x00", offset=1)
 
