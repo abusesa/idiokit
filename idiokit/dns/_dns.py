@@ -521,6 +521,15 @@ def pack_name(name):
 
 
 def unpack_name(data, offset=0, max_octet_count=255):
+    r"""
+    Return a domain name unpacked from byte data and the offset
+    where the unpacked name ends in the byte data.
+
+    >>> unpack_name("\x01a\x01b\x01c\x00")
+    ('a.b.c', 7)
+
+    """
+
     labels = []
     length = len(data)
 
@@ -528,18 +537,9 @@ def unpack_name(data, offset=0, max_octet_count=255):
     octet_count = 0
     real_offset = None
 
-    while octet_count <= max_octet_count:
-        if offset >= length:
-            raise NotEnoughData("not enough data for name")
-
+    while offset < length:
         byte = ord(data[offset])
         offset += 1
-        octet_count += 1
-
-        if byte == 0:
-            if real_offset is None:
-                return ".".join(labels), offset
-            return ".".join(labels), real_offset
 
         if byte >= 64:
             if jump_count == 0:
@@ -554,11 +554,23 @@ def unpack_name(data, offset=0, max_octet_count=255):
             offset = ((byte & 0x3f) << 8) + ord(data[offset])
             continue
 
-        labels.append(data[offset:offset + byte])
-        offset += byte
-        octet_count += byte
+        octet_count += 1
 
-    raise MessageError("name longer than {0} octets".format(max_octet_count))
+        if byte != 0:
+            labels.append((offset, offset + byte))
+            offset += byte
+            octet_count += byte
+
+        if octet_count > max_octet_count:
+            raise MessageError("name longer than {0} octets".format(max_octet_count))
+
+        if byte == 0:
+            if real_offset is None:
+                real_offset = offset
+            name = ".".join(data[start:end] for (start, end) in labels)
+            return name, real_offset
+
+    raise NotEnoughData("not enough data for name")
 
 
 def find_answers(msg, question):
