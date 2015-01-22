@@ -557,7 +557,7 @@ def unpack_name(data, offset=0, max_octet_count=255):
             octet_count += 1
 
             if byte != 0:
-                labels.append((offset, offset + byte))
+                labels.append(data[offset:offset + byte])
                 offset += byte
                 octet_count += byte
 
@@ -567,8 +567,7 @@ def unpack_name(data, offset=0, max_octet_count=255):
             if byte == 0:
                 if real_offset is None:
                     real_offset = offset
-                name = ".".join(data[start:end] for (start, end) in labels)
-                return name, real_offset
+                return ".".join(labels), real_offset
         else:
             raise MessageError("invalid octet")
 
