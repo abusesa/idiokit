@@ -122,8 +122,8 @@ def connect(host, port, nick, password=None,
                     raise NickAlreadyInUse("".join(params[-1:]))
                 continue
 
-                if ERROR_REX.match(command):
-                    raise IRCError("".join(params[-1:]))
+            if ERROR_REX.match(command):
+                raise IRCError("".join(params[-1:]))
 
 
 def _main(sock, parser):
