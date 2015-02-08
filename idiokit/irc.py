@@ -126,15 +126,13 @@ def connect(host, port, nick, password=None,
                 raise IRCError("".join(params[-1:]))
 
 
+@idiokit.stream
 def _main(sock, parser):
     @idiokit.stream
     def _input():
-        try:
-            while True:
-                msg = yield idiokit.next()
-                yield sock.sendall(format_message(*msg))
-        finally:
-            yield sock.close()
+        while True:
+            msg = yield idiokit.next()
+            yield sock.sendall(format_message(*msg))
 
     @idiokit.stream
     def _output():
@@ -150,7 +148,10 @@ def _main(sock, parser):
             if not data:
                 raise IRCError("connection lost")
 
-    return _input() | _output()
+    try:
+        yield _input() | _output()
+    finally:
+        yield sock.close()
 
 
 class IRC(idiokit.Proxy):
