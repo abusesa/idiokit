@@ -511,6 +511,34 @@ class SRV(_ReprMixin):
 RR.register_type(SRV)
 
 
+class MX(_ReprMixin):
+    code = 15
+
+    _struct = struct.Struct("!H")
+
+    @classmethod
+    def unpack(cls, data, offset, length):
+        (preference,), offset = unpack(cls._struct, data, offset)
+        exchange, offset = unpack_name(data, offset)
+        return cls(preference, exchange)
+
+    def __init__(self, preference, exchange):
+        self._preference = preference
+        self._exchange = exchange
+
+    @property
+    def preference(self):
+        return self._preference
+
+    @property
+    def exchange(self):
+        return self._exchange
+
+    def pack(self):
+        return self._struct.pack(self._preference) + pack_name(self._exchange)
+RR.register_type(MX)
+
+
 def pack_name(name):
     result = []
     for piece in name.split("."):
@@ -825,13 +853,6 @@ def ptr(name, resolver=None):
     idiokit.stop([x.data.name for x in answers])
 
 
-@idiokit.stream
-def cname(name, resolver=None):
-    resolver = _get_resolver(resolver)
-    _, answers, _ = yield resolver.query(name, CNAME.code)
-    idiokit.stop([x.data.name for x in answers])
-
-
 def reverse_lookup(ip, resolver=None):
     family, ip = parse_ip(ip)
     if family == _socket.AF_INET:
@@ -839,3 +860,17 @@ def reverse_lookup(ip, resolver=None):
     else:
         name = reverse_ipv6(ip) + ".ip6.arpa"
     return ptr(name, resolver)
+
+
+@idiokit.stream
+def cname(name, resolver=None):
+    resolver = _get_resolver(resolver)
+    _, answers, _ = yield resolver.query(name, CNAME.code)
+    idiokit.stop([x.data.name for x in answers])
+
+
+@idiokit.stream
+def mx(name, resolver=None):
+    resolver = _get_resolver(resolver)
+    _, answers, _ = yield resolver.query(name, MX.code)
+    idiokit.stop([x.data for x in answers])
