@@ -19,8 +19,16 @@ class SSLCertificateError(SSLError):
 
 
 PROTOCOL_SSLv23 = _ssl.PROTOCOL_SSLv23
-PROTOCOL_SSLv3 = _ssl.PROTOCOL_SSLv3
 PROTOCOL_TLSv1 = _ssl.PROTOCOL_TLSv1
+
+_names = [
+    "PROTOCOL_TLSv1_1",
+    "PROTOCOL_TLSv1_2"
+]
+for _name in _names:
+    if hasattr(_ssl, _name):
+        globals()[_name] = getattr(_socket, _name)
+del _name, _names
 
 
 # A cert to make the ssl.wrap_socket to use the system CAs.
@@ -114,13 +122,10 @@ def wrap_socket(sock,
                 keyfile=None,
                 certfile=None,
                 server_side=False,
-                ssl_version=None,
+                ssl_version=PROTOCOL_SSLv23,
                 require_cert=False,
                 ca_certs=None,
                 timeout=None):
-    if ssl_version is None:
-        ssl_version = PROTOCOL_SSLv23 if server_side else PROTOCOL_SSLv3
-
     keys = dict(
         keyfile=keyfile,
         certfile=certfile,
