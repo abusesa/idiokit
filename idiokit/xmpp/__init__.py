@@ -18,7 +18,7 @@ def throw(exception):
     raise exception
 
 
-def element_stream(sock, domain, timeout=120.0, ws_ping_interval=10.0):
+def element_stream(sock, domain, timeout, ws_ping_interval=10.0):
     @idiokit.stream
     def write():
         stream_element = xmlcore.Element("stream:stream")
@@ -59,7 +59,7 @@ def element_stream(sock, domain, timeout=120.0, ws_ping_interval=10.0):
 
 
 @idiokit.stream
-def _get_socket():
+def _get_socket(timeout):
     error = core.XMPPError("could not resolve server address")
 
     while True:
@@ -75,7 +75,7 @@ def _get_socket():
 
         try:
             yield sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            yield sock.connect((host, port))
+            yield sock.connect((host, port), timeout=timeout)
         except socket.SocketError as error:
             yield sock.close()
             continue
@@ -84,11 +84,12 @@ def _get_socket():
 
 
 @idiokit.stream
-def _init_ssl(sock, require_cert, ca_certs, hostname):
+def _init_ssl(sock, require_cert, ca_certs, hostname, timeout):
     sock = yield ssl.wrap_socket(
         sock,
         require_cert=require_cert,
-        ca_certs=ca_certs)
+        ca_certs=ca_certs,
+        timeout=timeout)
     if require_cert:
         cert = yield sock.getpeercert()
         ssl.match_hostname(cert, hostname)
@@ -99,22 +100,23 @@ def _init_ssl(sock, require_cert, ca_certs, hostname):
 def connect(
         jid, password,
         host=None, port=None,
-        ssl_verify_cert=True, ssl_ca_certs=None):
+        ssl_verify_cert=True, ssl_ca_certs=None,
+        timeout=120.0):
     jid = JID(jid)
-    sock = yield _resolve.resolve(jid.domain, host, port) | _get_socket()
+    sock = yield _resolve.resolve(jid.domain, host, port) | _get_socket(timeout)
 
-    elements = element_stream(sock, jid.domain)
+    elements = element_stream(sock, jid.domain, timeout=timeout)
     yield core.require_tls(elements)
     yield throw(Restart()) | elements | idiokit.consume()
 
     hostname = jid.domain if host is None else host
-    sock = yield _init_ssl(sock, ssl_verify_cert, ssl_ca_certs, hostname)
+    sock = yield _init_ssl(sock, ssl_verify_cert, ssl_ca_certs, hostname, timeout)
 
-    elements = element_stream(sock, jid.domain)
+    elements = element_stream(sock, jid.domain, timeout=timeout)
     yield core.require_sasl(elements, jid, password)
     yield throw(Restart()) | elements | idiokit.consume()
 
-    elements = element_stream(sock, jid.domain)
+    elements = element_stream(sock, jid.domain, timeout=timeout)
     jid = yield core.require_bind_and_session(elements, jid)
     idiokit.stop(XMPP(jid, elements))
 
