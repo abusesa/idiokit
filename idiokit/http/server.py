@@ -60,26 +60,6 @@ class BadRequestOverLimit(BadRequest):
     pass
 
 
-def normalized_headers(items):
-    result = dict()
-
-    for key, values in items:
-        # [RFC 2616][] section 4.2:
-        # > Field names are case-insensitive.
-        key = key.lower()
-
-        if isinstance(values, (basestring, int)):
-            values = [values]
-
-        for value in values:
-            if isinstance(value, int):
-                value = str(value)
-            result.setdefault(key, []).append(value)
-
-    for key, values in result.iteritems():
-        yield key, values
-
-
 # [RFC 2616][] section 4.2:
 # > Multiple message-header fields with the same field-name MAY be present in a
 # > message if and only if the entire field-value for that header field is defined
@@ -288,6 +268,58 @@ def write_status(socket, http_version, code, reason=None):
     yield socket.sendall("{0} {1} {2}\r\n".format(http_version, code, reason))
 
 
+def normalized_headers(items):
+    result = dict()
+
+    if callable(getattr(items, "items", None)):
+        items = items.items()
+
+    for key, values in items:
+        # [RFC 2616][] section 4.2:
+        # > Field names are case-insensitive.
+        key = key.lower()
+
+        if isinstance(values, (basestring, int)):
+            values = [values]
+
+        for value in values:
+            if isinstance(value, int):
+                value = str(value)
+            result.setdefault(key, []).append(value)
+
+    return result
+
+
+@idiokit.stream
+def write_headers(socket, headers):
+    if headers:
+        msg = Message()
+        for key, values in normalized_headers(headers.items()).iteritems():
+            for value in values:
+                msg.add_header(key, value)
+        header_data = msg.as_string()
+        yield socket.sendall(header_data.rstrip("\n").replace("\n", "\r\n") + "\r\n")
+    yield socket.sendall("\r\n")
+
+
+@idiokit.stream
+def read_headers(buffered):
+    headers = []
+    while True:
+        line = yield buffered.read_line()
+        if not line:
+            raise ConnectionLost()
+
+        if line == "\r\n" or line == "\n":
+            break
+        headers.append(line)
+
+    msg = HeaderParser().parsestr("".join(headers))
+
+    header_dict = normalized_headers(msg.items())
+    idiokit.stop(header_dict)
+
+
 _WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
@@ -441,15 +473,7 @@ class ServerResponse(object):
         request = self._request
         self._request = None
         self._writer, headers = self._finish_headers(request, self._status, header_dict, self._socket)
-
-        if headers:
-            msg = Message()
-            for key, values in normalized_headers(headers.items()):
-                for value in values:
-                    msg.add_header(key, value)
-            header_data = msg.as_string()
-            yield self._socket.sendall(header_data.rstrip("\n").replace("\n", "\r\n") + "\r\n")
-        yield self._socket.sendall("\r\n")
+        yield write_headers(self._socket, headers)
 
     @idiokit.stream
     def write(self, data):
@@ -592,23 +616,6 @@ def serve(server, sock):
         idiokit.stop(method, uri, http_version)
 
     @idiokit.stream
-    def _get_headers(buffered):
-        headers = []
-        while True:
-            line = yield buffered.read_line()
-            if not line:
-                raise ConnectionLost()
-
-            if line == "\r\n" or line == "\n":
-                break
-            headers.append(line)
-
-        msg = HeaderParser().parsestr("".join(headers))
-
-        header_dict = dict(normalized_headers(msg.items()))
-        idiokit.stop(header_dict)
-
-    @idiokit.stream
     def catch_errors():
         while True:
             try:
@@ -639,12 +646,12 @@ def serve(server, sock):
                     raise BadRequest(code=httplib.HTTP_VERSION_NOT_SUPPORTED)
 
                 if version_pair == (1, 0):
-                    headers = yield _get_headers(buffered)
+                    headers = yield read_headers(buffered)
 
                     content_length = get_content_length(headers, 0)
                     buffered = _Limited(buffered, content_length)
                 elif version_pair >= (1, 1):
-                    headers = yield _get_headers(buffered)
+                    headers = yield read_headers(buffered)
 
                     host = get_header_single(headers, "host", None)
                     if host is None:
