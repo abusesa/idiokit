@@ -57,7 +57,13 @@ setup(
     author="Clarified Networks",
     author_email="contact@clarifiednetworks.com",
     url="https://bitbucket.org/clarifiednetworks/idiokit",
-    packages=["idiokit", "idiokit.xmpp", "idiokit.dns"],
+    packages=[
+        "idiokit",
+        "idiokit.xmpp",
+        "idiokit.dns",
+        "idiokit.http",
+        "idiokit.http.handlers"
+    ],
     license="MIT",
     cmdclass={
         "build": Build,
