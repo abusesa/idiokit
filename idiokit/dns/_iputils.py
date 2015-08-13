@@ -4,6 +4,19 @@ import socket
 
 
 def parse_ip(ip):
+    """
+    >>> parse_ip("192.0.2.1") == (socket.AF_INET, "192.0.2.1")
+    True
+
+    >>> parse_ip("2001:db8::1234:5678") == (socket.AF_INET6, "2001:db8::1234:5678")
+    True
+
+    >>> parse_ip("not-an-ip")
+    Traceback (most recent call last):
+        ...
+    ValueError: 'not-an-ip' is not a valid IPv4/6 address
+    """
+
     for family in (socket.AF_INET, socket.AF_INET6):
         try:
             data = socket.inet_pton(family, ip)
@@ -11,7 +24,7 @@ def parse_ip(ip):
             pass
         else:
             return family, socket.inet_ntop(family, data)
-    return ValueError("{0!r} is not a valid IPv4/6 address".format(ip))
+    raise ValueError("{0!r} is not a valid IPv4/6 address".format(ip))
 
 
 def reverse_ipv4(string):
