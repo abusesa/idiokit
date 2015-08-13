@@ -21,4 +21,6 @@ if __name__ == "__main__":
             index="index.html"
         )
     })
+
+    print "Serving http://127.0.0.1:8080/"
     idiokit.main_loop(serve_http(router, "127.0.0.1", 8080))
