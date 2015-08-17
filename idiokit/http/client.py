@@ -6,7 +6,7 @@ import urlparse
 
 from .. import idiokit, socket, ssl
 from ..dns import host_lookup
-from .server import write_headers, read_headers, normalized_headers, get_header_single, get_header_list, get_content_length, _RawWriter, _LimitedWriter, _ChunkedWriter, _Buffered, _Limited, _Chunked, ConnectionLost
+from .server import write_headers, read_headers, normalized_headers, get_header_single, get_header_list, get_content_length, _LimitedWriter, _ChunkedWriter, _Buffered, _Limited, _Chunked, ConnectionLost
 
 
 @idiokit.stream
@@ -147,7 +147,7 @@ class Client(object):
         idiokit.stop(sock)
 
     @idiokit.stream
-    def request(self, method, url, headers={}):
+    def request(self, method, url, headers={}, data=""):
         parsed = urlparse.urlparse(url)
         if parsed.scheme == "http":
             sock = yield self._tcp_connect(parsed.hostname, 80 if parsed.port is None else parsed.port)
@@ -159,12 +159,17 @@ class Client(object):
         else:
             raise ValueError("unknown URI scheme '{0}'".format(parsed.scheme))
 
-        writer, headers = self._resolve_headers(method, parsed.hostname, headers, sock)
-        yield write_request_line(sock, method, "/" if parsed.path == "" else parsed.path, "HTTP/1.1")
-        yield write_headers(sock, headers)
-        idiokit.stop(ClientRequest(method, url, headers, writer, _Buffered(sock)))
+        writer, headers = self._resolve_headers(method, parsed.hostname, headers, data, sock)
 
-    def _resolve_headers(self, method, host, headers, socket):
+        path = urlparse.urlunparse(["", "", "/" if parsed.path == "" else parsed.path, "", parsed.query, ""])
+        yield write_request_line(sock, method, path, "HTTP/1.1")
+        yield write_headers(sock, headers)
+
+        request = ClientRequest(method, url, headers, writer, _Buffered(sock))
+        yield request.write(data)
+        idiokit.stop(request)
+
+    def _resolve_headers(self, method, host, headers, data, socket):
         headers = normalized_headers(headers)
         if headers.get("host", None) is None:
             headers["host"] = host
@@ -175,7 +180,7 @@ class Client(object):
         headers["connection"] = connection
 
         transfer_encoding = get_header_list(headers, "transfer-encoding", None)
-        content_length = get_content_length(headers, None)
+        content_length = get_content_length(headers, len(data))
 
         if transfer_encoding is not None:
             if transfer_encoding.lower() not in ("identity", "chunked"):
@@ -183,17 +188,15 @@ class Client(object):
             transfer_encoding = transfer_encoding.lower()
 
         if method == "HEAD":
-            if content_length not in (None, 0):
+            if content_length != 0:
                 raise ValueError("no content-length != 0 allowed for HEAD requests")
             writer = _LimitedWriter(socket, 0, "no response body allowed for HEAD requests")
             headers["content-length"] = 0
         elif transfer_encoding == "chunked":
             writer = _ChunkedWriter(socket)
-        elif content_length is not None:
+        else:
             writer = _LimitedWriter(socket, content_length, "content length set to {0} bytes".format(content_length))
             headers["content-length"] = content_length
-        else:
-            writer = _RawWriter(socket)
 
         return writer, headers
 
@@ -208,6 +211,6 @@ def _get_client():
     return _default_client
 
 
-def request(method, url, headers={}):
+def request(method, url, headers={}, data=""):
     client = _get_client()
-    return client.request(method, url, headers)
+    return client.request(method, url, headers, data)
