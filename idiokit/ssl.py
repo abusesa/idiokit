@@ -27,7 +27,7 @@ _names = [
 ]
 for _name in _names:
     if hasattr(_ssl, _name):
-        globals()[_name] = getattr(_socket, _name)
+        globals()[_name] = getattr(_ssl, _name)
 del _name, _names
 
 
