@@ -201,16 +201,4 @@ class Client(object):
         return writer, headers
 
 
-_default_client = None
-
-
-def _get_client():
-    global _default_client
-    if _default_client is None:
-        _default_client = Client()
-    return _default_client
-
-
-def request(method, url, headers={}, data=""):
-    client = _get_client()
-    return client.request(method, url, headers, data)
+request = Client().request
