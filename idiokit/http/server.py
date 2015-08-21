@@ -482,6 +482,26 @@ class ServerResponse(object):
         yield self._writer.write(data)
 
     @idiokit.stream
+    def write_stream(self, buffer_size=2 ** 14):
+        while True:
+            chunk = yield idiokit.next()
+            buf = [chunk]
+            buf_length = len(chunk)
+
+            try:
+                while buf_length < buffer_size:
+                    chunk = yield timer.timeout(0.0, idiokit.next())
+                    buf.append(chunk)
+                    buf_length += len(chunk)
+            except StopIteration as stop:
+                yield self.write("".join(buf))
+                raise stop
+            except timer.Timeout:
+                pass
+
+            yield self.write("".join(buf))
+
+    @idiokit.stream
     def finish(self):
         if self._writer is None:
             yield self.write_headers({
