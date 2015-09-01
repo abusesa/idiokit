@@ -63,10 +63,11 @@ class Router(Server):
 
         raise self._RouteNotFound()
 
-    @idiokit.stream
     def main(self):
+        if not self._routes:
+            return idiokit.consume()
         handlers = set(handler for _, handler in self._routes)
-        yield Server.main(self) | idiokit.pipe(*[handler.main() for handler in handlers])
+        return idiokit.pipe(*[handler.main() for handler in handlers])
 
     @idiokit.stream
     def request_continue(self, addr, request, response):
