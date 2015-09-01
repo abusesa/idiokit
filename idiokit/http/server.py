@@ -579,9 +579,8 @@ class ServerResponse(object):
 
 
 class Server(object):
-    @idiokit.stream
     def main(self):
-        yield idiokit.consume()
+        return idiokit.consume()
 
     @idiokit.stream
     def request_continue(self, addr, request, response):
