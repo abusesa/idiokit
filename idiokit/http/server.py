@@ -578,6 +578,65 @@ class ServerResponse(object):
         return writer, headers
 
 
+class SupervisorCancel(Exception):
+    pass
+
+
+class SupervisorNotRunning(Exception):
+    pass
+
+
+class _Supervisor(object):
+    def __init__(self, source, *args, **keys):
+        self._tasks = {}
+        self._empty = idiokit.Event()
+        self._empty.succeed()
+        self._main = source(self, *args, **keys)
+
+    @idiokit.stream
+    def supervise(self, task):
+        yield timer.sleep(0.0)
+
+        if self._main is None:
+            event = idiokit.Event()
+            task.result().listen(event.succeed)
+            task.throw(SupervisorCancel())
+            yield event
+            raise SupervisorNotRunning()
+
+        task_key = object()
+        self._tasks[task_key] = self._wrap(task_key, task)
+        if len(self._tasks) == 1:
+            self._empty = idiokit.Event()
+
+    @idiokit.stream
+    def _run(self):
+        try:
+            yield self._main
+        finally:
+            self._main = None
+            for task in self._tasks.itervalues():
+                task.throw(SupervisorCancel)
+            yield self._empty
+
+    @idiokit.stream
+    def _wrap(self, task_key, task):
+        try:
+            yield task
+        except:
+            if self._main is not None:
+                self._main.throw()
+        finally:
+            del self._tasks[task_key]
+            if not self._tasks:
+                self._empty.succeed()
+
+
+def supervisor(source, *args, **keys):
+    supervisor = _Supervisor(source, *args, **keys)
+    return supervisor._run()
+
+
 class Server(object):
     def main(self):
         return idiokit.consume()
@@ -635,18 +694,10 @@ def serve(server, sock):
         idiokit.stop(method, uri, http_version)
 
     @idiokit.stream
-    def catch_errors():
-        while True:
-            try:
-                yield idiokit.next()
-            except StopIteration:
-                pass
-
-    @idiokit.stream
-    def listen_socket(errors):
+    def listen_socket(supervisor):
         while True:
             conn, addr = yield sock.accept()
-            idiokit.pipe(handle_connection(conn, addr), errors)
+            yield supervisor.supervise(handle_connection(conn, addr))
 
     @idiokit.stream
     def handle_connection(conn, addr):
@@ -716,8 +767,7 @@ def serve(server, sock):
         finally:
             yield _close_socket(conn)
 
-    errors = catch_errors()
-    yield idiokit.pipe(server.main(), listen_socket(errors), errors)
+    yield idiokit.pipe(server.main(), supervisor(listen_socket))
 
 
 @idiokit.stream
