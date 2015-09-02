@@ -622,13 +622,14 @@ class GeneratorBasedStream(Stream):
         asap(self._start)
 
     def _start(self):
-        self._running.add(self)
-        self._next(False, ())
-        del self
+        try:
+            self._running.add(self)
+            self._next(False, ())
+        finally:
+            self = None
 
     def _step(self, _, (throw, args)):
         sleep(0.0, self._next, throw, args)
-        del self, throw, args
 
     def _next(self, throw, args):
         try:
@@ -638,7 +639,6 @@ class GeneratorBasedStream(Stream):
                 next = require_stream(self._gen.send(peel_args(args)))
         except StopIteration as stop:
             self._close(False, stop.args)
-            del stop
         except:
             self._close(True, sys.exc_info())
         else:
@@ -648,8 +648,14 @@ class GeneratorBasedStream(Stream):
             self._output.unsafe_stack(next)
 
             next.result().unsafe_listen(self._step)
-            del next
-        del self, throw, args
+        finally:
+            # Set all local variables to None so references to their
+            # original values won't be held in potential traceback objects.
+            next = None
+            stop = None
+            self = None
+            throw = None
+            args = None
 
     def _close(self, throw, args):
         self._output.unsafe_close()
