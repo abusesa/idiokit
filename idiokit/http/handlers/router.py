@@ -39,8 +39,13 @@ class Router(Server):
         return tuple(pieces)
 
     def _find(self, request):
-        uri = urlparse.urlparse(request.uri)
+        try:
+            uri = urlparse.urlparse(request.uri)
+        except ValueError:
+            raise self._InvalidPath()
+
         uri_path = urllib.unquote(uri.path)
+
         try:
             uri_path = utils.normpath(uri_path)
         except ValueError:
