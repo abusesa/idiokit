@@ -21,7 +21,7 @@ from email.message import Message
 from email.parser import HeaderParser
 
 from .. import idiokit, socket, timer
-from .httpversion import HTTPVersion, HTTP11, HTTP10
+from . import httpversion
 
 
 @idiokit.stream
@@ -333,7 +333,7 @@ def read_request_line(buffered):
 
     method, uri, http_version_string = pieces
     try:
-        http_version = HTTPVersion.from_string(http_version_string)
+        http_version = httpversion.HTTPVersion.from_string(http_version_string)
     except ValueError:
         raise BadRequest("invalid HTTP version")
     idiokit.stop(method, uri, http_version)
@@ -455,7 +455,7 @@ class _ChunkedWriter(object):
 class _ServerResponse(object):
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, socket, request, http_version=HTTP11):
+    def __init__(self, socket, request, http_version=httpversion.HTTP11):
         self._socket = socket
         self._request = request
         self._http_version = http_version
@@ -715,7 +715,7 @@ def serve(server, sock):
                     raise BadRequest(code=httplib.HTTP_VERSION_NOT_SUPPORTED)
 
                 request_handler = server.request
-                if http_version == HTTP10:
+                if http_version == httpversion.HTTP10:
                     headers = yield read_headers(buffered)
 
                     content_length = get_content_length(headers, 0)
@@ -723,7 +723,7 @@ def serve(server, sock):
 
                     request = ServerRequest(method, uri, http_version, headers, buffered)
                     response = ServerResponseHTTP10(conn, request)
-                elif http_version >= HTTP11:
+                elif http_version >= httpversion.HTTP11:
                     headers = yield read_headers(buffered)
 
                     host = get_header_single(headers, "host", None)
@@ -761,7 +761,7 @@ def serve(server, sock):
             except ConnectionLost:
                 pass
             except BadRequest as bad:
-                yield write_status(conn, HTTP11, bad.code, bad.reason)
+                yield write_status(conn, httpversion.HTTP11, bad.code, bad.reason)
                 yield conn.sendall("\r\n")
             else:
                 yield request_handler(addr, request, response)
