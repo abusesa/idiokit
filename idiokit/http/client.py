@@ -1,12 +1,18 @@
 from __future__ import absolute_import
 
 import os
+import re
 import urllib
 import urlparse
 
 from .. import idiokit, socket, ssl
 from ..dns import host_lookup
 from .server import write_headers, read_headers, normalized_headers, get_header_single, get_header_list, get_content_length, _LimitedWriter, _ChunkedWriter, _Buffered, _Limited, _Chunked, ConnectionLost
+from . import httpversion
+
+
+class RequestError(Exception):
+    pass
 
 
 @idiokit.stream
@@ -20,12 +26,17 @@ def read_status_line(buffered):
     if not line:
         raise ConnectionLost()
 
-    pieces = line.rstrip().split(" ", 2)
-    if len(pieces) < 3:
-        raise RuntimeError("could not parse request line")
+    match = re.match(r"^([^ ]+) (\d{3}) ([^\r\n]*)\r?\n$", line)
+    if not match:
+        raise RequestError("could not parse status line")
 
-    http_version, code, reason = pieces
-    idiokit.stop(http_version, code, reason)
+    http_version_string, code_string, reason = match.groups()
+    try:
+        http_version = httpversion.HTTPVersion.from_string(http_version_string)
+    except ValueError:
+        raise RequestError("invalid HTTP version")
+
+    idiokit.stop(http_version, int(code_string), reason)
 
 
 class ClientResponse(object):
@@ -53,11 +64,11 @@ class ClientResponse(object):
         return self._headers
 
     def _resolve_reader(self, http_version, headers, buffered):
-        if http_version == "HTTP/1.0":
+        if http_version == httpversion.HTTP10:
             return self._resolve_reader_http10(headers, buffered)
-        if http_version == "HTTP/1.1":
+        elif http_version == httpversion.HTTP11:
             return self._resolve_reader_http11(headers, buffered)
-        raise RuntimeError()
+        raise RequestError("HTTP version {0} not supported".format(http_version))
 
     def _resolve_reader_http10(self, headers, buffered):
         content_length = get_content_length(headers, None)
@@ -162,7 +173,7 @@ class Client(object):
         writer, headers = self._resolve_headers(method, parsed.hostname, headers, data, sock)
 
         path = urlparse.urlunparse(["", "", "/" if parsed.path == "" else parsed.path, "", parsed.query, ""])
-        yield write_request_line(sock, method, path, "HTTP/1.1")
+        yield write_request_line(sock, method, path, httpversion.HTTP11)
         yield write_headers(sock, headers)
 
         request = ClientRequest(method, url, headers, writer, _Buffered(sock))
