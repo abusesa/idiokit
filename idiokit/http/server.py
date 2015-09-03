@@ -11,7 +11,7 @@
 from __future__ import absolute_import
 
 import os
-import re
+import abc
 import stat
 import time
 import errno
@@ -21,6 +21,7 @@ from email.message import Message
 from email.parser import HeaderParser
 
 from .. import idiokit, socket, timer
+from .httpversion import HTTPVersion, HTTP11, HTTP10
 
 
 @idiokit.stream
@@ -320,6 +321,24 @@ def read_headers(buffered):
     idiokit.stop(header_dict)
 
 
+@idiokit.stream
+def read_request_line(buffered):
+    line = yield buffered.read_line()
+    if not line:
+        raise ConnectionLost()
+
+    pieces = line.rstrip().split(" ", 2)
+    if len(pieces) < 3:
+        raise BadRequest("could not parse request line")
+
+    method, uri, http_version_string = pieces
+    try:
+        http_version = HTTPVersion.from_string(http_version_string)
+    except ValueError:
+        raise BadRequest("invalid HTTP version")
+    idiokit.stop(method, uri, http_version)
+
+
 _WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
@@ -433,11 +452,13 @@ class _ChunkedWriter(object):
         yield self._socket.sendall("0\r\n\r\n")
 
 
-class ServerResponse(object):
-    def __init__(self, http_version, socket, request):
-        self._http_version = http_version
+class _ServerResponse(object):
+    __metaclass__ = abc.ABCMeta
+
+    def __init__(self, socket, request, http_version=HTTP11):
         self._socket = socket
         self._request = request
+        self._http_version = http_version
 
         self._status = None
         self._writer = None
@@ -509,14 +530,15 @@ class ServerResponse(object):
             })
         yield self._writer.finish()
 
+    @abc.abstractmethod
     def _finish_headers(self, request, status_code, header_dict, socket):
-        if request.http_version == "HTTP/1.0":
-            return self._finish_headers_http10(request, status_code, header_dict, socket)
-        if request.http_version == "HTTP/1.1":
-            return self._finish_headers_http11(request, status_code, header_dict, socket)
-        raise RuntimeError()
+        pass
 
-    def _finish_headers_http10(self, request, status_code, header_dict, socket):
+
+class ServerResponseHTTP10(_ServerResponse):
+    """A reponse object for HTTP/1.0 requests."""
+
+    def _finish_headers(self, request, status_code, header_dict, socket):
         headers = dict(normalized_headers(header_dict.items()))
 
         content_length = get_content_length(headers, None)
@@ -538,7 +560,11 @@ class ServerResponse(object):
 
         return writer, headers
 
-    def _finish_headers_http11(self, request, status_code, header_dict, socket):
+
+class ServerResponseHTTP11(_ServerResponse):
+    """A response object for HTTP/1.1 requests."""
+
+    def _finish_headers(self, request, status_code, header_dict, socket):
         headers = dict(normalized_headers(header_dict.items()))
 
         connection = get_header_single(headers, "connection", "close")
@@ -672,27 +698,6 @@ def as_server(server):
 def serve(server, sock):
     server = as_server(server)
 
-    def _http_version_pair(http_version):
-        match = re.match("^HTTP/(\d+)\.(\d+)$", http_version)
-        if match is None:
-            return None
-
-        major, minor = map(int, match.groups())
-        return major, minor
-
-    @idiokit.stream
-    def _get_request_line(buffered):
-        line = yield buffered.read_line()
-        if not line:
-            raise ConnectionLost()
-
-        pieces = line.rstrip().split(" ", 2)
-        if len(pieces) < 3:
-            raise BadRequest("could not parse request line")
-
-        method, uri, http_version = pieces
-        idiokit.stop(method, uri, http_version)
-
     @idiokit.stream
     def listen_socket(supervisor):
         while True:
@@ -705,22 +710,20 @@ def serve(server, sock):
 
         try:
             try:
-                request_method = server.request
-                request_line = yield _get_request_line(buffered)
-
-                method, uri, http_version = request_line
-                version_pair = _http_version_pair(http_version)
-                if version_pair is None:
-                    raise BadRequest("invalid HTTP version")
-                if version_pair >= (2,):
+                method, uri, http_version = yield read_request_line(buffered)
+                if http_version.major != 1:
                     raise BadRequest(code=httplib.HTTP_VERSION_NOT_SUPPORTED)
 
-                if version_pair == (1, 0):
+                request_handler = server.request
+                if http_version == HTTP10:
                     headers = yield read_headers(buffered)
 
                     content_length = get_content_length(headers, 0)
                     buffered = _Limited(buffered, content_length)
-                elif version_pair >= (1, 1):
+
+                    request = ServerRequest(method, uri, http_version, headers, buffered)
+                    response = ServerResponseHTTP10(conn, request)
+                elif http_version >= HTTP11:
                     headers = yield read_headers(buffered)
 
                     host = get_header_single(headers, "host", None)
@@ -747,20 +750,21 @@ def serve(server, sock):
 
                     expect = get_header_single(headers, "expect", None)
                     if expect is None:
-                        request_method = server.request
+                        request_handler = server.request
                     elif expect == "100-continue":
-                        request_method = server.request_continue
+                        request_handler = server.request_continue
                     else:
                         raise BadRequest(code=httplib.EXPECTATION_FAILED)
+
+                    request = ServerRequest(method, uri, http_version, headers, buffered)
+                    response = ServerResponseHTTP11(conn, request)
             except ConnectionLost:
                 pass
             except BadRequest as bad:
-                yield write_status(conn, "HTTP/1.1", bad.code, bad.reason)
+                yield write_status(conn, HTTP11, bad.code, bad.reason)
                 yield conn.sendall("\r\n")
             else:
-                request = ServerRequest(method, uri, http_version, headers, buffered)
-                response = ServerResponse("HTTP/1.1", conn, request)
-                yield request_method(addr, request, response)
+                yield request_handler(addr, request, response)
                 yield response.finish()
         except socket.SocketError:
             pass
