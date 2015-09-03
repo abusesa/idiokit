@@ -4,6 +4,14 @@ import collections
 
 class HTTPVersion(collections.namedtuple("HTTPVersion", ["major", "minor"])):
     """
+    A class for representing HTTP protocol versions.
+
+    >>> version = HTTPVersion(1, 0)
+    >>> version.major
+    1
+    >>> version.minor
+    0
+
     Instances of this class are immutable.
 
     >>> HTTPVersion(1, 1).major = 2
@@ -33,13 +41,17 @@ class HTTPVersion(collections.namedtuple("HTTPVersion", ["major", "minor"])):
     @classmethod
     def from_string(cls, string):
         """
-        Return a HTTPVersion object parsed from a 'HTTP/x.y' string,
-        as specified in RFC 2616 section 3.1.
+        Return a HTTPVersion object parsed from a string.
 
         >>> HTTPVersion.from_string("HTTP/1.0")
         HTTPVersion(major=1, minor=0)
 
-        RFC 2616 section 3.1 notes:
+        The parsing is based in RFC 2616 section 3.1, i.e. strings
+        of general form 'HTTP/x.y' where x and y are 1-n digit
+        numbers standing for the major and minor HTTP versions,
+        respectively.
+
+        Or as RFC 2616 section 3.1 notes:
         > Note that the major and minor numbers MUST be treated as
         > separate integers and that each MAY be incremented higher
         > than a single digit.
