@@ -261,12 +261,16 @@ class ServerRequest(object):
 
 
 @idiokit.stream
-def write_status(socket, http_version, code, reason=None):
+def write_status_line(socket, http_version, code, reason=None):
+    if not (0 <= code <= 999):
+        raise ValueError("status code must be a (max) 3-digit integer")
+
     if reason is None:
         reason = httplib.responses.get(code, "")
     if "\r" in reason or "\n" in reason:
         raise ValueError("CR and/or LF are not allowed in the reason string")
-    yield socket.sendall("{0} {1} {2}\r\n".format(http_version, code, reason))
+
+    yield socket.sendall("{0} {1:03} {2}\r\n".format(http_version, code, reason))
 
 
 def normalized_headers(items):
@@ -471,7 +475,7 @@ class _ServerResponse(object):
     def write_continue(self, reason=None):
         if self._status is not None:
             raise RuntimeError("status already written")
-        yield write_status(self._socket, self._http_version, httplib.CONTINUE, reason)
+        yield write_status_line(self._socket, self._http_version, httplib.CONTINUE, reason)
         yield self._socket.sendall("\r\n")
 
     @idiokit.stream
@@ -481,7 +485,7 @@ class _ServerResponse(object):
         if self._status is not None:
             raise RuntimeError("status already written")
         self._status = code
-        yield write_status(self._socket, self._http_version, code, reason)
+        yield write_status_line(self._socket, self._http_version, code, reason)
 
     @idiokit.stream
     def write_headers(self, header_dict):
@@ -761,7 +765,7 @@ def serve(server, sock):
             except ConnectionLost:
                 pass
             except BadRequest as bad:
-                yield write_status(conn, httpversion.HTTP11, bad.code, bad.reason)
+                yield write_status_line(conn, httpversion.HTTP11, bad.code, bad.reason)
                 yield conn.sendall("\r\n")
             else:
                 yield request_handler(addr, request, response)
