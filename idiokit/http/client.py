@@ -124,10 +124,33 @@ class ClientRequest(object):
 
 
 class Client(object):
-    def __init__(self, resolver=None, require_cert=True, ca_certs=None, timeout=60.0):
+    def __init__(self, resolver=None, timeout=60.0, verify=True, cert=None):
+        if isinstance(verify, basestring):
+            require_cert = True
+            ca_certs = verify
+        elif verify is True:
+            require_cert = True
+            ca_certs = None
+        elif verify is False:
+            require_cert = False
+            ca_certs = None
+        else:
+            raise TypeError("\"verify\" parameter must be a boolean or a string")
+
+        if cert is None:
+            certfile = None
+            keyfile = None
+        elif isinstance(cert, basestring):
+            certfile = cert
+            keyfile = None
+        else:
+            certfile, keyfile = cert
+
         self._resolver = resolver
         self._require_cert = require_cert
         self._ca_certs = ca_certs
+        self._certfile = certfile
+        self._keyfile = keyfile
         self._timeout = timeout
 
     @idiokit.stream
@@ -149,9 +172,12 @@ class Client(object):
     def _init_ssl(self, sock, hostname):
         sock = yield ssl.wrap_socket(
             sock,
+            certfile=self._certfile,
+            keyfile=self._keyfile,
             require_cert=self._require_cert,
             ca_certs=self._ca_certs,
-            timeout=self._timeout)
+            timeout=self._timeout
+        )
         if self._require_cert:
             cert = yield sock.getpeercert()
             ssl.match_hostname(cert, hostname)
