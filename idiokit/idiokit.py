@@ -717,14 +717,16 @@ class Next(Stream):
 
 
 class Event(Next):
-    def set(self, args):
+    def _set(self, args):
         Next.pipe_left(self, NULL, Value((NULL, Value(args), NULL)))
 
     def succeed(self, *args):
-        return self.set((False, args))
+        self._set((False, args))
 
     def fail(self, *args):
-        return self.set((True, args))
+        if not args:
+            args = sys.exc_info()
+        self._set((True, args))
 
     def pipe_left(self, _, signal_head):
         Next.pipe_left(self, NULL, signal_head)
