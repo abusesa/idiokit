@@ -19,20 +19,13 @@ class BrokenPipe(Exception):
 
 
 class _Queue(object):
-    def __init__(self, auto_consume=False):
+    def __init__(self):
         self._tail = Value()
-
-        if auto_consume:
-            self._head = None
-        else:
-            self._head = self._tail
-            self._head.listen(self._move)
+        self._head = self._tail
+        self._head.unsafe_listen(self._move)
 
     def _move(self, _, __):
         while True:
-            if not self._head.unsafe_is_set():
-                return self._head.unsafe_listen(self._move)
-
             promise = self._head.unsafe_get()
             if promise is None:
                 return
@@ -40,23 +33,26 @@ class _Queue(object):
             consumed, value, head = promise
             if not consumed.unsafe_is_set():
                 if not value.unsafe_is_set():
-                    return value.unsafe_listen(self._move)
+                    value.unsafe_listen(self._move)
+                    return
                 if value.unsafe_get() is not None:
-                    return consumed.unsafe_listen(self._move)
+                    consumed.unsafe_listen(self._move)
+                    return
                 consumed.unsafe_set()
 
             self._head = head
 
+            if not self._head.unsafe_is_set():
+                self._head.unsafe_listen(self._move)
+                return
+
     def head(self):
-        head = self._head
-        if head is None:
-            return self._tail
-        return head
+        return self._head
 
 
 class Piped(_Queue):
-    def __init__(self, auto_consume=False):
-        _Queue.__init__(self, auto_consume)
+    def __init__(self):
+        _Queue.__init__(self)
 
         self._closed = False
         self._sealed = False
@@ -346,8 +342,8 @@ class Map(Stream):
     def __init__(self, func, *args, **keys):
         Stream.__init__(self)
 
-        self._messages = Piped(True)
-        self._signals = Piped(True)
+        self._messages = Piped()
+        self._signals = Piped()
         self._output = _MapOutput(self._messages.head(), self._signals.head(), func, args, keys)
         self._output.result().listen(self._got_result)
 
@@ -371,8 +367,8 @@ class _Fork(Stream):
     def __init__(self, stream):
         self._stream = stream
 
-        self._messages = Piped(True)
-        self._signals = Piped(True)
+        self._messages = Piped()
+        self._signals = Piped()
 
         self._output = Piped()
         self._output.add(self._stream.head())
