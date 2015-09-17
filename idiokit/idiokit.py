@@ -50,81 +50,82 @@ class _Queue(object):
         return self._head
 
 
-class Piped(_Queue):
+class Piped(object):
     def __init__(self):
-        _Queue.__init__(self)
+        self._head = Value()
+        self._tail = self._head
 
         self._closed = False
         self._sealed = False
 
-        self._ready = collections.deque()
-        self._heads = set()
+        self._next = None
+        self._queue = None
+        self._heads = None
+
+    def head(self):
+        return self._head
 
     def _add(self, head):
         if self._sealed:
             return
+        self._on_new_head(head)
+
+    def _on_new_head(self, head):
         if head is NULL:
             return
-        self._heads.add(head)
-        head.unsafe_listen(self._promise)
 
-    def _promise(self, head, promise):
-        if self._closed:
-            return
-        self._heads.remove(head)
+        if not self._closed:
+            if head.unsafe_is_set():
+                self._on_promise(head, head.unsafe_get())
+            else:
+                if self._heads is None:
+                    self._heads = set()
+                self._heads.add(head)
+                head.unsafe_listen(self._on_promise)
 
-        if promise is None:
-            if self._sealed and not self._ready and not self._heads:
-                self._closed = True
-                self._tail.unsafe_set(None)
-            return
+    def _on_promise(self, head, promise):
+        if self._heads is not None:
+            self._heads.discard(head)
 
-        if self._ready:
-            self._ready.append(promise)
-            return
+        if not self._closed:
+            if promise is None:
+                self._maybe_close()
+                return
 
-        self._ready.append(promise)
+            if self._next is not None:
+                if self._queue is None:
+                    self._queue = collections.deque()
+                self._queue.append((head, promise))
+                return
 
-        next = Value()
-        tail = self._tail
-        self._tail = next
+            old_consumed, old_value, old_head = promise
+            new_consumed = Value()
+            self._next = promise
+            self._tail = Value()
+            self._head.unsafe_set((new_consumed, old_value, self._tail))
+            new_consumed.unsafe_listen(self._on_consumed)
 
-        next_consumed = Value()
-        next_value = Value()
-        tail.unsafe_set((next_consumed, next_value, next))
-        next_consumed.unsafe_listen(partial(self._consumed, next_value))
+    def _on_consumed(self, _consumed, _value):
+        old_consumed, _, old_head = self._next
+        old_consumed.unsafe_set()
 
-    def _consumed(self, value, _, __):
-        if self._closed:
-            value.unsafe_set(None)
-            return
+        self._head = self._tail
+        self._next = None
 
-        consumed, original, head = self._ready.popleft()
-        if self._ready:
-            next = Value()
-            tail = self._tail
-            self._tail = next
+        if self._queue:
+            queued_head, queued_promise = self._queue.popleft()
+            self._on_promise(queued_head, queued_promise)
+        self._on_new_head(old_head)
 
-            next_consumed = Value()
-            next_value = Value()
-            tail.unsafe_set((next_consumed, next_value, next))
-            next_consumed.unsafe_listen(partial(self._consumed, next_value))
-
-        consumed.unsafe_set()
-        original.unsafe_listen(value.unsafe_proxy)
-
-        self._heads.add(head)
-        head.unsafe_listen(self._promise)
+    def _maybe_close(self):
+        if self._sealed and not self._next and not self._queue and not self._heads:
+            self._close()
 
     def _seal(self):
         if self._sealed:
             return
         self._sealed = True
-
-        if self._heads or self._ready:
-            return
-        self._closed = True
-        self._tail.unsafe_set(None)
+        self._maybe_close()
 
     def _close(self):
         if self._closed:
@@ -132,15 +133,14 @@ class Piped(_Queue):
         self._closed = True
         self._sealed = True
 
-        heads = self._heads
+        if self._heads is not None:
+            for head in self._heads:
+                head.unsafe_unlisten(self._on_promise)
+
+        self._next = None
+        self._queue = None
         self._heads = None
-        self._ready = None
-
         self._tail.unsafe_set(None)
-        self._head = NULL
-
-        for head in heads:
-            head.unsafe_unlisten(self._promise)
 
     def add(self, head):
         if head is NULL:
