@@ -681,7 +681,7 @@ class Next(Stream):
     def _do_pipe(self, heads):
         for head in heads:
             if head is not NULL:
-                head.unsafe_listen(self._on_promise)
+                self._on_promise(head, None)
 
     def _pipe(self, messages, signals, broken):
         asap(self._do_pipe, (signals, broken, messages))
