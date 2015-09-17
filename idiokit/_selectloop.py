@@ -159,7 +159,7 @@ class SelectLoop(object):
         return rfds, wfds, xfds
 
     def _process(self, rfds, wfds, xfds):
-        now = self._monotonic()
+        now = None
         nodes = self._nodes
 
         with self._lock:
@@ -181,8 +181,13 @@ class SelectLoop(object):
 
             while self._heap:
                 timestamp, types, func, args, keys = self._heap.peek()
-                if timestamp > now:
+                if timestamp == self._INFINITY:
                     break
+                if timestamp > 0.0:
+                    if now is None:
+                        now = self._monotonic()
+                    if timestamp > now:
+                        break
 
                 if types is None:
                     calls.append((func, args, keys))
