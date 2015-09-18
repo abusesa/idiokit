@@ -208,161 +208,6 @@ class Stream(object):
         return _PipePair(require_stream(other), self)
 
 
-class _MapOutput(_Queue):
-    def __init__(self, messages, signals, func, args, keys):
-        _Queue.__init__(self)
-
-        self._func = func
-        self._args = args
-        self._keys = keys
-
-        self._gen = None
-        self._result = Value()
-
-        self._messages = messages
-        self._signals = signals
-
-        self._signals.listen(self._got_signal)
-        self._messages.listen(self._got_message)
-        self._result.listen(self._close)
-
-    def _close(self, _, __):
-        self._gen = None
-        self._signals = None
-        self._messages = None
-
-    def _set_exception_result(self, args):
-        exc_type, exc_value, exc_tb = fill_exc(args)
-        if issubclass(exc_type, StopIteration):
-            self._result.unsafe_set((False, exc_value.args))
-        else:
-            self._result.unsafe_set((True, args))
-
-    def _got_signal(self, _, __):
-        if self._result.unsafe_is_set():
-            return
-
-        while True:
-            if not self._signals.unsafe_is_set():
-                return self._signals.unsafe_listen(self._got_signal)
-
-            promise = self._signals.unsafe_get()
-            if promise is None:
-                return
-
-            consumed, value, head = promise
-            consumed.unsafe_set()
-
-            if not value.unsafe_is_set():
-                return value.unsafe_listen(self._got_signal)
-
-            self._signals = head
-
-            result = value.unsafe_get()
-            if result is None:
-                continue
-
-            throw, args = result
-            if not throw:
-                continue
-
-            self._tail.unsafe_set(None)
-            self._set_exception_result(args)
-            return
-
-    def _got_message(self, _, __):
-        if self._result.unsafe_is_set():
-            return
-
-        args = None
-
-        while True:
-            if self._gen is None and args is None:
-                if not self._messages.unsafe_is_set():
-                    return self._messages.unsafe_listen(self._got_message)
-
-                promise = self._messages.unsafe_get()
-                if promise is None:
-                    self._tail.unsafe_set(None)
-                    return
-
-                consumed, value, head = promise
-                consumed.unsafe_set()
-
-                if not value.unsafe_is_set():
-                    return value.unsafe_listen(self._got_message)
-
-                self._messages = head
-
-                result = value.unsafe_get()
-                if result is None:
-                    continue
-
-                throw, args = result
-                if throw:
-                    self._tail.unsafe_set(None)
-                    self._set_exception_result(args)
-                    return
-
-            try:
-                if self._gen is None:
-                    gen = self._func(peel_args(args), *self._args, **self._keys)
-                    args = None
-                    if gen is None:
-                        continue
-                    self._gen = iter(gen)
-
-                try:
-                    obj = self._gen.next()
-                except StopIteration:
-                    self._gen = None
-                    continue
-            except:
-                self._gen = None
-                self._tail.unsafe_set(None)
-                self._result.unsafe_set((True, sys.exc_info()))
-                return
-
-            next_consumed = Value()
-            next_value = Value((False, (obj,)))
-            next_head = Value()
-
-            tail = self._tail
-            self._tail = next_head
-            tail.unsafe_set((next_consumed, next_value, next_head))
-
-            if not next_consumed.unsafe_is_set():
-                return next_consumed.unsafe_listen(self._got_message)
-
-    def result(self):
-        return self._result
-
-
-class Map(Stream):
-    def __init__(self, func, *args, **keys):
-        Stream.__init__(self)
-
-        self._messages = Piped()
-        self._signals = Piped()
-        self._output = _MapOutput(self._messages.head(), self._signals.head(), func, args, keys)
-        self._output.result().listen(self._got_result)
-
-    def _got_result(self, _, __):
-        self._messages.close()
-        self._signals.close()
-
-    def _pipe(self, messages, signals, broken):
-        self._signals.add(signals)
-        self._signals.add(broken)
-        self._messages.add(messages)
-
-    def result(self, *args, **keys):
-        return self._output.result()
-
-    def head(self):
-        return self._output.head()
-
-
 class _Fork(Stream):
     def __init__(self, stream):
         self._stream = stream
@@ -837,8 +682,17 @@ def stream(func):
     return _stream
 
 
+@stream
 def map(func, *args, **keys):
-    return Map(func, *args, **keys)
+    while True:
+        value = yield next()
+
+        iterable = func(value, *args, **keys)
+        if iterable is None:
+            continue
+
+        for result in iterable:
+            yield send(result)
 
 
 def pipe(first, *rest):
