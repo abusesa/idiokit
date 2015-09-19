@@ -620,9 +620,7 @@ class _PipePair(Stream):
         new_head = Value()
         self._message_head = new_head
 
-        if not old_head.unsafe_set((consume, value, new_head)):
-            return
-
+        old_head.unsafe_set((consume, value, new_head))
         head.unsafe_listen(self._message_promise)
 
     def _message_final(self, _, (throw, args)):
