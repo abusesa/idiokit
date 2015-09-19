@@ -73,13 +73,15 @@ class Piped(object):
             self._head.unsafe_set((new_consumed, old_value, self._tail))
             new_consumed.unsafe_listen(self._on_consumed)
 
-    def _on_consumed(self, _consumed, _value):
+    def _on_consumed(self, _, __):
+        self._head = self._tail
+        if self._closed:
+            return
+
         old_consumed, _, old_head = self._next
         old_consumed.unsafe_set()
 
-        self._head = self._tail
         self._next = None
-
         if self._queue:
             queued_head, queued_promise = self._queue.popleft()
             self._on_promise(queued_head, queued_promise)
