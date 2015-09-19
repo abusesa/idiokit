@@ -27,9 +27,6 @@ class Value(object):
             raise ValueError("value has not been set")
         return value
 
-    def unsafe_proxy(self, _, value):
-        return self.unsafe_set(value)
-
     def unsafe_set(self, value=None):
         if self._value is not _UNDEFINED:
             return False

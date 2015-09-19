@@ -18,38 +18,6 @@ class BrokenPipe(Exception):
     pass
 
 
-class _Queue(object):
-    def __init__(self):
-        self._tail = Value()
-        self._head = self._tail
-        self._head.unsafe_listen(self._move)
-
-    def _move(self, _, __):
-        while True:
-            promise = self._head.unsafe_get()
-            if promise is None:
-                return
-
-            consumed, value, head = promise
-            if not consumed.unsafe_is_set():
-                if not value.unsafe_is_set():
-                    value.unsafe_listen(self._move)
-                    return
-                if value.unsafe_get() is not None:
-                    consumed.unsafe_listen(self._move)
-                    return
-                consumed.unsafe_set()
-
-            self._head = head
-
-            if not self._head.unsafe_is_set():
-                self._head.unsafe_listen(self._move)
-                return
-
-    def head(self):
-        return self._head
-
-
 class Piped(object):
     def __init__(self):
         self._head = Value()
@@ -301,64 +269,6 @@ class _Fork(Stream):
         return self._result
 
 
-class _GeneratorBasedStreamOutput(_Queue):
-    def __init__(self):
-        _Queue.__init__(self)
-
-        self._stack = collections.deque()
-        self._closed = False
-
-    def unsafe_stack(self, stream):
-        if self._closed:
-            return
-
-        if self._stack:
-            self._stack.append(stream)
-            return
-
-        head = stream.head()
-        if head is not NULL:
-            self._stack.append(head)
-            self._handle(None, None)
-
-    def _handle(self, _, __):
-        while self._stack:
-            head = self._stack[0]
-            if not head.unsafe_is_set():
-                return head.unsafe_listen(self._handle)
-
-            promise = head.unsafe_get()
-            if promise is None:
-                self._stack.popleft()
-
-                if self._stack:
-                    self._stack[0] = self._stack[0].head()
-                elif self._closed:
-                    self._tail.unsafe_set(None)
-                continue
-
-            consume, value, head = promise
-            if not self._tail.unsafe_is_set():
-                self._tail.unsafe_set((Value(), value, Value()))
-
-            next_consume, _, next_tail = self._tail.unsafe_get()
-            if not next_consume.unsafe_is_set():
-                return next_consume.unsafe_listen(self._handle)
-
-            consume.unsafe_set()
-            self._tail = next_tail
-            self._stack[0] = head
-
-    def unsafe_close(self):
-        if self._closed:
-            return
-        self._closed = True
-
-        if self._stack:
-            return
-        self._tail.unsafe_set(None)
-
-
 class GeneratorBasedStream(Stream):
     _running = set()
 
@@ -369,9 +279,14 @@ class GeneratorBasedStream(Stream):
         self._signals = Piped()
         self._broken = Piped()
 
-        self._output = _GeneratorBasedStreamOutput()
-        self._result = Value()
+        self._head = Value()
+        self._tail = self._head
 
+        self._current_promise = None
+        self._current_result = None
+        self._current_count = 0
+
+        self._result = Value()
         asap(self._start)
 
     def _start(self):
@@ -380,9 +295,6 @@ class GeneratorBasedStream(Stream):
             self._next(False, ())
         finally:
             self = None
-
-    def _step(self, _, (throw, args)):
-        sleep(0.0, self._next, throw, args)
 
     def _next(self, throw, args):
         try:
@@ -397,25 +309,74 @@ class GeneratorBasedStream(Stream):
         else:
             next._pipe(self._messages.head(), self._signals.head(), self._broken.head())
 
-            self._output.unsafe_stack(next)
-
-            next.result().unsafe_listen(self._step)
+            self._current_result = next.result()
+            self._on_promise(next.head(), None)
         finally:
             # Set all local variables to None so references to their
             # original values won't be held in potential traceback objects.
+            self = None
             next = None
             stop = None
-            self = None
             throw = None
             args = None
 
-    def _close(self, throw, args):
-        self._output.unsafe_close()
+    def _on_promise(self, head, _):
+        self._current_promise = None
+        self._current_count = 0
 
+        if not head.unsafe_is_set():
+            head.unsafe_listen(self._on_promise)
+            return
+
+        promise = head.unsafe_get()
+        if promise is None:
+            self._on_result(self._current_result, None)
+            return
+
+        self._current_promise = promise
+        consume, value, head = promise
+
+        new_consume = Value()
+        self._tail = Value()
+        self._head.unsafe_set((new_consume, value, self._tail))
+        value.unsafe_listen(self._on_value)
+        new_consume.unsafe_listen(self._on_consume)
+
+    def _on_value(self, _, result):
+        if result is None:
+            new_consume, _, _ = self._head.unsafe_get()
+            new_consume.unsafe_set()
+        self._inc_count()
+
+    def _on_consume(self, _, __):
+        consume, value, head = self._current_promise
+        consume.unsafe_set()
+        self._inc_count()
+
+    def _inc_count(self):
+        self._current_count += 1
+        if self._current_count < 2:
+            return
+
+        consume, value, head = self._current_promise
+        self._head = self._tail
+        self._on_promise(head, None)
+
+    def _on_result(self, result, _):
+        if not result.unsafe_is_set():
+            result.unsafe_listen(self._on_result)
+            return
+
+        self._current_result = None
+        throw, args = result.unsafe_get()
+        sleep(0.0, self._next, throw, args)
+
+    def _close(self, throw, args):
         self._messages.close()
         self._signals.close()
         self._broken.close()
 
+        self._head.unsafe_set(None)
         self._result.unsafe_set((throw, args))
 
         self._gen.close()
@@ -428,7 +389,7 @@ class GeneratorBasedStream(Stream):
         self._messages.add(messages)
 
     def head(self):
-        return self._output.head()
+        return self._head
 
     def result(self):
         return self._result
@@ -609,17 +570,39 @@ class _PipePair(Stream):
         self._left.head().listen(self._message_promise)
 
     def _left_result(self, _, (throw, args)):
+        if self._check_result():
+            return
+
         if throw:
             self._signal_head.unsafe_set((NULL, Value((True, args)), NULL))
         else:
             self._signal_head.unsafe_set(None)
-        self._right.result().unsafe_listen(self._result.unsafe_proxy)
 
     def _right_result(self, _, (throw, args)):
+        if self._check_result():
+            return
+
         if not throw:
             throw = True
             args = (BrokenPipe, BrokenPipe(*args), None)
         self._broken_head.unsafe_set((NULL, Value((throw, args)), NULL))
+
+    def _check_result(self):
+        result = self._result
+        if result.unsafe_is_set():
+            return True
+
+        left_result = self._left.result()
+        if not left_result.unsafe_is_set():
+            return False
+
+        right_result = self._right.result()
+        if not right_result.unsafe_is_set():
+            return False
+
+        result_value = right_result.unsafe_get()
+        self._result.unsafe_set(result_value)
+        return True
 
     def _message_promise(self, _, promise):
         if self._right.result().unsafe_is_set():
