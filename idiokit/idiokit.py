@@ -163,10 +163,9 @@ class Stream(object):
         return Event() | self.fork() | Next()
 
     def __or__(self, other):
-        return _PipePair(self, require_stream(other))
-
-    def __ror__(self, other):
-        return _PipePair(require_stream(other), self)
+        if not isinstance(other, Stream):
+            return NotImplemented
+        return _PipePair(self, other)
 
 
 class _Fork(Stream):
