@@ -151,22 +151,13 @@ class Stream(object):
     def fork(self, *args, **keys):
         return _Fork(self, *args, **keys)
 
-    def _send(self, throw, args):
-        send = _Send(throw, args)
-        send._bind_parent(self.result())
-        if throw:
-            self._pipe(NULL, send._head, NULL)
-        else:
-            self._pipe(send._head, NULL, NULL)
-        return send
-
     def send(self, *args):
-        return self._send(False, args)
+        return _SendTo(self, False, args)
 
     def throw(self, *args):
         if not args:
             args = sys.exc_info()
-        return self._send(True, args)
+        return _SendTo(self, True, args)
 
     def next(self):
         return Event() | self.fork() | Next()
@@ -552,6 +543,33 @@ class _Send(Next):
 
     def head(self):
         return self._head
+
+
+class _SendTo(_Send):
+    def __init__(self, target, throw, args):
+        _Send.__init__(self, throw, args)
+
+        self._target = target
+        self._target.result().listen(self._on_target)
+
+        if throw:
+            self._target._pipe(NULL, _Send.head(self), NULL)
+        else:
+            self._target._pipe(_Send.head(self), NULL, NULL)
+
+    def _on_target(self, _, (throw, args)):
+        if not throw:
+            args = (BrokenPipe, BrokenPipe(*args), None)
+        Next._pipe(self, NULL, NULL, Value((NULL, Value((True, args)), NULL)))
+
+    def _close(self, result):
+        self._target.result().unsafe_unlisten(self._on_target)
+        self._target = None
+
+        _Send._close(self, result)
+
+    def head(self):
+        return NULL
 
 
 class _PipePair(Stream):
