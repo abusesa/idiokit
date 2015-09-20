@@ -261,7 +261,7 @@ class _Fork(Stream):
 
     def _pipe(self, messages, signals, broken):
         self._signals.add(signals)
-        self._broken.add(broken)
+        self._signals.add(broken)
         self._messages.add(messages)
 
     def head(self):
