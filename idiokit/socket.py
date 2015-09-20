@@ -47,31 +47,21 @@ def wrapped_socket_errors():
         raise SocketError(*err.args)
 
 
-def _countdown_none():
-    yield True, None
+def countdown(timeout):
+    while timeout is None:
+        yield None
 
-    while True:
-        yield False, None
-
-
-def _countdown_seconds(seconds):
     prev = time.time()
-    yield True, max(seconds, 0.0)
+    yield max(timeout, 0.0)
 
     while True:
         now = time.time()
-        seconds -= max(now - prev, 0.0)
-        if seconds <= 0:
+        timeout -= max(now - prev, 0.0)
+        if timeout <= 0:
             raise SocketTimeout("timed out")
 
         prev = now
-        yield False, max(seconds, 0.0)
-
-
-def countdown(timeout):
-    if timeout is None:
-        return _countdown_none()
-    return _countdown_seconds(timeout)
+        yield max(timeout, 0.0)
 
 
 def check_sendable_type(value):
@@ -93,9 +83,8 @@ _ALLOWED_SOCKET_ERRNOS = frozenset([
 
 @idiokit.stream
 def _recv(socket, timeout, func, *args, **keys):
-    for first, timeout in countdown(timeout):
-        if not first:
-            yield select.select((socket,), (), (), timeout)
+    for timeout in countdown(timeout):
+        yield select.select((socket,), (), (), timeout)
 
         try:
             data = func(*args, **keys)
@@ -108,9 +97,8 @@ def _recv(socket, timeout, func, *args, **keys):
 
 @idiokit.stream
 def _send(socket, timeout, func, *args, **keys):
-    for first, timeout in countdown(timeout):
-        if not first:
-            yield select.select((), (socket,), (), timeout)
+    for timeout in countdown(timeout):
+        yield select.select((), (socket,), (), timeout)
 
         try:
             bytes = func(*args, **keys)
@@ -184,14 +172,14 @@ class _Socket(object):
 
     @idiokit.stream
     def connect(self, address, timeout=None):
-        for first, timeout in countdown(timeout):
-            if not first:
-                yield select.select((), (self._socket,), (), timeout)
+        yield timer.sleep(0.0)
 
+        for timeout in countdown(timeout):
             with wrapped_socket_errors():
                 code = self._socket.connect_ex(address)
 
             if code in (errno.EALREADY, errno.EINPROGRESS):
+                yield select.select((), (self._socket,), (), timeout)
                 continue
             if code in (0, errno.EISCONN):
                 return
@@ -243,7 +231,7 @@ class _Socket(object):
         length = len(data)
 
         with wrapped_socket_errors():
-            for _, timeout in countdown(timeout):
+            for timeout in countdown(timeout):
                 buf = buffer(data, offset)
                 bytes = yield _send(self._socket, timeout, self._socket.send, buf, flags)
 
