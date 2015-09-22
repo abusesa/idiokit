@@ -518,11 +518,6 @@ class _Send(Next):
     def _on_consumed(self, consumed, _):
         Next._pipe(self, self._RESULT, NULL, NULL)
 
-    def _on_parent(self, _, (throw, args)):
-        if not throw:
-            args = (BrokenPipe, BrokenPipe(*args), None)
-        Next._pipe(self, NULL, NULL, Value((NULL, Value((True, args)), NULL)))
-
     def _close(self, result):
         if result is self._CONSUMED:
             value = self._message
@@ -536,9 +531,6 @@ class _Send(Next):
 
     def _pipe(self, _, signals, broken):
         Next._pipe(self, NULL, signals, broken)
-
-    def _bind_parent(self, parent):
-        parent.listen(self._on_parent)
 
     def head(self):
         return self._head
