@@ -126,79 +126,135 @@ class ClientRequest(object):
         idiokit.stop(ClientResponse(http_version, code, reason, headers, self._buffered))
 
 
-class Client(object):
-    def __init__(self, resolver=None, timeout=60.0, verify=True, cert=None):
-        if isinstance(verify, basestring):
-            require_cert = True
-            ca_certs = verify
-        elif verify is True:
-            require_cert = True
-            ca_certs = None
-        elif verify is False:
-            require_cert = False
-            ca_certs = None
-        else:
-            raise TypeError("\"verify\" parameter must be a boolean or a string")
+def _normalize_verify(verify):
+    if isinstance(verify, basestring):
+        require_cert = True
+        ca_certs = verify
+    elif verify is True:
+        require_cert = True
+        ca_certs = None
+    elif verify is False:
+        require_cert = False
+        ca_certs = None
+    else:
+        raise TypeError("\"verify\" parameter must be a boolean or a string")
+    return require_cert, ca_certs
 
-        if cert is None:
-            certfile = None
-            keyfile = None
-        elif isinstance(cert, basestring):
-            certfile = cert
-            keyfile = None
-        else:
-            certfile, keyfile = cert
 
-        self._resolver = resolver
-        self._require_cert = require_cert
-        self._ca_certs = ca_certs
-        self._certfile = certfile
-        self._keyfile = keyfile
-        self._timeout = timeout
+def _normalize_cert(cert):
+    if cert is None:
+        certfile = None
+        keyfile = None
+    elif isinstance(cert, basestring):
+        certfile = cert
+        keyfile = cert
+    else:
+        certfile, keyfile = cert
+    return certfile, keyfile
 
+
+class _Scheme(object):
     @idiokit.stream
-    def _unix_connect(self, socket_path):
-        sock = socket.Socket(socket.AF_UNIX)
-        yield sock.connect(socket_path, timeout=self._timeout)
-        idiokit.stop(sock)
+    def connect(self, client, url):
+        yield None
 
-    def _tcp_connect(self, host, port):
+
+class _HTTPScheme(_Scheme):
+    default_port = 80
+
+    def connect(self, client, url):
+        parsed = urlparse.urlparse(url)
+
         @idiokit.stream
         def _connect(port):
             family, ip = yield idiokit.next()
             sock = socket.Socket(family)
-            yield sock.connect((ip, port), timeout=self._timeout)
+            yield sock.connect((ip, port), timeout=client.timeout)
             idiokit.stop(sock)
-        return host_lookup(host, self._resolver) | _connect(port)
+
+        host = parsed.hostname
+        port = self.default_port if parsed.port is None else parsed.port
+        return host_lookup(host, client.resolver) | _connect(port)
+
+
+class _HTTPSScheme(_HTTPScheme):
+    default_port = 443
 
     @idiokit.stream
-    def _init_ssl(self, sock, hostname):
+    def connect(self, client, url):
+        parsed = urlparse.urlparse(url)
+
+        require_cert, ca_certs = _normalize_verify(client.verify)
+        certfile, keyfile = _normalize_cert(client.cert)
+
+        sock = yield _HTTPScheme.connect(self, client, url)
         sock = yield ssl.wrap_socket(
             sock,
-            certfile=self._certfile,
-            keyfile=self._keyfile,
-            require_cert=self._require_cert,
-            ca_certs=self._ca_certs,
-            timeout=self._timeout
+            certfile=certfile,
+            keyfile=keyfile,
+            require_cert=require_cert,
+            ca_certs=ca_certs,
+            timeout=client.timeout
         )
-        if self._require_cert:
+        if require_cert:
             cert = yield sock.getpeercert()
-            ssl.match_hostname(cert, hostname)
+            ssl.match_hostname(cert, parsed.hostname)
         idiokit.stop(sock)
+
+
+class _HTTPUnixScheme(object):
+    @idiokit.stream
+    def connect(self, client, url):
+        parsed = urlparse.urlparse(url)
+        socket_path = os.path.join("/", urllib.unquote(parsed.hostname))
+
+        sock = socket.Socket(socket.AF_UNIX)
+        yield sock.connect(socket_path, timeout=client.timeout)
+        idiokit.stop(sock)
+
+
+class Client(object):
+    def __init__(self, resolver=None, timeout=60.0, verify=True, cert=None):
+        _normalize_verify(verify)
+        _normalize_cert(cert)
+
+        self._resolver = resolver
+        self._verify = verify
+        self._cert = cert
+        self._timeout = timeout
+
+        self._schemes = {}
+        self._set_scheme("http", _HTTPScheme())
+        self._set_scheme("https", _HTTPSScheme())
+
+    @property
+    def resolver(self):
+        return self._resolver
+
+    @property
+    def timeout(self):
+        return self._timeout
+
+    @property
+    def verify(self):
+        return self._verify
+
+    @property
+    def cert(self):
+        return self._cert
+
+    def _set_scheme(self, scheme, handler):
+        self._schemes[scheme] = handler
 
     @idiokit.stream
     def request(self, method, url, headers={}, data=""):
         parsed = urlparse.urlparse(url)
-        if parsed.scheme == "http":
-            sock = yield self._tcp_connect(parsed.hostname, 80 if parsed.port is None else parsed.port)
-        elif parsed.scheme == "https":
-            sock = yield self._tcp_connect(parsed.hostname, 443 if parsed.port is None else parsed.port)
-            sock = yield self._init_ssl(sock, parsed.hostname)
-        elif parsed.scheme == "http+unix":
-            sock = yield self._unix_connect(os.path.join("/", urllib.unquote(parsed.hostname)))
-        else:
+
+        scheme_handler = self._schemes.get(parsed.scheme, None)
+        if scheme_handler is None:
             raise ValueError("unknown URI scheme '{0}'".format(parsed.scheme))
 
+        sock = yield scheme_handler.connect(self, url)
         writer, headers = self._resolve_headers(method, parsed.hostname, headers, data, sock)
 
         path = urlparse.urlunparse(["", "", "/" if parsed.path == "" else parsed.path, "", parsed.query, ""])
