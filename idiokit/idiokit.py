@@ -854,9 +854,7 @@ def consume():
     return map(lambda x: None)
 
 
-class Signal(BaseException):
-    _signames = dict()
-
+def _iter_signal_names():
     for name in dir(signal):
         if not name.startswith("SIG"):
             continue
@@ -867,8 +865,11 @@ class Signal(BaseException):
         if type(signum) != int:
             continue
 
-        _signames[signum] = name
-    del name
+        yield signum, name
+
+
+class Signal(BaseException):
+    _signames = dict(_iter_signal_names())
 
     def __init__(self, signum):
         BaseException.__init__(self, signum)
