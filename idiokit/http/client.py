@@ -97,6 +97,9 @@ class ClientResponse(object):
 
 class ClientRequest(object):
     def __init__(self, method, uri, headers, writer, buffered):
+        self._uri = uri
+        self._method = method
+        self._headers = headers
         self._writer = writer
         self._buffered = buffered
 
