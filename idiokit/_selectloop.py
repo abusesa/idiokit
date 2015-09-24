@@ -13,6 +13,7 @@ class SelectLoop(object):
     _INFINITY = float("inf")
     _EINTR = errno.EINTR
 
+    _get_ident = get_ident
     _read = os.read
     _write = os.write
     _monotonic = _time.monotonic
@@ -44,8 +45,7 @@ class SelectLoop(object):
         return self._select_add(None, timeout, callback, args, keys)
 
     def asap(self, callback, *args, **keys):
-        ident = self._ident
-        if ident != get_ident():
+        if self._ident != self._get_ident():
             return self._select_add(None, 0.0, callback, args, keys)
         self._calls.append((callback, args, keys))
         return None
