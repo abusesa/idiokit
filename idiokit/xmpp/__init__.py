@@ -84,12 +84,15 @@ def _get_socket(timeout):
 
 
 @idiokit.stream
-def _init_ssl(sock, require_cert, ca_certs, hostname, timeout):
+def _init_ssl(sock, require_cert, ca_certs, certfile, keyfile, hostname, timeout):
     sock = yield ssl.wrap_socket(
         sock,
         require_cert=require_cert,
         ca_certs=ca_certs,
-        timeout=timeout)
+        certfile=certfile,
+        keyfile=keyfile,
+        timeout=timeout
+    )
     if require_cert:
         cert = yield sock.getpeercert()
         ssl.match_hostname(cert, hostname)
@@ -98,10 +101,15 @@ def _init_ssl(sock, require_cert, ca_certs, hostname, timeout):
 
 @idiokit.stream
 def connect(
-        jid, password,
-        host=None, port=None,
-        ssl_verify_cert=True, ssl_ca_certs=None,
-        timeout=120.0):
+    jid,
+    password,
+    host=None, port=None,
+    ssl_verify_cert=True,
+    ssl_ca_certs=None,
+    ssl_certfile=None,
+    ssl_keyfile=None,
+    timeout=120.0
+):
     jid = JID(jid)
     sock = yield _resolve.resolve(jid.domain, host, port) | _get_socket(timeout)
 
@@ -110,7 +118,7 @@ def connect(
     yield throw(Restart()) | elements | idiokit.consume()
 
     hostname = jid.domain if host is None else host
-    sock = yield _init_ssl(sock, ssl_verify_cert, ssl_ca_certs, hostname, timeout)
+    sock = yield _init_ssl(sock, ssl_verify_cert, ssl_ca_certs, ssl_certfile, ssl_keyfile, hostname, timeout)
 
     elements = element_stream(sock, jid.domain, timeout=timeout)
     yield core.require_sasl(elements, jid, password)
