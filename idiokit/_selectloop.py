@@ -3,9 +3,9 @@ from __future__ import absolute_import
 import os
 import errno
 import select
+import threading
 import collections
 
-from thread import allocate_lock, get_ident
 from . import heap, _time
 
 
@@ -13,7 +13,6 @@ class SelectLoop(object):
     _INFINITY = float("inf")
     _EINTR = errno.EINTR
 
-    _get_ident = get_ident
     _read = os.read
     _write = os.write
     _monotonic = _time.monotonic
@@ -22,7 +21,7 @@ class SelectLoop(object):
     _HeapError = heap.HeapError
 
     def __init__(self):
-        self._lock = allocate_lock()
+        self._lock = threading.Lock()
         self._rfd, self._wfd = os.pipe()
         self._pending = False
 
@@ -35,7 +34,7 @@ class SelectLoop(object):
 
         self._immediate = collections.deque()
         self._calls = collections.deque()
-        self._ident = None
+        self._local = threading.local()
 
     def select(self, rfds, wfds, xfds, timeout, callback, *args, **keys):
         types = tuple(rfds), tuple(wfds), tuple(xfds)
@@ -45,9 +44,15 @@ class SelectLoop(object):
         return self._select_add(None, timeout, callback, args, keys)
 
     def asap(self, callback, *args, **keys):
-        if self._ident != self._get_ident():
+        try:
+            current = self._local.current
+        except AttributeError:
+            current = None
+            self._local.current = None
+
+        if current is None:
             return self._select_add(None, 0.0, callback, args, keys)
-        self._calls.append((callback, args, keys))
+        current.append((callback, args, keys))
         return None
 
     def cancel(self, node):
@@ -197,11 +202,11 @@ class SelectLoop(object):
         return calls
 
     def _perform(self, calls):
-        self._ident = get_ident()
+        self._local.current = calls
         while calls:
             func, args, keys = calls.popleft()
             func(*args, **keys)
-        self._ident = None
+        self._local.current = None
 
     def iterate(self):
         rfds, wfds, xfds, timeout = self._prepare()
