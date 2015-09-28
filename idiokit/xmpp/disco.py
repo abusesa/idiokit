@@ -36,8 +36,8 @@ class Disco(object):
         self.identities = set()
         self.nodes = dict()
 
-        self.xmpp.core.add_iq_handler(self._info_iq, "query", DISCO_INFO_NS)
-        self.xmpp.core.add_iq_handler(self._items_iq, "query", DISCO_ITEMS_NS)
+        self.xmpp.core.iq_handler(self._info_iq, "query", DISCO_INFO_NS)
+        self.xmpp.core.iq_handler(self._items_iq, "query", DISCO_ITEMS_NS)
         self.add_feature(DISCO_INFO_NS)
         self.add_node(None, self._node_handler)
         self.add_identity("client", "bot")

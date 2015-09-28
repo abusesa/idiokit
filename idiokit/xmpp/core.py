@@ -179,29 +179,63 @@ def session(stream):
     yield _iq(stream, "set", session)
 
 
+class _IqHandler(object):
+    def __init__(self, core, func, args, keys):
+        self._core = core
+        self._func = func
+        self._args = args
+        self._keys = keys
+
+    def handle(self, iq):
+        payload = iq.children(*self._args, **self._keys)
+        if payload and self._func(iq, list(payload)[0]):
+            return True
+        return False
+
+    def remove(self):
+        core = self._core
+        if core is None:
+            return False
+
+        self._core = None
+        try:
+            core._iq_handlers.remove(self)
+        except ValueError:
+            return False
+        return True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        self.remove()
+        return False
+
+
 class Core(object):
     _VALID_ERROR_TYPES = frozenset(["cancel", "continue", "modify", "auth", "wait"])
 
     def __init__(self, xmpp):
-        self.xmpp = xmpp
-        self.iq_handlers = list()
-        self.iq_uids = dict()
+        self._xmpp = xmpp
+        self._iq_handlers = list()
+        self._iq_uids = dict()
         idiokit.pipe(xmpp, idiokit.map(self._map_iqs))
 
-    def add_iq_handler(self, func, *args, **keys):
-        self.iq_handlers.append((func, args, keys))
+    def iq_handler(self, func, *args, **keys):
+        handler = _IqHandler(self, func, args, keys)
+        self._iq_handlers.append(handler)
+        return handler
 
     def _map_iqs(self, elements):
         for iq in elements.named("iq", STANZA_NS).with_attrs("type"):
             if iq.get_attr("type").lower() not in ("get", "set"):
                 uid = iq.get_attr("id", None)
-                if uid is not None and uid in self.iq_uids:
-                    self.iq_uids[uid].send(iq)
+                if uid is not None and uid in self._iq_uids:
+                    self._iq_uids[uid].send(iq)
                 continue
 
-            for func, args, keys in self.iq_handlers:
-                payload = iq.children(*args, **keys)
-                if payload and func(iq, list(payload)[0]):
+            for handler in self._iq_handlers:
+                if handler.handle(iq):
                     break
             else:
                 error = self.build_error("cancel", "service-unavailable")
@@ -226,25 +260,25 @@ class Core(object):
         attrs["to"] = to
         message = xmlcore.Element("message", **attrs)
         message.add(*payload)
-        return self.xmpp.send(message)
+        return self._xmpp.send(message)
 
     def presence(self, *payload, **attrs):
         presence = xmlcore.Element("presence", **attrs)
         presence.add(*payload)
-        return self.xmpp.send(presence)
+        return self._xmpp.send(presence)
 
     @idiokit.stream
     def _iq(self, iq_type, payload, **attrs):
         uid, iq = _iq_build(iq_type, payload, **attrs)
 
         waiter = _iq_wait(uid)
-        self.iq_uids[uid] = waiter
+        self._iq_uids[uid] = waiter
 
         try:
-            yield self.xmpp.send(iq)
+            yield self._xmpp.send(iq)
             result = yield idiokit.Event() | waiter
         finally:
-            self.iq_uids.pop(uid, None)
+            self._iq_uids.pop(uid, None)
         idiokit.stop(result)
 
     def iq_get(self, payload, **attrs):
@@ -262,12 +296,12 @@ class Core(object):
         attrs["type"] = "result"
         attrs["to"] = request.get_attr("from")
         attrs["id"] = request.get_attr("id")
-        attrs["from"] = unicode(self.xmpp.jid)
+        attrs["from"] = unicode(self._xmpp.jid)
 
         iq = xmlcore.Element("iq", **attrs)
         if payload is not None:
             iq.add(payload)
-        return self.xmpp.send(iq)
+        return self._xmpp.send(iq)
 
     def iq_error(self, request, error, **attrs):
         if not request.with_attrs("id"):
@@ -282,4 +316,4 @@ class Core(object):
         iq = xmlcore.Element("iq", **attrs)
         iq.add(request)
         iq.add(error)
-        return self.xmpp.send(iq)
+        return self._xmpp.send(iq)
