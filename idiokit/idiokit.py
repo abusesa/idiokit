@@ -411,13 +411,13 @@ class Next(Stream):
             if promise is None:
                 return
 
-            consume, value, head = promise
             if self._next is not None:
                 if self._queue is None:
                     self._queue = collections.deque()
                 self._queue.append(promise)
                 return
 
+            consume, value, head = promise
             consume.unsafe_set()
             if not value.unsafe_is_set():
                 self._next = promise
@@ -436,11 +436,13 @@ class Next(Stream):
                 return
 
             _, _, head = self._next
-            self._next = self._queue.pop() if self._queue else None
-            self._on_promise(head, None)
-
-            if self._next is None:
+            if not self._queue:
+                self._next = None
+                self._on_promise(head, None)
                 return
+
+            self._next = self._queue.pop()
+            self._on_promise(head, None)
 
             consume, value, head = self._next
             consume.unsafe_set()
