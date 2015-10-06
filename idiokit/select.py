@@ -1,13 +1,17 @@
-from . import idiokit, _selectloop
+from __future__ import absolute_import
+
+from functools import partial
+
+from . import idiokit
+from ._selectloop import cancel as selectloop_cancel, select as selectloop_select
 
 
-@idiokit.stream
+def _cancel(node, _, __):
+    selectloop_cancel(node)
+
+
 def select(read, write, error, timeout=None):
     event = idiokit.Event()
-    node = _selectloop.select(read, write, error, timeout, event.succeed)
-    try:
-        rfds, wfds, xfds = yield event
-    except:
-        _selectloop.cancel(node)
-        raise
-    idiokit.stop(rfds, wfds, xfds)
+    node = selectloop_select(read, write, error, timeout, event.succeed)
+    event.result().listen(partial(_cancel, node))
+    return event

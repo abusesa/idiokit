@@ -6,6 +6,11 @@ from ._selectloop import asap
 _UNDEFINED = object()
 
 
+def _call(self, listeners, value):
+    for callback in listeners:
+        callback(self, value)
+
+
 class Value(object):
     __slots__ = "_value", "_listeners"
 
@@ -22,9 +27,6 @@ class Value(object):
             raise ValueError("value has not been set")
         return value
 
-    def unsafe_proxy(self, _, value):
-        return self.unsafe_set(value)
-
     def unsafe_set(self, value=None):
         if self._value is not _UNDEFINED:
             return False
@@ -35,8 +37,7 @@ class Value(object):
             return True
         self._listeners = None
 
-        for callback in listeners:
-            asap(callback, self, value)
+        asap(_call, self, listeners, value)
         return True
 
     def unsafe_listen(self, callback):
@@ -54,6 +55,8 @@ class Value(object):
         listeners = self._listeners
         if listeners is not None:
             listeners.discard(callback)
+            if not listeners:
+                self._listeners = None
 
     def set(self, value=None):
         asap(self.unsafe_set, value)

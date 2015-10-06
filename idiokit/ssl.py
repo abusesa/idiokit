@@ -103,7 +103,7 @@ else:
 @idiokit.stream
 def _wrapped(ssl, timeout, func, *args, **keys):
     with socket.wrapped_socket_errors():
-        for _, timeout in socket.countdown(timeout):
+        for timeout in socket.countdown(timeout):
             try:
                 result = func(*args, **keys)
             except _ssl.SSLError as err:
@@ -188,7 +188,7 @@ class _SSLSocket(object):
         offset = 0
         length = len(data)
 
-        for _, timeout in socket.countdown(timeout):
+        for timeout in socket.countdown(timeout):
             buf = buffer(data, offset, self.CHUNK_SIZE)
             bytes = yield _wrapped(self._ssl, timeout, self._ssl.write, buf)
 
