@@ -140,7 +140,15 @@ class SelectLoop(object):
 
             if timeout != 0.0:
                 if self._pending:
-                    self._read(self._rfd, 1)
+                    while True:
+                        try:
+                            self._read(self._rfd, 1)
+                        except OSError as ose:
+                            if ose.errno != self._EINTR:
+                                raise ose
+                        else:
+                            break
+
                     self._pending = False
                 rfds.append(self._rfd)
         return rfds, wfds, xfds, timeout
