@@ -162,19 +162,18 @@ class _Scheme(object):
 class _HTTPScheme(_Scheme):
     default_port = 80
 
+    @idiokit.stream
     def connect(self, client, url):
         parsed = urlparse.urlparse(url)
 
-        @idiokit.stream
-        def _connect(port):
-            family, ip = yield idiokit.next()
-            sock = socket.Socket(family)
-            yield sock.connect((ip, port), timeout=client.timeout)
-            idiokit.stop(sock)
-
         host = parsed.hostname
         port = self.default_port if parsed.port is None else parsed.port
-        return host_lookup(host, client.resolver) | _connect(port)
+        results = yield host_lookup(host, client.resolver)
+
+        family, ip = results[0]
+        sock = socket.Socket(family)
+        yield sock.connect((ip, port), timeout=client.timeout)
+        idiokit.stop(sock)
 
 
 class _HTTPSScheme(_HTTPScheme):

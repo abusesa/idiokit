@@ -1,3 +1,11 @@
+# Relevant specifications and other documents:
+# [RFC 1304]: https://www.ietf.org/rfc/rfc1034.txt
+#     "DOMAIN NAMES - CONCEPTS AND FACILITIES"
+# [RFC 1035]: https://www.ietf.org/rfc/rfc1035.txt
+#     "DOMAIN NAMES - IMPLEMENTATION AND SPECIFICATION"
+# [RFC 1536]: https://www.ietf.org/rfc/rfc1536.txt
+#     "Common DNS Implementation Errors and Suggested Fixes"
+
 from __future__ import absolute_import
 
 import struct
@@ -107,6 +115,10 @@ class ResponseError(DNSError):
     @property
     def string(self):
         return self._string
+
+
+class NoData(DNSError):
+    pass
 
 
 class Message(_ReprMixin):
@@ -691,6 +703,13 @@ class Resolver(object):
                 continue
 
             cname, answers = find_answers(result, question)
+            if not answers:
+                # [RFC 2616][] section 3:
+                # > Name servers sometimes return an authoritative NOERROR with no
+                # > ANSWER, AUTHORITY or ADDITIONAL records. This happens when the
+                # > queried name is valid but it does not have a record of the desired
+                # > type.
+                raise NoData("no data")
             idiokit.stop(cname, answers, (addr, port))
 
         raise DNSTimeout("DNS query timed out")
