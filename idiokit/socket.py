@@ -269,7 +269,8 @@ class _Socket(object):
         idiokit.stop(result)
 
     def fileno(self):
-        return self._socket.fileno()
+        with wrapped_socket_errors():
+            return self._socket.fileno()
 
     # Not implemented:
     # connect_ex: Use connect(...)

@@ -197,7 +197,8 @@ class _SSLSocket(object):
                 break
 
     def fileno(self):
-        return self._ssl.fileno()
+        with socket.wrapped_socket_errors():
+            return self._ssl.fileno()
 
     @idiokit.stream
     def shutdown(self, how):
