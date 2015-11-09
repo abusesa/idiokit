@@ -53,7 +53,7 @@ class Test(Command):
 
 setup(
     name="idiokit",
-    version="2.1.0",
+    version="2.2.0",
     author="Clarified Networks",
     author_email="contact@clarifiednetworks.com",
     url="https://bitbucket.org/clarifiednetworks/idiokit",
