@@ -3,3 +3,4 @@
 /.tox
 /.cache
 __pycache__/
+/MANIFEST
