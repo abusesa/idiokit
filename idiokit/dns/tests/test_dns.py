@@ -1,12 +1,6 @@
-import doctest
 import unittest
 
 from .. import _dns
-
-
-def load_tests(loader, tests, ignore):
-    tests.addTests(doctest.DocTestSuite(_dns))
-    return tests
 
 
 class UnpackNameTests(unittest.TestCase):

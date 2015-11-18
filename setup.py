@@ -34,23 +34,6 @@ class Install(_install):
         _install.run(self)
 
 
-class Test(Command):
-    user_options = []
-
-    def initialize_options(self):
-        pass
-
-    def finalize_options(self):
-        pass
-
-    def run(self):
-        loader = unittest.defaultTestLoader
-        tests = loader.discover(os.path.dirname(__file__))
-
-        runner = unittest.TextTestRunner()
-        runner.run(tests)
-
-
 setup(
     name="idiokit",
     version="2.2.0",
@@ -67,7 +50,6 @@ setup(
     license="MIT",
     cmdclass={
         "build": Build,
-        "install": Install,
-        "test": Test
+        "install": Install
     }
 )
