@@ -1,7 +1,6 @@
 import os
 import errno
-import unittest
-from distutils.core import setup, Command
+from distutils.core import setup
 from distutils.dir_util import remove_tree
 from distutils.util import convert_path
 from distutils.command.build import build as _build
