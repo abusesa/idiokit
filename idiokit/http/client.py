@@ -173,7 +173,7 @@ class _HTTPAdapter(_Adapter):
         family, ip = results[0]
         sock = socket.Socket(family)
         yield sock.connect((ip, port), timeout=client.timeout)
-        idiokit.stop(sock)
+        idiokit.stop(host, sock)
 
 
 class _HTTPSAdapter(_HTTPAdapter):
@@ -181,12 +181,10 @@ class _HTTPSAdapter(_HTTPAdapter):
 
     @idiokit.stream
     def connect(self, client, url):
-        parsed = urlparse.urlparse(url)
-
         require_cert, ca_certs = _normalize_verify(client.verify)
         certfile, keyfile = _normalize_cert(client.cert)
 
-        sock = yield _HTTPAdapter.connect(self, client, url)
+        hostname, sock = yield _HTTPAdapter.connect(self, client, url)
         sock = yield ssl.wrap_socket(
             sock,
             certfile=certfile,
@@ -197,19 +195,23 @@ class _HTTPSAdapter(_HTTPAdapter):
         )
         if require_cert:
             cert = yield sock.getpeercert()
-            ssl.match_hostname(cert, parsed.hostname)
-        idiokit.stop(sock)
+            ssl.match_hostname(cert, hostname)
+        idiokit.stop(hostname, sock)
 
 
 class HTTPUnixAdapter(_Adapter):
     @idiokit.stream
     def connect(self, client, url):
-        parsed = urlparse.urlparse(url)
-        socket_path = os.path.join("/", urllib.unquote(parsed.hostname))
+        hostname = urlparse.urlparse(url).netloc
+        _, at, right = hostname.partition("@")
+        if at:
+            hostname = right
+
+        socket_path = os.path.join("/", urllib.unquote(hostname))
 
         sock = socket.Socket(socket.AF_UNIX)
         yield sock.connect(socket_path, timeout=client.timeout)
-        idiokit.stop(sock)
+        idiokit.stop(hostname, sock)
 
 
 class Client(object):
@@ -269,12 +271,12 @@ class Client(object):
 
     @idiokit.stream
     def request(self, method, url, headers={}, data=""):
-        parsed = urlparse.urlparse(url)
         adapter = self._adapter_for_url(url)
+        hostname, sock = yield adapter.connect(self, url)
 
-        sock = yield adapter.connect(self, url)
-        writer, headers = self._resolve_headers(method, parsed.hostname, headers, data, sock)
+        writer, headers = self._resolve_headers(method, hostname, headers, data, sock)
 
+        parsed = urlparse.urlparse(url)
         path = urlparse.urlunparse(["", "", "/" if parsed.path == "" else parsed.path, "", parsed.query, ""])
         yield write_request_line(sock, method, path, httpversion.HTTP11)
         yield write_headers(sock, headers)

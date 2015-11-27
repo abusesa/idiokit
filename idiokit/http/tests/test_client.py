@@ -30,37 +30,42 @@ def serve(test_string, sock):
         yield conn.close()
 
 
+@idiokit.stream
+def get(client, url):
+    request = yield client.request("GET", url)
+    response = yield request.finish()
+
+    result = ""
+    while True:
+        data = yield response.read(1024)
+        if not data:
+            break
+        result += data
+    idiokit.stop(result)
+
+
 class TestClient(unittest.TestCase):
     def test_http_unix_adapter(self):
         @idiokit.stream
-        def main(test_string):
+        def main(test_string, client):
             s = socket.Socket(socket.AF_UNIX)
             try:
                 tmpdir = tempfile.mkdtemp()
                 try:
-                    path = os.path.join(tmpdir, "socket")
+                    # Ensure that the path contains both upper and lower case
+                    # characters to test case-sensitivity.
+                    path = os.path.join(tmpdir, "socket.SOCKET")
+                    url = "http+unix://{0}".format(urllib.quote(path, ""))
+
                     yield s.bind(path)
                     yield s.listen(1)
-                    result = yield serve(test_string, s) | connect(path)
+                    result = yield serve(test_string, s) | get(client, url)
                 finally:
                     shutil.rmtree(tmpdir)
             finally:
                 yield s.close()
             idiokit.stop(result)
 
-        @idiokit.stream
-        def connect(path):
-            client = Client()
-            client.mount("http+unix://", HTTPUnixAdapter())
-            request = yield client.request("GET", "http+unix://" + urllib.quote(path, ""))
-            response = yield request.finish()
-
-            result = ""
-            while True:
-                data = yield response.read(1024)
-                if not data:
-                    break
-                result += data
-            idiokit.stop(result)
-
-        self.assertEqual("this is a test", idiokit.main_loop(main("this is a test")))
+        client = Client()
+        client.mount("http+unix://", HTTPUnixAdapter())
+        self.assertEqual("this is a test", idiokit.main_loop(main("this is a test", client)))
