@@ -153,13 +153,13 @@ def _normalize_cert(cert):
     return certfile, keyfile
 
 
-class _Scheme(object):
+class _Adapter(object):
     @idiokit.stream
     def connect(self, client, url):
         yield None
 
 
-class _HTTPScheme(_Scheme):
+class _HTTPAdapter(_Adapter):
     default_port = 80
 
     @idiokit.stream
@@ -176,7 +176,7 @@ class _HTTPScheme(_Scheme):
         idiokit.stop(sock)
 
 
-class _HTTPSScheme(_HTTPScheme):
+class _HTTPSAdapter(_HTTPAdapter):
     default_port = 443
 
     @idiokit.stream
@@ -186,7 +186,7 @@ class _HTTPSScheme(_HTTPScheme):
         require_cert, ca_certs = _normalize_verify(client.verify)
         certfile, keyfile = _normalize_cert(client.cert)
 
-        sock = yield _HTTPScheme.connect(self, client, url)
+        sock = yield _HTTPAdapter.connect(self, client, url)
         sock = yield ssl.wrap_socket(
             sock,
             certfile=certfile,
@@ -201,7 +201,7 @@ class _HTTPSScheme(_HTTPScheme):
         idiokit.stop(sock)
 
 
-class _HTTPUnixScheme(object):
+class HTTPUnixAdapter(_Adapter):
     @idiokit.stream
     def connect(self, client, url):
         parsed = urlparse.urlparse(url)
@@ -222,9 +222,9 @@ class Client(object):
         self._cert = cert
         self._timeout = timeout
 
-        self._schemes = {}
-        self._set_scheme("http", _HTTPScheme())
-        self._set_scheme("https", _HTTPSScheme())
+        self._mounts = {}
+        self.mount("http://", _HTTPAdapter())
+        self.mount("https://", _HTTPSAdapter())
 
     @property
     def resolver(self):
@@ -242,18 +242,37 @@ class Client(object):
     def cert(self):
         return self._cert
 
-    def _set_scheme(self, scheme, handler):
-        self._schemes[scheme] = handler
+    def mount(self, prefix, adapter):
+        """
+        Set the adapter for handling URLs that start with the given prefix.
+
+        The prefix comparison is case-insensitive and the longest matching
+        prefix wins.
+        """
+
+        self._mounts[prefix] = adapter
+
+    def _adapter_for_url(self, url):
+        url = url.lower()
+
+        choice = None
+        for prefix, adapter in self._mounts.iteritems():
+            if not url.startswith(prefix):
+                continue
+
+            if choice is None or len(choice[0]) < prefix:
+                choice = prefix, adapter
+
+        if choice is None:
+            raise ValueError("can not handle the URL")
+        return choice[1]
 
     @idiokit.stream
     def request(self, method, url, headers={}, data=""):
         parsed = urlparse.urlparse(url)
+        adapter = self._adapter_for_url(url)
 
-        scheme_handler = self._schemes.get(parsed.scheme, None)
-        if scheme_handler is None:
-            raise ValueError("unknown URI scheme '{0}'".format(parsed.scheme))
-
-        sock = yield scheme_handler.connect(self, url)
+        sock = yield adapter.connect(self, url)
         writer, headers = self._resolve_headers(method, parsed.hostname, headers, data, sock)
 
         path = urlparse.urlunparse(["", "", "/" if parsed.path == "" else parsed.path, "", parsed.query, ""])
