@@ -27,6 +27,10 @@ class TestCharacterSet(unittest.TestCase):
         element.text = u"\U00100000"
         assert is_valid_xml_data(element.serialize())
 
+        element = xmlcore.Element("name")
+        element.text = u"\udbc0\udc00"
+        assert is_valid_xml_data(element.serialize())
+
     def test_raise_on_non_xml_chars_in_tail(self):
         for x in self.NON_XML_STRINGS:
             element = xmlcore.Element("name")
@@ -34,9 +38,15 @@ class TestCharacterSet(unittest.TestCase):
 
     def test_accept_wide_unicode_chars_in_tail(self):
         element = xmlcore.Element("name")
-        inner = xmlcore.Element("inner")
-        inner.tail = u"\U00100000"
-        element.add(inner)
+
+        wide = xmlcore.Element("inner")
+        wide.tail = u"\U00100000"
+        element.add(wide)
+
+        surrogate = xmlcore.Element("surrogate")
+        surrogate.tail = u"\udbc0\udc00"
+        element.add(surrogate)
+
         assert is_valid_xml_data(element.serialize())
 
     def test_raise_on_non_xml_chars_in_name(self):

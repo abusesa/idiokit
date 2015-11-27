@@ -1,9 +1,13 @@
 import re
+import sys
 import xml.parsers.expat
 from xml.sax.saxutils import escape as _escape, quoteattr as _quoteattr
 
 
-_NON_XML_SAFE = re.compile(u"^(?:[\ud800-\udbff][\udc00-\udfff]|[\u0009\u000a\u000d\u0020-\ud7ff\uE000-\uFFFD])*$", re.U)
+if sys.maxunicode <= 65535:
+    _NON_XML_SAFE = re.compile(ur"^(?:[\ud800-\udbff][\udc00-\udfff]|[\u0009\u000a\u000d\u0020-\ud7ff\uE000-\uFFFD])*$", re.U)
+else:
+    _NON_XML_SAFE = re.compile(ur"^(?:[\U00010000-\U0010FFFF]|[\ud800-\udbff][\udc00-\udfff]|[\u0009\u000a\u000d\u0020-\ud7ff\uE000-\uFFFD])*$", re.U)
 
 
 def is_xml_safe(string):
