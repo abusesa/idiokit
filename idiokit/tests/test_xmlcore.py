@@ -12,38 +12,62 @@ def is_valid_xml_data(data):
     return True
 
 
-class TestEncoding(unittest.TestCase):
-    def test_escape(self):
-        element = xmlcore.Element("name")
-        element.text = "<&>"
-        assert is_valid_xml_data(element.serialize())
+class TestCharacterSet(unittest.TestCase):
+    NON_XML_RANGES = [(0x0, 0x9), (0xb, 0xd), (0xe, 0x20), (0xd800, 0xe000), (0xfffe, 0x10000)]
+    NON_XML_STRINGS = [unichr(x) for start, end in NON_XML_RANGES for x in xrange(start, end)]
+    NON_XML_STRINGS += [u"\ud800\ud800", u"\ud800\U00100000"]
 
-    def test_ignore_illegal_chars(self):
-        illegal_ranges = [
-            (0x0, 0x9),
-            (0xb, 0xd),
-            (0xe, 0x20),
-            (0xd800, 0xe000),
-            (0xfffe, 0x10000)
-        ]
+    def test_raise_on_non_xml_chars_in_text(self):
+        for x in self.NON_XML_STRINGS:
+            element = xmlcore.Element("name")
+            self.assertRaises(ValueError, setattr, element, "text", x)
 
-        for start, end in illegal_ranges:
-            for value in xrange(start, end):
-                element = xmlcore.Element("name")
-                element.text = unichr(value)
-                assert is_valid_xml_data(element.serialize())
-
-        element = xmlcore.Element("name")
-        element.text = u"\ud800\ud800"
-        assert is_valid_xml_data(element.serialize())
-
-    def test_legal_wide_unicode_chars(self):
+    def test_accept_wide_unicode_chars_in_text(self):
         element = xmlcore.Element("name")
         element.text = u"\U00100000"
         assert is_valid_xml_data(element.serialize())
 
         element = xmlcore.Element("name")
-        element.text = u"\ud800\U00100000"
+        element.text = u"\udbc0\udc00"
+        assert is_valid_xml_data(element.serialize())
+
+    def test_raise_on_non_xml_chars_in_tail(self):
+        for x in self.NON_XML_STRINGS:
+            element = xmlcore.Element("name")
+            self.assertRaises(ValueError, setattr, element, "tail", x)
+
+    def test_accept_wide_unicode_chars_in_tail(self):
+        element = xmlcore.Element("name")
+
+        wide = xmlcore.Element("inner")
+        wide.tail = u"\U00100000"
+        element.add(wide)
+
+        surrogate = xmlcore.Element("surrogate")
+        surrogate.tail = u"\udbc0\udc00"
+        element.add(surrogate)
+
+        assert is_valid_xml_data(element.serialize())
+
+    def test_raise_on_non_xml_chars_in_name(self):
+        for x in self.NON_XML_STRINGS:
+            self.assertRaises(ValueError, xmlcore.Element, x)
+
+    def test_raise_on_non_xml_chars_in_attr_key(self):
+        for x in self.NON_XML_STRINGS:
+            element = xmlcore.Element("name")
+            self.assertRaises(ValueError, element.set_attr, x, "value")
+
+    def test_raise_on_non_xml_chars_in_attr_value(self):
+        for x in self.NON_XML_STRINGS:
+            element = xmlcore.Element("name")
+            self.assertRaises(ValueError, element.set_attr, "key", x)
+
+
+class TestEncoding(unittest.TestCase):
+    def test_escape(self):
+        element = xmlcore.Element("name")
+        element.text = "<&>"
         assert is_valid_xml_data(element.serialize())
 
 
