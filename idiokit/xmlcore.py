@@ -35,13 +35,6 @@ def _to_xml_safe_unicode(string):
     >>> _to_xml_safe_unicode("byte string")
     u'byte string'
 
-    Raise a TypeError when the argument is not a string.
-
-    >>> _to_xml_safe_unicode(1)
-    Traceback (most recent call last):
-        ...
-    TypeError: expected a string
-
     Raise an UnicodeDecodeError when the argument is not a
     unicode object and can not be decoded into one using the
     ASCII encoding.
@@ -60,8 +53,6 @@ def _to_xml_safe_unicode(string):
     ValueError: string contains non-XML safe characters
     """
 
-    if not isinstance(string, basestring):
-        raise TypeError("expected a string")
     string = unicode(string)
     if not is_xml_safe(string):
         raise ValueError("string contains non-XML safe characters")
