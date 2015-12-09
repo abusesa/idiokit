@@ -1,10 +1,13 @@
 # Relevant specifications and other documents:
+#
 # [RFC 1304]: https://www.ietf.org/rfc/rfc1034.txt
 #     "DOMAIN NAMES - CONCEPTS AND FACILITIES"
 # [RFC 1035]: https://www.ietf.org/rfc/rfc1035.txt
 #     "DOMAIN NAMES - IMPLEMENTATION AND SPECIFICATION"
 # [RFC 1536]: https://www.ietf.org/rfc/rfc1536.txt
 #     "Common DNS Implementation Errors and Suggested Fixes"
+# [KRISTOFF]: https://www.cymru.com/jtk/misc/ephemeralports.html
+#     "Ephemeral Source Port Selection Strategies"
 
 from __future__ import absolute_import
 
@@ -720,7 +723,7 @@ class Resolver(object):
         sock = socket.Socket(family, socket.SOCK_DGRAM)
         try:
             # Trust the platform's ephemeral source port generation method
-            # to adequately randomize the source port.
+            # to adequately randomize the source port. See [KRISTOFF].
             yield sock.sendto(query.pack(), (server_addr, server_port))
 
             while True:
