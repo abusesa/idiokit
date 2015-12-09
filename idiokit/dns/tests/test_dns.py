@@ -69,6 +69,17 @@ class UnpackNameTests(unittest.TestCase):
         self.assertRaises(_dns.NotEnoughData, _dns.unpack_name, "\x02aa")
         self.assertRaises(_dns.NotEnoughData, _dns.unpack_name, "\x02aa\x00", offset=4)
 
+    def test_truncated_overlong_name(self):
+        # Check octet count before checking data bounds.
+
+        overlong = ("\x3f" + "a" * 63) * 3 + "\x3f"
+        try:
+            _dns.unpack_name(overlong)
+        except _dns.NotEnoughData:
+            self.fail("bounds checked before octet count")
+        except _dns.MessageError:
+            pass
+
     def test_pointer_outside_data(self):
         # Point to offset=255 in a 2 byte chunk of data.
         self.assertRaises(_dns.NotEnoughData, _dns.unpack_name, "\xc0\xff")
