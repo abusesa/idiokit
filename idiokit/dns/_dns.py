@@ -557,6 +557,9 @@ RR.register_type(MX)
 def pack_name(name):
     result = []
     for piece in name.split("."):
+        length = len(piece)
+        if length == 0:
+            raise ValueError("zero length label")
         result.append(chr(len(piece)))
         result.append(piece)
     result.append("\x00")
