@@ -7,6 +7,9 @@ class PackNameTests(unittest.TestCase):
     def test_pack_valid(self):
         self.assertEqual(_dns.pack_name("a.b.c"), "\x01a\x01b\x01c\x00")
 
+        # Allow names that pack into <= 255 octets.
+        self.assertEqual(_dns.pack_name("a" + (".b" * 126)), "\x01a" + ("\x01b" * 126) + "\x00")
+
     def test_zero_length_label(self):
         self.assertRaises(ValueError, _dns.pack_name, "a..")
         self.assertRaises(ValueError, _dns.pack_name, "a..b")
