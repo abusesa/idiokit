@@ -79,6 +79,8 @@ class UnpackNameTests(unittest.TestCase):
             self.fail("bounds checked before octet count")
         except _dns.MessageError:
             pass
+        else:
+            self.fail("expected a MessageError to be raised")
 
     def test_pointer_outside_data(self):
         # Point to offset=255 in a 2 byte chunk of data.
