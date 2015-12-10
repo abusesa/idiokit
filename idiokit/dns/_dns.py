@@ -560,6 +560,8 @@ def pack_name(name):
         length = len(piece)
         if length == 0:
             raise ValueError("zero length label")
+        elif length > 63:
+            raise ValueError("too long label ({0} bytes)".format(length))
         result.append(chr(len(piece)))
         result.append(piece)
     result.append("\x00")
