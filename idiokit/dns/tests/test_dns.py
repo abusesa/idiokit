@@ -3,6 +3,25 @@ import unittest
 from .. import _dns
 
 
+class PackNameTests(unittest.TestCase):
+    def test_pack_valid(self):
+        self.assertEqual(_dns.pack_name("a.b.c"), "\x01a\x01b\x01c\x00")
+
+        # Allow names that pack into <= 255 octets.
+        self.assertEqual(_dns.pack_name("a" + (".b" * 126)), "\x01a" + ("\x01b" * 126) + "\x00")
+
+    def test_zero_length_label(self):
+        self.assertRaises(ValueError, _dns.pack_name, "a..")
+        self.assertRaises(ValueError, _dns.pack_name, "a..b")
+
+    def test_too_long_label(self):
+        self.assertRaises(ValueError, _dns.pack_name, "a." + ("b" * 64))
+
+    def test_too_long_name(self):
+        name = "aa" + (".a" * 126)  # Packs into 256 octets
+        self.assertRaises(ValueError, _dns.pack_name, name)
+
+
 class UnpackNameTests(unittest.TestCase):
     def test_unpack_valid(self):
         self.assertEqual(_dns.unpack_name("\x00"), ("", 1))
@@ -69,7 +88,7 @@ class UnpackNameTests(unittest.TestCase):
         self.assertRaises(_dns.NotEnoughData, _dns.unpack_name, "\x02aa")
         self.assertRaises(_dns.NotEnoughData, _dns.unpack_name, "\x02aa\x00", offset=4)
 
-    def test_truncated_overlong_name(self):
+    def test_too_long_and_truncated_name(self):
         # Check octet count before checking data bounds.
 
         overlong = ("\x3f" + "a" * 63) * 3 + "\x3f"

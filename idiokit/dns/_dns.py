@@ -555,11 +555,33 @@ RR.register_type(MX)
 
 
 def pack_name(name):
+    r"""
+    Return a domain name packed into the length-prefixed, zero byte terminated
+    format specified in [RFC 1035][] section 3.1.
+
+    >>> pack_name("a.bc")
+    '\x01a\x02bc\x00'
+
+    Limit the size of each label to 1-63 bytes, as shorter and longer labels can
+    not be expressed in this format. Also limit the total size of the packed name
+    to 255 bytes. Raise a ValueError for values violating these limits.
+    """
+
     result = []
     for piece in name.split("."):
-        result.append(chr(len(piece)))
+        length = len(piece)
+        if length == 0:
+            raise ValueError("zero length label")
+        elif length > 63:
+            raise ValueError("too long label ({0} bytes)".format(length))
+
+        result.append(chr(length))
         result.append(piece)
+
     result.append("\x00")
+    if sum(len(x) for x in result) > 255:
+        raise ValueError("too long name")
+
     return "".join(result)
 
 
