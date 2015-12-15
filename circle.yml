@@ -1,6 +1,6 @@
 dependencies:
   pre:
-    - pyenv local 2.6.8 2.7.10 pypy-4.0.1
+    - pyenv local 2.6.8 2.7.10 pypy-2.5.0
 
 test:
   override:
