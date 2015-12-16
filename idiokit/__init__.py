@@ -16,6 +16,8 @@ from .timer import sleep
 from .threadpool import thread
 
 
+__version__ = "2.2.0"
+
 __all__ = [
     "stream",
     "next",
