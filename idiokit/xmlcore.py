@@ -174,7 +174,7 @@ class Element(object):
         _text = _to_xml_safe_unicode(_text)
         _tail = _to_xml_safe_unicode(_tail)
 
-        self._full_name = _to_xml_safe_unicode(_name)
+        self._full_name = _name
         self._ns_name, self._name = namespace_split(_name)
         self._text = _text
         self._tail = _tail
