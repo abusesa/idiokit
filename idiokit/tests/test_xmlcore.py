@@ -12,6 +12,69 @@ def is_valid_xml_data(data):
     return True
 
 
+class TestElementParser(unittest.TestCase):
+    def test_text_inside_an_element_should_become_the_text_of_the_element(self):
+        parser = xmlcore.ElementParser()
+        for a in parser.feed("<root><a><b>test</b></a>"):
+            self.assertEqual(a.name, u"a")
+            self.assertEqual(a.text, u"")
+            self.assertEqual(a.tail, u"")
+
+            children = list(a.children())
+            self.assertEqual(len(children), 1)
+
+            self.assertEqual(children[0].name, u"b")
+            self.assertEqual(children[0].text, u"test")
+            self.assertEqual(children[0].tail, u"")
+
+    def test_text_before_the_first_child_element_should_be_the_text_of_the_parent(self):
+        parser = xmlcore.ElementParser()
+        for a in parser.feed("<root><a>test<b /></a>"):
+            self.assertEqual(a.name, u"a")
+            self.assertEqual(a.text, u"test")
+            self.assertEqual(a.tail, u"")
+
+            children = list(a.children())
+            self.assertEqual(len(children), 1)
+
+            self.assertEqual(children[0].name, u"b")
+            self.assertEqual(children[0].text, u"")
+            self.assertEqual(children[0].tail, u"")
+
+    def test_text_after_the_last_child_element_should_be_the_tail_of_the_child_element(self):
+        parser = xmlcore.ElementParser()
+        for a in parser.feed("<root><a><b />test</a>"):
+            self.assertEqual(a.name, u"a")
+            self.assertEqual(a.text, u"")
+            self.assertEqual(a.tail, u"")
+            self.assertEqual(len(a.children()), 1)
+
+            children = list(a.children())
+            self.assertEqual(len(children), 1)
+
+            self.assertEqual(children[0].name, u"b")
+            self.assertEqual(children[0].text, u"")
+            self.assertEqual(children[0].tail, u"test")
+
+    def test_text_between_two_child_elements_should_be_the_tail_of_the_first_child_element(self):
+        parser = xmlcore.ElementParser()
+
+        for a in parser.feed("<root><a><b />test<c /></a>"):
+            self.assertEqual(a.text, u"")
+            self.assertEqual(a.tail, u"")
+
+            children = list(a.children())
+            self.assertEqual(len(children), 2)
+
+            self.assertEqual(children[0].name, u"b")
+            self.assertEqual(children[0].text, u"")
+            self.assertEqual(children[0].tail, u"test")
+
+            self.assertEqual(children[1].name, u"c")
+            self.assertEqual(children[1].text, u"")
+            self.assertEqual(children[1].tail, u"")
+
+
 class TestCharacterSet(unittest.TestCase):
     NON_XML_RANGES = [(0x0, 0x9), (0xb, 0xd), (0xe, 0x20), (0xd800, 0xe000), (0xfffe, 0x10000)]
     NON_XML_STRINGS = [unichr(x) for start, end in NON_XML_RANGES for x in xrange(start, end)]
