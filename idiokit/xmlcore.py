@@ -25,6 +25,25 @@ def is_xml_safe(string):
     return bool(_NON_XML_SAFE.match(string))
 
 
+class _XMLSafeUnicode(object):
+    r"""
+    A marker class that asserts to _to_xml_safe_unicode(...) that the contained
+    unicode value is XML safe and does not need to be checked.
+
+    >>> _to_xml_safe_unicode(_XMLSafeUnicode(u"test"))
+    u'test'
+
+    This class is an internal optimization (to allow ElementParser to skip
+    redundant checks when creating Element instances) and should not be
+    used nor referenced outside of this module.
+    """
+
+    __slots__ = ["value"]
+
+    def __init__(self, value):
+        self.value = value
+
+
 def _to_xml_safe_unicode(string):
     r"""
     Coerce the argument string into a unicode object that contains
@@ -53,9 +72,13 @@ def _to_xml_safe_unicode(string):
     ValueError: string contains non-XML safe characters
     """
 
+    if isinstance(string, _XMLSafeUnicode):
+        return string.value
+
     string = unicode(string)
     if not is_xml_safe(string):
         raise ValueError("string contains non-XML safe characters")
+
     return string
 
 
@@ -292,34 +315,47 @@ class ElementParser(object):
         self._parser.EndElementHandler = self.end_element
         self._parser.CharacterDataHandler = self.char_data
 
+        self._text = []
         self._stack = []
         self._collected = []
 
+    def _flush_text(self):
+        if not self._text:
+            return
+        text = _XMLSafeUnicode(u"".join(self._text))
+        self._text[:] = []
+
+        assert self._stack
+        current = self._stack[-1]
+        children = current._children
+        if children:
+            children[-1].tail = text
+        else:
+            current.text = text
+
     def start_element(self, name, attrs):
-        element = Element(name)
+        self._flush_text()
+
+        element = Element(_XMLSafeUnicode(name))
         for key, value in attrs.iteritems():
-            element.set_attr(key, value)
+            element.set_attr(_XMLSafeUnicode(key), _XMLSafeUnicode(value))
+
         if self._stack:
             self._stack[-1].add(element)
         self._stack.append(element)
 
     def end_element(self, name):
+        self._flush_text()
+
         current = self._stack.pop()
-        if len(self._stack) != 1:
-            return
-        last = self._stack[-1]._children.pop()
-        assert current is last
-        self._collected.append(current)
+        if len(self._stack) == 1:
+            last = self._stack[-1]._children.pop()
+            assert current is last
+            self._collected.append(current)
 
     def char_data(self, data):
-        current = self._stack[-1]
-        if len(self._stack) == 1:
-            return
-        children = current._children
-        if not children:
-            current.text += data
-        else:
-            children[-1].tail += data
+        if len(self._stack) > 1:
+            self._text.append(data)
 
     def feed(self, data):
         self._parser.Parse(data)
