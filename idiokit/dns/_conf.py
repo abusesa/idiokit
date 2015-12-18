@@ -49,7 +49,7 @@ def read_hosts(line_iterator):
         except ValueError:
             continue
         names = set(pieces[1:])
-        yield ip, names
+        yield ip, [name.lower() for name in names]
 
 
 def uniques(values):
@@ -81,10 +81,11 @@ class Hosts(object):
                 self._names.setdefault(name, set()).add(ip)
 
     def ip_to_names(self, ip):
+        _, ip = parse_ip(ip)
         return iter(self._ips.get(ip, ()))
 
     def name_to_ips(self, name):
-        return iter(self._names.get(name, ()))
+        return iter(self._names.get(name.lower(), ()))
 
 
 class ResolvConf(object):
