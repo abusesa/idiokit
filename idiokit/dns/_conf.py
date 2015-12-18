@@ -8,7 +8,7 @@ def parse_server(server):
     >>> import socket
     >>> parse_server("192.0.2.0") == (socket.AF_INET, "192.0.2.0", 53)
     True
-    >>> parse_server("2001:db8::") == (socket.AF_INET6, "2001:db8::", 53)
+    >>> parse_server("2001:DB8::") == (socket.AF_INET6, "2001:db8::", 53)
     True
     """
 
