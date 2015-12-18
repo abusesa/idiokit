@@ -47,8 +47,10 @@ def get(client, url):
 class TestClient(unittest.TestCase):
     def test_http_client_user_agent(self):
         client = Client(user_agent="Test Agent")
-        self.assertEqual(client.user_agent,
-                         "Test Agent idiokit/{0}".format(idiokit.__version__))
+        self.assertEqual(
+            client.user_agent,
+            "Test Agent idiokit/{0}".format(idiokit.__version__)
+        )
 
     def test_http_unix_adapter(self):
         @idiokit.stream
