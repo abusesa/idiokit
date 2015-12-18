@@ -47,7 +47,7 @@ def read_hosts(line_iterator):
         try:
             _, ip = parse_ip(pieces[0])
         except ValueError:
-            pass
+            continue
         names = set(pieces[1:])
         yield ip, names
 
