@@ -2,4 +2,3 @@
 # when building source distributions (e.g. 'python setup.py sdist').
 
 include LICENSE
-include setuphelpers.py
