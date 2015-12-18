@@ -215,7 +215,8 @@ class HTTPUnixAdapter(_Adapter):
 
 
 class Client(object):
-    def __init__(self, resolver=None, timeout=60.0, verify=True, cert=None):
+    def __init__(self, resolver=None, timeout=60.0, verify=True, cert=None,
+                 user_agent=None):
         _normalize_verify(verify)
         _normalize_cert(cert)
 
@@ -223,6 +224,10 @@ class Client(object):
         self._verify = verify
         self._cert = cert
         self._timeout = timeout
+
+        self._user_agents = ["idiokit/{0}".format(idiokit.__version__)]
+        if user_agent is not None:
+            self._user_agents.insert(0, user_agent)
 
         self._mounts = {}
         self.mount("http://", _HTTPAdapter())
@@ -289,6 +294,9 @@ class Client(object):
         headers = normalized_headers(headers)
         if headers.get("host", None) is None:
             headers["host"] = host
+
+        if headers.get("user-agent") is None:
+            headers["user-agent"] = " ".join(self._user_agents)
 
         connection = get_header_single(headers, "connection", "close")
         if connection.lower() != "close":
