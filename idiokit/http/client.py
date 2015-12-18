@@ -249,6 +249,10 @@ class Client(object):
     def cert(self):
         return self._cert
 
+    @property
+    def user_agent(self):
+        return ' '.join(self._user_agents)
+
     def mount(self, prefix, adapter):
         """
         Set the adapter for handling URLs that start with the given prefix.
@@ -296,7 +300,7 @@ class Client(object):
             headers["host"] = host
 
         if headers.get("user-agent") is None:
-            headers["user-agent"] = " ".join(self._user_agents)
+            headers["user-agent"] = self.user_agent
 
         connection = get_header_single(headers, "connection", "close")
         if connection.lower() != "close":
