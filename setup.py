@@ -6,6 +6,8 @@ from distutils.util import convert_path
 from distutils.command.build import build as _build
 from distutils.command.install import install as _install
 
+from idiokit import __version__
+
 
 def rmtree(path):
     try:
@@ -35,10 +37,10 @@ class Install(_install):
 
 setup(
     name="idiokit",
-    version="2.2.0",
+    version=__version__,
     author="Clarified Networks",
     author_email="contact@clarifiednetworks.com",
-    url="https://bitbucket.org/clarifiednetworks/idiokit",
+    url="https://github.com/abusesa/idiokit",
     packages=[
         "idiokit",
         "idiokit.xmpp",

@@ -1,4 +1,5 @@
 from .idiokit import (
+    __version__,
     stream,
     next,
     send,
@@ -17,6 +18,7 @@ from .threadpool import thread
 
 
 __all__ = [
+    "__version__",
     "stream",
     "next",
     "send",
