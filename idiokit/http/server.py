@@ -18,6 +18,7 @@ import httplib
 import collections
 from email.message import Message
 from email.parser import HeaderParser
+from numbers import Integral
 
 from .. import idiokit, socket, timer
 from . import httpversion
@@ -274,6 +275,14 @@ def write_status_line(socket, http_version, code, reason=None):
 
 
 def normalized_headers(items):
+    """
+    >>> normalized_headers({"X-Small-Number-is-Small": 1})
+    {'x-small-number-is-small': ['1']}
+
+    >>> normalized_headers({"X-Long-Number-is-Long": 0L})
+    {'x-long-number-is-long': ['0']}
+    """
+
     result = dict()
 
     if callable(getattr(items, "items", None)):
@@ -284,11 +293,11 @@ def normalized_headers(items):
         # > Field names are case-insensitive.
         key = key.lower()
 
-        if isinstance(values, (basestring, int)):
+        if isinstance(values, (basestring, Integral)):
             values = [values]
 
         for value in values:
-            if isinstance(value, int):
+            if isinstance(value, Integral):
                 value = str(value)
             result.setdefault(key, []).append(value)
 
