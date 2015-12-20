@@ -5,9 +5,21 @@ from .. import _conf
 
 
 class HostsFileTests(unittest.TestCase):
+    _missing_file = None
+    _empty_file = None
     _hosts = None
 
     def setUp(self):
+        missing = tempfile.NamedTemporaryFile()
+        self._missing_file = missing.name
+        missing.close()  # Close deletes the file
+
+        self._empty_file = tempfile.NamedTemporaryFile()
+        self._empty_file.flush()
+
+        # Make sure empty and missing files are not same
+        self.assertNotEqual(self._empty_file.name, self._missing_file)
+
         self._hosts = tempfile.NamedTemporaryFile()
         self._hosts.writelines(
             ["# Comments are ignored\n",
@@ -22,8 +34,21 @@ class HostsFileTests(unittest.TestCase):
         self._hosts.flush()
 
     def tearDown(self):
+        if self._empty_file:
+            self._empty_file.close()
+
         if self._hosts:
             self._hosts.close()
+
+    def test_hosts_missing_file(self):
+        hosts = _conf.hosts(path=self._missing_file).load()
+        self.assertEqual(hosts._ips, {})
+        self.assertEqual(hosts._names, {})
+
+    def test_hosts_empty_file(self):
+        hosts = _conf.hosts(path=self._empty_file.name).load()
+        self.assertEqual(hosts._ips, {})
+        self.assertEqual(hosts._names, {})
 
     def test_hosts_ipv4_to_names(self):
         hosts = _conf.hosts(path=self._hosts.name).load()
