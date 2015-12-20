@@ -95,3 +95,56 @@ class HostsFileTests(unittest.TestCase):
     def test_hosts_invalid_ipv6_to_names(self):
         hosts = _conf.hosts(path=self._hosts.name).load()
         self.assertRaises(ValueError, hosts.ip_to_names, "2001:db8::gg")
+
+
+class ResolvConfFileTests(unittest.TestCase):
+    _missing_file = None
+    _empty_file = None
+    _resolv_conf = None
+
+    def setUp(self):
+        missing = tempfile.NamedTemporaryFile()
+        self._missing_file = missing.name
+        missing.close()  # Close deletes the file
+
+        self._empty_file = tempfile.NamedTemporaryFile()
+        self._empty_file.flush()
+
+        # Make sure empty and missing files are not same
+        self.assertNotEqual(self._empty_file.name, self._missing_file)
+
+        self._resolv_conf = tempfile.NamedTemporaryFile()
+        self._resolv_conf.writelines(
+            ["# Comments are ignored\n",
+             "; This comment also ignored\n",
+             "this-is-ignored-also\n",
+             "domain idiokit.test.example\n",
+             "nameserver 192.0.2.11\n",
+             "nameserver 2001:DB8:CAFE::11\n",
+             "nameserver 2001:db8:cafe::11\n",
+             "nameserver dns1.idiokit.test.example\n",
+             ]
+        )
+        self._resolv_conf.flush()
+
+    def tearDown(self):
+        if self._empty_file:
+            self._empty_file.close()
+
+        if self._resolv_conf:
+            self._resolv_conf.close()
+
+    def test_resolv_conf_missing_file(self):
+        rc = _conf.resolv_conf(path=self._missing_file).load()
+        self.assertEqual(rc._servers, ())
+
+    def test_resolv_conf_empty_file(self):
+        rc = _conf.resolv_conf(path=self._empty_file.name).load()
+        self.assertEqual(rc._servers, ())
+
+    def test_resolv_conf_servers(self):
+        rc = _conf.resolv_conf(path=self._resolv_conf.name).load()
+        self.assertEqual(
+            rc.servers,
+            (('192.0.2.11', 53), ('2001:db8:cafe::11', 53))
+        )
