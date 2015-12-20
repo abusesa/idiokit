@@ -33,7 +33,7 @@ def read_resolv_conf(line_iterator):
 def read_hosts(line_iterator):
     for line in line_iterator:
         comment_start = line.find("#")
-        if comment_start >= -1:
+        if comment_start >= 0:
             line = line[:comment_start]
 
         line = line.strip()
