@@ -29,6 +29,7 @@ class HostsFileTests(unittest.TestCase):
              "  198.51.100.126    IPv4.documentation.net.example   \n",
              "# Hosts file can have tab separator also\n",
              "2001:DB8::cafe \t IPv6.documentation.net.example\n",
+             "198.51.100.0 incomplete.last.line.net.example"
              ]
         )
         self._hosts.flush()
@@ -75,6 +76,15 @@ class HostsFileTests(unittest.TestCase):
         hosts = _conf.hosts(path=self._hosts.name).load()
         for ip in hosts.name_to_ips("ipv6.documentation.net.EXAMPLE"):
             self.assertEqual(ip, "2001:db8::cafe")
+            return
+        self.assertTrue(False)
+
+    def test_hosts_incomplete_last_line(self):
+        hosts = _conf.hosts(path=self._hosts.name).load()
+        for ip in hosts.name_to_ips("incomplete.last.line.net.example"):
+            self.assertEqual(ip, "198.51.100.0")
+        for name in hosts.ip_to_names("198.51.100.0"):
+            self.assertEqual(name, "incomplete.last.line.net.example")
             return
         self.assertTrue(False)
 
