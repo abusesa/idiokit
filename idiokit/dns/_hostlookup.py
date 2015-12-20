@@ -17,7 +17,13 @@ def _filter_ips(potential_ips):
 
 
 class HostLookup(object):
-    _hosts = hosts()
+    _hosts = None
+
+    def __init__(self, hosts_file=None):
+        if hosts_file:
+            self._hosts = hosts(path=hosts_file)
+        else:
+            self._hosts = hosts()
 
     @idiokit.stream
     def host_lookup(self, host, resolver=None):
