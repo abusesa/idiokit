@@ -30,6 +30,18 @@ def gen_id():
 
 
 class _ReprMixin(object):
+    """
+    >>> class Foo(_ReprMixin):
+    ...     def __init__(self, bar):
+    ...         self._bar = bar
+    ...
+    ...     @property
+    ...     def bar(self):
+    ...         return self._bar
+    >>> Foo("baz")
+    Foo(bar='baz')
+    """
+
     def __repr__(self):
         keys = []
         for key, value in inspect.getmembers(type(self)):
@@ -365,6 +377,19 @@ class Raw(object):
 
 
 class A(_ReprMixin):
+    """
+    >>> a = A("198.51.100.126")
+    >>> a.pack()
+    '\\xc63d~'
+
+    >>> A("").unpack(a.pack(), 0, len(a.pack()))
+    A(ip='198.51.100.126')
+
+    >>> A("").unpack('abcdefg', 0, 1)
+    Traceback (most recent call last):
+    MessageError: expected 4 bytes of RDATA, got 1
+    """
+
     code = 1
 
     @classmethod
@@ -387,6 +412,19 @@ RR.register_type(A)
 
 
 class AAAA(_ReprMixin):
+    """
+    >>> aaaa = AAAA("2001:db8::cafe")
+    >>> aaaa.pack()
+    ' \\x01\\r\\xb8\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\xca\\xfe'
+
+    >>> AAAA("").unpack(aaaa.pack(), 0, len(aaaa.pack()))
+    AAAA(ip='2001:db8::cafe')
+
+    >>> AAAA("").unpack('abcdefg', 0, 4)
+    Traceback (most recent call last):
+    MessageError: expected 16 bytes of RDATA, got 4
+    """
+
     code = 28
 
     @classmethod
@@ -409,6 +447,17 @@ RR.register_type(AAAA)
 
 
 class TXT(_ReprMixin):
+    """
+    >>> txt = TXT(['test string', 'another test string'])
+
+    >>> packed = txt.pack()
+    >>> packed
+    '\\x0btest string\\x13another test string'
+
+    >>> TXT([]).unpack(packed, 0, len(packed))
+    TXT(strings=('test string', 'another test string'))
+    """
+
     code = 16
 
     @classmethod
@@ -449,6 +498,15 @@ RR.register_type(TXT)
 
 
 class PTR(_ReprMixin):
+    """
+    >>> ptr = PTR("ptr.test.idiokit.example").pack()
+    >>> ptr
+    '\\x03ptr\\x04test\\x07idiokit\\x07example\\x00'
+
+    >>> PTR("").unpack(ptr, 0, len(ptr))
+    PTR(name='ptr.test.idiokit.example')
+    """
+
     code = 12
 
     @classmethod
@@ -469,6 +527,15 @@ RR.register_type(PTR)
 
 
 class CNAME(_ReprMixin):
+    """
+    >>> cname = CNAME("cname.test.idiokit.example").pack()
+    >>> cname
+    '\\x05cname\\x04test\\x07idiokit\\x07example\\x00'
+
+    >>> CNAME("").unpack(cname, 0, len(cname))
+    CNAME(name='cname.test.idiokit.example')
+    """
+
     code = 5
 
     @classmethod
@@ -489,6 +556,20 @@ RR.register_type(CNAME)
 
 
 class SRV(_ReprMixin):
+    """
+    >>> priority = 10
+    >>> weight = 255
+    >>> port = 11
+    >>> target = "idiokit.example"
+
+    >>> srv = SRV(priority, weight, port, target).pack()
+    >>> srv
+    '\\x00\\n\\x00\\xff\\x00\\x0b\\x07idiokit\\x07example\\x00'
+
+    >>> SRV(0, 0, 0, "").unpack(srv, 0, len(srv))
+    SRV(priority=10, weight=255, port=11, target='idiokit.example')
+    """
+
     code = 33
 
     _struct = struct.Struct("!HHH")
@@ -527,6 +608,19 @@ RR.register_type(SRV)
 
 
 class MX(_ReprMixin):
+    """
+    >>> preference = 10
+    >>> exchange = "mx1.idiokit.example"
+
+    >>> mx = MX(preference, exchange).pack()
+    >>> mx
+    '\\x00\\n\\x03mx1\\x07idiokit\\x07example\\x00'
+
+    >>> MX(0, "").unpack(mx, 0, len(mx))
+    MX(preference=10, exchange='mx1.idiokit.example')
+
+    """
+
     code = 15
 
     _struct = struct.Struct("!H")
@@ -854,7 +948,17 @@ def srv(name, resolver=None):
 
 
 def ordered_srv_records(srv_records):
-    # Implement server selection as described in RFC 2782.
+    """Implement server selection as described in RFC 2782.
+
+    >>> srv1 = SRV(30,   256, 7, "target3")
+    >>> srv2 = SRV(10, 65535, 7, "target1")
+    >>> srv3 = SRV(10,  1234, 7, "target2")
+    >>> srv_records = [srv1, srv2, srv3]
+
+    >>> result = list( ordered_srv_records(srv_records) )
+    >>> result == [srv2, srv3, srv1]
+    True
+    """
 
     srv_records = tuple(srv_records)
     if len(srv_records) == 1 and srv_records[0].target == "":
