@@ -377,16 +377,17 @@ class Raw(object):
 
 
 class A(_ReprMixin):
-    """
+    r"""
     >>> a = A("198.51.100.126")
     >>> a.pack()
-    '\\xc63d~'
+    '\xc63d~'
 
-    >>> A("").unpack(a.pack(), 0, len(a.pack()))
+    >>> A.unpack(a.pack(), 0, len(a.pack()))
     A(ip='198.51.100.126')
 
-    >>> A("").unpack('abcdefg', 0, 1)
+    >>> A.unpack('abcdefg', 0, 1)
     Traceback (most recent call last):
+    ...
     MessageError: expected 4 bytes of RDATA, got 1
     """
 
@@ -412,16 +413,17 @@ RR.register_type(A)
 
 
 class AAAA(_ReprMixin):
-    """
+    r"""
     >>> aaaa = AAAA("2001:db8::cafe")
     >>> aaaa.pack()
-    ' \\x01\\r\\xb8\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\xca\\xfe'
+    ' \x01\r\xb8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xca\xfe'
 
-    >>> AAAA("").unpack(aaaa.pack(), 0, len(aaaa.pack()))
+    >>> AAAA.unpack(aaaa.pack(), 0, len(aaaa.pack()))
     AAAA(ip='2001:db8::cafe')
 
-    >>> AAAA("").unpack('abcdefg', 0, 4)
+    >>> AAAA.unpack('abcdefg', 0, 4)
     Traceback (most recent call last):
+    ...
     MessageError: expected 16 bytes of RDATA, got 4
     """
 
@@ -447,14 +449,14 @@ RR.register_type(AAAA)
 
 
 class TXT(_ReprMixin):
-    """
+    r"""
     >>> txt = TXT(['test string', 'another test string'])
 
     >>> packed = txt.pack()
     >>> packed
-    '\\x0btest string\\x13another test string'
+    '\x0btest string\x13another test string'
 
-    >>> TXT([]).unpack(packed, 0, len(packed))
+    >>> TXT.unpack(packed, 0, len(packed))
     TXT(strings=('test string', 'another test string'))
     """
 
@@ -498,12 +500,12 @@ RR.register_type(TXT)
 
 
 class PTR(_ReprMixin):
-    """
+    r"""
     >>> ptr = PTR("ptr.test.idiokit.example").pack()
     >>> ptr
-    '\\x03ptr\\x04test\\x07idiokit\\x07example\\x00'
+    '\x03ptr\x04test\x07idiokit\x07example\x00'
 
-    >>> PTR("").unpack(ptr, 0, len(ptr))
+    >>> PTR.unpack(ptr, 0, len(ptr))
     PTR(name='ptr.test.idiokit.example')
     """
 
@@ -527,12 +529,12 @@ RR.register_type(PTR)
 
 
 class CNAME(_ReprMixin):
-    """
+    r"""
     >>> cname = CNAME("cname.test.idiokit.example").pack()
     >>> cname
-    '\\x05cname\\x04test\\x07idiokit\\x07example\\x00'
+    '\x05cname\x04test\x07idiokit\x07example\x00'
 
-    >>> CNAME("").unpack(cname, 0, len(cname))
+    >>> CNAME.unpack(cname, 0, len(cname))
     CNAME(name='cname.test.idiokit.example')
     """
 
@@ -556,7 +558,7 @@ RR.register_type(CNAME)
 
 
 class SRV(_ReprMixin):
-    """
+    r"""
     >>> priority = 10
     >>> weight = 255
     >>> port = 11
@@ -564,9 +566,9 @@ class SRV(_ReprMixin):
 
     >>> srv = SRV(priority, weight, port, target).pack()
     >>> srv
-    '\\x00\\n\\x00\\xff\\x00\\x0b\\x07idiokit\\x07example\\x00'
+    '\x00\n\x00\xff\x00\x0b\x07idiokit\x07example\x00'
 
-    >>> SRV(0, 0, 0, "").unpack(srv, 0, len(srv))
+    >>> SRV.unpack(srv, 0, len(srv))
     SRV(priority=10, weight=255, port=11, target='idiokit.example')
     """
 
@@ -608,15 +610,15 @@ RR.register_type(SRV)
 
 
 class MX(_ReprMixin):
-    """
+    r"""
     >>> preference = 10
     >>> exchange = "mx1.idiokit.example"
 
     >>> mx = MX(preference, exchange).pack()
     >>> mx
-    '\\x00\\n\\x03mx1\\x07idiokit\\x07example\\x00'
+    '\x00\n\x03mx1\x07idiokit\x07example\x00'
 
-    >>> MX(0, "").unpack(mx, 0, len(mx))
+    >>> MX.unpack(mx, 0, len(mx))
     MX(preference=10, exchange='mx1.idiokit.example')
 
     """
@@ -950,13 +952,17 @@ def srv(name, resolver=None):
 def ordered_srv_records(srv_records):
     """Implement server selection as described in RFC 2782.
 
-    >>> srv1 = SRV(30,   256, 7, "target3")
+    >>> srv1 = SRV(30, 256, 7, "target3")
     >>> srv2 = SRV(10, 65535, 7, "target1")
-    >>> srv3 = SRV(10,  1234, 7, "target2")
+    >>> srv3 = SRV(10, 1234, 7, "target2")
     >>> srv_records = [srv1, srv2, srv3]
 
-    >>> result = list( ordered_srv_records(srv_records) )
-    >>> result == [srv2, srv3, srv1]
+    >>> result = list(ordered_srv_records(srv_records))
+
+    Sorting by weight is non-deterministic, so there's two correct
+    results (one more likely than other):
+
+    >>> result == [srv2, srv3, srv1] or result == [srv3, srv2, srv1]
     True
     """
 
