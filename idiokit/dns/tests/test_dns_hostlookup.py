@@ -12,11 +12,10 @@ class HostLookupTests(unittest.TestCase):
 
     def setUp(self):
         self._hosts = tempfile.NamedTemporaryFile()
-        self._hosts.writelines(
-            ["198.51.100.126 ipv4.idiokit.example\n",
-             "2001:DB8::cafe ipv6.idiokit.example\n",
-             ]
-        )
+        self._hosts.writelines([
+            "198.51.100.126 ipv4.idiokit.example\n",
+            "2001:DB8::cafe ipv6.idiokit.example\n"
+        ])
         self._hosts.flush()
 
     def tearDown(self):
