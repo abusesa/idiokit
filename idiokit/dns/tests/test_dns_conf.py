@@ -16,11 +16,18 @@ def tmpdir():
         shutil.rmtree(path)
 
 
+@contextlib.contextmanager
+def tmpfile(*lines):
+    tmp = tempfile.NamedTemporaryFile()
+    try:
+        tmp.writelines(lines)
+        yield tmp.name
+    finally:
+        tmp.close()
+
+
 class HostsFileTests(unittest.TestCase):
     def setUp(self):
-        self._empty_file = tempfile.NamedTemporaryFile()
-        self._empty_file.flush()
-
         self._hosts = tempfile.NamedTemporaryFile()
         self._hosts.writelines(
             ["# Comments are ignored\n",
@@ -36,9 +43,6 @@ class HostsFileTests(unittest.TestCase):
         self._hosts.flush()
 
     def tearDown(self):
-        if self._empty_file:
-            self._empty_file.close()
-
         if self._hosts:
             self._hosts.close()
 
@@ -50,7 +54,8 @@ class HostsFileTests(unittest.TestCase):
         self.assertEqual(hosts._names, {})
 
     def test_hosts_empty_file(self):
-        hosts = _conf.hosts(path=self._empty_file.name).load()
+        with tmpfile() as empty:
+            hosts = _conf.hosts(path=empty).load()
         self.assertEqual(hosts._ips, {})
         self.assertEqual(hosts._names, {})
 
@@ -102,9 +107,6 @@ class HostsFileTests(unittest.TestCase):
 
 class ResolvConfFileTests(unittest.TestCase):
     def setUp(self):
-        self._empty_file = tempfile.NamedTemporaryFile()
-        self._empty_file.flush()
-
         self._resolv_conf = tempfile.NamedTemporaryFile()
         self._resolv_conf.writelines(
             ["# Comments are ignored\n",
@@ -120,9 +122,6 @@ class ResolvConfFileTests(unittest.TestCase):
         self._resolv_conf.flush()
 
     def tearDown(self):
-        if self._empty_file:
-            self._empty_file.close()
-
         if self._resolv_conf:
             self._resolv_conf.close()
 
@@ -133,7 +132,8 @@ class ResolvConfFileTests(unittest.TestCase):
         self.assertEqual(rc._servers, ())
 
     def test_resolv_conf_empty_file(self):
-        rc = _conf.resolv_conf(path=self._empty_file.name).load()
+        with tmpfile() as empty:
+            rc = _conf.resolv_conf(path=empty).load()
         self.assertEqual(rc._servers, ())
 
     def test_resolv_conf_servers(self):
