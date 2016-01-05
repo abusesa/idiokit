@@ -44,15 +44,15 @@ class HostsFileTests(unittest.TestCase):
             filepath = os.path.join(path, "does-not-exist")
             hosts = _conf.hosts(path=filepath).load()
 
-        self.assertEqual(hosts._ips, {})
-        self.assertEqual(hosts._names, {})
+        self.assertEqual(hosts.ips, ())
+        self.assertEqual(hosts.names, ())
 
     def test_hosts_empty_file(self):
         with tmpfile() as empty:
             hosts = _conf.hosts(path=empty).load()
 
-        self.assertEqual(hosts._ips, {})
-        self.assertEqual(hosts._names, {})
+        self.assertEqual(hosts.ips, ())
+        self.assertEqual(hosts.names, ())
 
     def test_hosts_ipv4_to_names(self):
         with tmpfile(*self.lines) as filename:
@@ -120,13 +120,13 @@ class ResolvConfFileTests(unittest.TestCase):
             filepath = os.path.join(path, "does-not-exist")
             rc = _conf.resolv_conf(path=filepath).load()
 
-        self.assertEqual(rc._servers, ())
+        self.assertEqual(rc.servers, ())
 
     def test_resolv_conf_empty_file(self):
         with tmpfile() as empty:
             rc = _conf.resolv_conf(path=empty).load()
 
-        self.assertEqual(rc._servers, ())
+        self.assertEqual(rc.servers, ())
 
     def test_resolv_conf_servers(self):
         with tmpfile(
