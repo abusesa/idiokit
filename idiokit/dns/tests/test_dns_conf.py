@@ -1,20 +1,25 @@
+import os
+import shutil
 import unittest
 import tempfile
+import contextlib
 
 from .. import _conf
 
 
+@contextlib.contextmanager
+def tmpdir():
+    path = tempfile.mkdtemp()
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path)
+
+
 class HostsFileTests(unittest.TestCase):
     def setUp(self):
-        missing = tempfile.NamedTemporaryFile()
-        self._missing_file = missing.name
-        missing.close()  # Close deletes the file
-
         self._empty_file = tempfile.NamedTemporaryFile()
         self._empty_file.flush()
-
-        # Make sure empty and missing files are not same
-        self.assertNotEqual(self._empty_file.name, self._missing_file)
 
         self._hosts = tempfile.NamedTemporaryFile()
         self._hosts.writelines(
@@ -38,7 +43,9 @@ class HostsFileTests(unittest.TestCase):
             self._hosts.close()
 
     def test_hosts_missing_file(self):
-        hosts = _conf.hosts(path=self._missing_file).load()
+        with tmpdir() as path:
+            filepath = os.path.join(path, "does-not-exist")
+            hosts = _conf.hosts(path=filepath).load()
         self.assertEqual(hosts._ips, {})
         self.assertEqual(hosts._names, {})
 
@@ -95,15 +102,8 @@ class HostsFileTests(unittest.TestCase):
 
 class ResolvConfFileTests(unittest.TestCase):
     def setUp(self):
-        missing = tempfile.NamedTemporaryFile()
-        self._missing_file = missing.name
-        missing.close()  # Close deletes the file
-
         self._empty_file = tempfile.NamedTemporaryFile()
         self._empty_file.flush()
-
-        # Make sure empty and missing files are not same
-        self.assertNotEqual(self._empty_file.name, self._missing_file)
 
         self._resolv_conf = tempfile.NamedTemporaryFile()
         self._resolv_conf.writelines(
@@ -127,7 +127,9 @@ class ResolvConfFileTests(unittest.TestCase):
             self._resolv_conf.close()
 
     def test_resolv_conf_missing_file(self):
-        rc = _conf.resolv_conf(path=self._missing_file).load()
+        with tmpdir() as path:
+            filepath = os.path.join(path, "does-not-exist")
+            rc = _conf.resolv_conf(path=filepath).load()
         self.assertEqual(rc._servers, ())
 
     def test_resolv_conf_empty_file(self):
