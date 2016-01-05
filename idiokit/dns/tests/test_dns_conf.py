@@ -5,10 +5,6 @@ from .. import _conf
 
 
 class HostsFileTests(unittest.TestCase):
-    _missing_file = None
-    _empty_file = None
-    _hosts = None
-
     def setUp(self):
         missing = tempfile.NamedTemporaryFile()
         self._missing_file = missing.name
@@ -98,10 +94,6 @@ class HostsFileTests(unittest.TestCase):
 
 
 class ResolvConfFileTests(unittest.TestCase):
-    _missing_file = None
-    _empty_file = None
-    _resolv_conf = None
-
     def setUp(self):
         missing = tempfile.NamedTemporaryFile()
         self._missing_file = missing.name
