@@ -87,6 +87,14 @@ class Hosts(object):
     def name_to_ips(self, name):
         return iter(self._names.get(name.lower(), ()))
 
+    @property
+    def ips(self):
+        return tuple(self._ips)
+
+    @property
+    def names(self):
+        return tuple(self._names)
+
 
 class ResolvConf(object):
     @classmethod
