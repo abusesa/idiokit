@@ -18,13 +18,10 @@ def tmpdir():
 
 @contextlib.contextmanager
 def tmpfile(*lines):
-    tmp = tempfile.NamedTemporaryFile()
-    try:
+    with tempfile.NamedTemporaryFile() as tmp:
         tmp.writelines(lines)
         tmp.flush()
         yield tmp.name
-    finally:
-        tmp.close()
 
 
 class HostsFileTests(unittest.TestCase):
