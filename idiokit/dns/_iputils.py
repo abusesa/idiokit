@@ -8,7 +8,7 @@ def parse_ip(ip):
     >>> parse_ip("192.0.2.1") == (socket.AF_INET, "192.0.2.1")
     True
 
-    >>> parse_ip("2001:db8::1234:5678") == (socket.AF_INET6, "2001:db8::1234:5678")
+    >>> parse_ip("2001:DB8::1234:5678") == (socket.AF_INET6, "2001:db8::1234:5678")
     True
 
     >>> parse_ip("not-an-ip")

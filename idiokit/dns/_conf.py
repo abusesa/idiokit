@@ -8,7 +8,7 @@ def parse_server(server):
     >>> import socket
     >>> parse_server("192.0.2.0") == (socket.AF_INET, "192.0.2.0", 53)
     True
-    >>> parse_server("2001:db8::") == (socket.AF_INET6, "2001:db8::", 53)
+    >>> parse_server("2001:DB8::") == (socket.AF_INET6, "2001:db8::", 53)
     True
     """
 
@@ -33,7 +33,7 @@ def read_resolv_conf(line_iterator):
 def read_hosts(line_iterator):
     for line in line_iterator:
         comment_start = line.find("#")
-        if comment_start >= -1:
+        if comment_start >= 0:
             line = line[:comment_start]
 
         line = line.strip()
@@ -47,9 +47,9 @@ def read_hosts(line_iterator):
         try:
             _, ip = parse_ip(pieces[0])
         except ValueError:
-            pass
+            continue
         names = set(pieces[1:])
-        yield ip, names
+        yield ip, [name.lower() for name in names]
 
 
 def uniques(values):
@@ -81,10 +81,19 @@ class Hosts(object):
                 self._names.setdefault(name, set()).add(ip)
 
     def ip_to_names(self, ip):
+        _, ip = parse_ip(ip)
         return iter(self._ips.get(ip, ()))
 
     def name_to_ips(self, name):
-        return iter(self._names.get(name, ()))
+        return iter(self._names.get(name.lower(), ()))
+
+    @property
+    def ips(self):
+        return tuple(self._ips)
+
+    @property
+    def names(self):
+        return tuple(self._names)
 
 
 class ResolvConf(object):
