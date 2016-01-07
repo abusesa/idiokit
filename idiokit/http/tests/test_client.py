@@ -52,6 +52,23 @@ class TestClient(unittest.TestCase):
             "Test Agent idiokit/{0}".format(idiokit.__version__)
         )
 
+    def test_http_adapter(self):
+        @idiokit.stream
+        def main(test_string, client):
+            s = socket.Socket(socket.AF_INET)
+            try:
+                yield s.bind(("127.0.0.1", 0))
+                yield s.listen(1)
+
+                _, port = yield s.getsockname()
+                result = yield serve(test_string, s) | get(client, "http://127.0.0.1:{0}/".format(port))
+            finally:
+                yield s.close()
+            idiokit.stop(result)
+
+        client = Client()
+        self.assertEqual("this is a test", idiokit.main_loop(main("this is a test", client)))
+
     def test_http_unix_adapter(self):
         @idiokit.stream
         def main(test_string, client):
