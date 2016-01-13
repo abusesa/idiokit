@@ -903,9 +903,9 @@ class Resolver(object):
 
         other = msg.questions[0]
         return (
-            other.name == question.name
-            and other.type == question.type
-            and other.cls == question.cls
+            other.name == question.name and
+            other.type == question.type and
+            other.cls == question.cls
         )
 
 
