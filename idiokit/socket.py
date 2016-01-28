@@ -10,7 +10,7 @@ from . import idiokit, threadpool, select, timer
 
 # Import constants from the standard socket module.
 for _name in getattr(_socket, "__all__", dir(_socket)):
-    if not (_name.isupper() and "_" in _name):
+    if not _name.isupper():
         continue
     if any(_name.startswith(x) for x in ["_", "SSL_"]):
         continue
