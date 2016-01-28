@@ -767,7 +767,7 @@ def serve_http(server, host, port):
     try:
         yield sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         yield sock.bind((host, port))
-        yield sock.listen(5)
+        yield sock.listen(socket.SOMAXCONN)
         yield serve(server, sock)
     finally:
         yield sock.close()
@@ -818,7 +818,7 @@ def serve_unix_domain_socket(server, path, permissions="0600"):
     os.chmod(path, permissions)
 
     try:
-        yield sock.listen(5)
+        yield sock.listen(socket.SOMAXCONN)
         try:
             yield serve(server, sock)
         finally:
