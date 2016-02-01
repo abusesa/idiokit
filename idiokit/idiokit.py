@@ -3,6 +3,7 @@ from __future__ import absolute_import
 import sys
 import signal
 import inspect
+import numbers
 import threading
 import collections
 from functools import partial, wraps
@@ -733,14 +734,12 @@ class Signal(BaseException):
         if cls._signames is None:
             signames = {}
 
-            for name in dir(signal):
+            for name, value in inspect.getmembers(signal):
                 if not name.startswith("SIG"):
                     continue
                 if name.startswith("SIG_"):
                     continue
-
-                value = getattr(signal, name)
-                if type(value) != int:
+                if not isinstance(value, numbers.Integral):
                     continue
                 signames.setdefault(value, []).append(name)
 
