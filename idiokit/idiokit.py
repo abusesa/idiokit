@@ -770,7 +770,7 @@ class Signal(Exception):
 
 def main_loop(main, catch_signals=(signal.SIGINT, signal.SIGTERM, signal.SIGUSR1, signal.SIGUSR2)):
     def handle_signal(signum, _):
-        thread = threading.Thread(target=main.throw, args=(Signal(signum),))
+        thread = threading.Thread(target=asap, args=[main.throw, Signal(signum)])
         thread.daemon = True
         thread.start()
 
