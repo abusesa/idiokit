@@ -712,22 +712,44 @@ def consume():
     return map(lambda x: None)
 
 
-def _iter_signal_names():
-    for name in dir(signal):
-        if not name.startswith("SIG"):
-            continue
-        if name.startswith("SIG_"):
-            continue
-
-        signum = getattr(signal, name)
-        if type(signum) != int:
-            continue
-
-        yield signum, name
-
-
 class Signal(BaseException):
-    _signames = dict(_iter_signal_names())
+    _signames = None
+
+    @classmethod
+    def _get_signal_names(cls, signum):
+        r"""
+        Return a lexigocraphically sorted tuple of symbolic names
+        for the given signal number.
+
+        >>> Signal._get_signal_names(signal.SIGINT)
+        ('SIGINT',)
+
+        Return an empty tuple when no names are found.
+
+        >>> Signal._get_signal_names(signal.NSIG + 1)
+        ()
+        """
+
+        if cls._signames is None:
+            signames = {}
+
+            for name in dir(signal):
+                if not name.startswith("SIG"):
+                    continue
+                if name.startswith("SIG_"):
+                    continue
+
+                value = getattr(signal, name)
+                if type(value) != int:
+                    continue
+                signames.setdefault(value, []).append(name)
+
+            for key, names in signames.iteritems():
+                signames[key] = tuple(sorted(names))
+
+            cls._signames = signames
+
+        return cls._signames.get(signum, ())
 
     def __init__(self, signum):
         BaseException.__init__(self, signum)
@@ -738,10 +760,12 @@ class Signal(BaseException):
 
     def __str__(self):
         signum = self.signum
-
         result = "caught signal " + repr(signum)
-        if signum in self._signames:
-            result += " (" + self._signames[signum] + ")"
+
+        names = self._get_signal_names(signum)
+        if names:
+            result += " (" + " / ".join(names[0]) + ")"
+
         return result
 
 
