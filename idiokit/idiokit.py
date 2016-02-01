@@ -713,7 +713,7 @@ def consume():
     return map(lambda x: None)
 
 
-class Signal(BaseException):
+class Signal(Exception):
     _signames = None
 
     @classmethod
@@ -751,7 +751,7 @@ class Signal(BaseException):
         return cls._signames.get(signum, ())
 
     def __init__(self, signum):
-        BaseException.__init__(self, signum)
+        Exception.__init__(self, signum)
 
     @property
     def signum(self):
