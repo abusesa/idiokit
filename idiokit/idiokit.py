@@ -763,7 +763,7 @@ class Signal(Exception):
 
         names = self._get_signal_names(signum)
         if names:
-            result += " (" + " / ".join(names[0]) + ")"
+            result += " (" + " / ".join(names) + ")"
 
         return result
 
