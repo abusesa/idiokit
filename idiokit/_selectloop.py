@@ -19,6 +19,9 @@ class SelectLoop(object):
     _native_select = select.select
     _select_error = select.error
     _HeapError = heap.HeapError
+    _AttributeError = AttributeError
+    _OSError = OSError
+    _BaseException = BaseException
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -46,7 +49,7 @@ class SelectLoop(object):
     def asap(self, callback, *args, **keys):
         try:
             current = self._local.current
-        except AttributeError:
+        except self._AttributeError:
             current = None
             self._local.current = None
 
@@ -143,7 +146,7 @@ class SelectLoop(object):
                     while True:
                         try:
                             self._read(self._rfd, 1)
-                        except OSError as ose:
+                        except self._OSError as ose:
                             if ose.errno != self._EINTR:
                                 raise ose
                         else:
@@ -159,7 +162,7 @@ class SelectLoop(object):
 
         try:
             rfds, wfds, xfds = self._native_select(rfds, wfds, xfds, timeout)
-        except BaseException as exc:
+        except self._BaseException as exc:
             if isinstance(exc, self._select_error) and exc.args[0] == self._EINTR:
                 return False, (), (), ()
             rfds, wfds, xfds = self._collect_errors(rfds, wfds, xfds)
