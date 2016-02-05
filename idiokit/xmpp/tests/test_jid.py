@@ -1,3 +1,5 @@
+import copy
+import pickle
 import unittest
 import warnings
 
@@ -5,16 +7,21 @@ from ..jid import JID, JIDError
 
 
 class TestJID(unittest.TestCase):
-    def test_copy(self):
-        import copy
+    def test_7bit_ascii_byte_strings_should_be_converted_to_unicode(self):
+        self.assertEqual(JID("node@domain/resource"), JID(u"node@domain/resource"))
 
+    def test_non_7bit_ascii_byte_strings_should_cause_UnicodeDecodeErrors(self):
+        self.assertRaises(UnicodeDecodeError, JID, "\xe4@domain/resource")
+
+    def test_instances_should_be_copyable(self):
         jid = JID("a", "b", "c")
         assert copy.copy(jid) == jid
+
+    def test_instances_should_be_deepcopyable(self):
+        jid = JID("a", "b", "c")
         assert copy.deepcopy(jid) == jid
 
-    def test_pickling(self):
-        import pickle
-
+    def test_instances_should_be_picklable_and_unpicklable(self):
         jid = JID("a", "b", "c")
         assert pickle.loads(pickle.dumps(jid)) == jid
 
@@ -50,7 +57,7 @@ class TestJID(unittest.TestCase):
             except UnicodeWarning:
                 self.fail("UnicodeWarning raised")
 
-    def test_unicode(self):
+    def test_instances_should_support_conversion_to_unicode_strings(self):
         jid_string = "node@domain/resource"
         assert unicode(JID(jid_string)) == jid_string
 
