@@ -53,7 +53,7 @@ class TestJID(unittest.TestCase):
         with warnings.catch_warnings():
             warnings.simplefilter("error", UnicodeWarning)
             try:
-                self.assertRaises(ValueError, JID, ZeroHashBytes("\xe4@domain.example"))
+                self.assertRaises(UnicodeDecodeError, JID, ZeroHashBytes("\xe4@domain.example"))
             except UnicodeWarning:
                 self.fail("UnicodeWarning raised")
 
