@@ -160,6 +160,10 @@ class JID(object):
     resource = property(lambda x: x._resource)
 
     def __new__(cls, node=None, domain=None, resource=None):
+        node = unicodify(node)
+        domain = unicodify(domain)
+        resource = unicodify(resource)
+
         with cls.cache_lock:
             cache_key = node, domain, resource
             if cache_key in cls.cache:
@@ -170,9 +174,7 @@ class JID(object):
         elif domain is None:
             if resource is not None:
                 raise JIDError("resource not expected with a full JID")
-            node, domain, resource = split_jid(unicodify(node))
-        else:
-            node, domain, resource = map(unicodify, (node, domain, resource))
+            node, domain, resource = split_jid(node)
 
         obj = super(JID, cls).__new__(cls)
         obj._node = prep_node(node)
