@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+ * Add ```socket.fromsocket(socket, close_original=True)``` for wrapping "native" Python socket objects ([5ff15c2](https://github.com/abusesa/idiokit/commit/5ff15c26a847cc2882b9109801732b332922ebcd))
+
 ## 2.4.0 (2016-02-10)
 
 ### Features
