@@ -285,3 +285,10 @@ class Socket(_Socket):
         with wrapped_socket_errors():
             raw_socket = _socket.socket(*args, **keys)
         _Socket.__init__(self, raw_socket)
+
+
+def fromsocket(socket, close_original=True):
+    raw_socket = _socket.fromfd(socket.fileno(), socket.family, socket.type, socket.proto)
+    if close_original:
+        socket.close()
+    return _Socket(raw_socket)
