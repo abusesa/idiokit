@@ -159,7 +159,7 @@ def wrap_socket(
     ssl_version=PROTOCOL_SSLv23,
     require_cert=False,
     ca_certs=None,
-    timeout=None
+    timeout=socket._DEFAULT_TIMEOUT
 ):
     keys = {
         "keyfile": keyfile,
@@ -171,17 +171,25 @@ def wrap_socket(
         "suppress_ragged_eofs": True
     }
 
+    timeout = socket._resolve_timeout(sock, timeout)
     with _ca_certs(ca_certs) as ca_certs:
         ssl = _ssl.wrap_socket(sock._socket, ca_certs=ca_certs, **keys)
         yield _wrapped(ssl, timeout, ssl.do_handshake)
-    idiokit.stop(_SSLSocket(ssl))
+    idiokit.stop(_SSLSocket(ssl, sock))
 
 
 class _SSLSocket(object):
     CHUNK_SIZE = 8 * 1024
 
-    def __init__(self, ssl):
+    def __init__(self, ssl, socket):
         self._ssl = ssl
+        self._socket = socket
+
+    def settimeout(self, timeout):
+        self._socket.settimeout(timeout)
+
+    def gettimeout(self):
+        return self._socket.gettimeout()
 
     @idiokit.stream
     def getpeercert(self, binary_form=False):
@@ -189,9 +197,10 @@ class _SSLSocket(object):
         idiokit.stop(self._ssl.getpeercert(binary_form))
 
     @idiokit.stream
-    def recv(self, bufsize, flags=0, timeout=None):
+    def recv(self, bufsize, flags=0, timeout=socket._DEFAULT_TIMEOUT):
         if flags != 0:
             raise ValueError("flags not supported by SSL sockets")
+        timeout = socket._resolve_timeout(self, timeout)
 
         if bufsize <= 0:
             yield timer.sleep(0.0)
@@ -201,20 +210,22 @@ class _SSLSocket(object):
         idiokit.stop(result)
 
     @idiokit.stream
-    def send(self, data, flags=0, timeout=None):
+    def send(self, data, flags=0, timeout=socket._DEFAULT_TIMEOUT):
         socket.check_sendable_type(data)
         if flags != 0:
             raise ValueError("flags not supported by SSL sockets")
+        timeout = socket._resolve_timeout(self, timeout)
 
         buf = buffer(data, 0, self.CHUNK_SIZE)
         result = yield _wrapped(self._ssl, timeout, self._ssl.write, buf)
         idiokit.stop(result)
 
     @idiokit.stream
-    def sendall(self, data, flags=0, timeout=None):
+    def sendall(self, data, flags=0, timeout=socket._DEFAULT_TIMEOUT):
         socket.check_sendable_type(data)
         if flags != 0:
             raise ValueError("flags not supported by SSL sockets")
+        timeout = socket._resolve_timeout(self, timeout)
 
         offset = 0
         length = len(data)
