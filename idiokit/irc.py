@@ -1,6 +1,6 @@
 import re
 
-from . import idiokit, socket, ssl
+from . import idiokit, socket, ssl, timer
 
 
 class IRCError(Exception):
@@ -75,10 +75,13 @@ def mutations(*nicks):
 
 
 @idiokit.stream
-def _init_ssl(sock, require_cert, ca_certs, identity):
-    sock = yield ssl.wrap_socket(sock,
-                                 require_cert=require_cert,
-                                 ca_certs=ca_certs)
+def _init_ssl(sock, require_cert, ca_certs, identity, timeout):
+    sock = yield ssl.wrap_socket(
+        sock,
+        require_cert=require_cert,
+        ca_certs=ca_certs,
+        timeout=timeout
+    )
     if require_cert:
         cert = yield sock.getpeercert()
         ssl.match_hostname(cert, identity)
@@ -86,37 +89,45 @@ def _init_ssl(sock, require_cert, ca_certs, identity):
 
 
 @idiokit.stream
-def connect(host, port, nick, password=None,
-            ssl=False, ssl_verify_cert=True, ssl_ca_certs=None):
+def connect(
+    host,
+    port,
+    nick,
+    password=None,
+    ssl=False,
+    ssl_verify_cert=True,
+    ssl_ca_certs=None,
+    timeout=30.0
+):
     parser = IRCParser()
 
     sock = socket.Socket()
-    yield sock.connect((host, port))
+    yield sock.connect((host, port), timeout=timeout)
     if ssl:
-        sock = yield _init_ssl(sock, ssl_verify_cert, ssl_ca_certs, host)
+        sock = yield _init_ssl(sock, ssl_verify_cert, ssl_ca_certs, host, timeout=timeout)
 
     nicks = mutations(nick)
     if password is not None:
-        yield sock.sendall(format_message("PASS", password))
-    yield sock.sendall(format_message("NICK", nicks.next()))
-    yield sock.sendall(format_message("USER", nick, nick, "-", nick))
+        yield sock.sendall(format_message("PASS", password), timeout=timeout)
+    yield sock.sendall(format_message("NICK", nicks.next()), timeout=timeout)
+    yield sock.sendall(format_message("USER", nick, nick, "-", nick), timeout=timeout)
 
     while True:
-        data = yield sock.recv(4096)
+        data = yield sock.recv(4096, timeout=timeout)
         if not data:
             raise IRCError("connection lost")
 
         for prefix, command, params in parser.feed(data):
             if command == "PING":
-                yield sock.sendall(format_message("PONG", *params))
+                yield sock.sendall(format_message("PONG", *params), timeout=timeout)
                 continue
 
             if command == "001":
-                idiokit.stop(IRC(_main(sock, parser), nick))
+                idiokit.stop(IRC(_main(sock, nick, parser, write_timeout=timeout), nick))
 
             if command == "433":
                 for nick in nicks:
-                    yield sock.sendall(format_message("NICK", nick))
+                    yield sock.sendall(format_message("NICK", nick), timeout=timeout)
                     break
                 else:
                     raise NickAlreadyInUse("".join(params[-1:]))
@@ -127,29 +138,33 @@ def connect(host, port, nick, password=None,
 
 
 @idiokit.stream
-def _main(sock, parser):
+def _main(sock, nick, parser, ping_interval=10.0, write_timeout=30.0):
     @idiokit.stream
     def _input():
         while True:
-            msg = yield idiokit.next()
-            yield sock.sendall(format_message(*msg))
+            try:
+                msg = yield timer.timeout(ping_interval, idiokit.next())
+            except timer.Timeout:
+                msg = ["PING", nick]
+            yield sock.sendall(format_message(*msg), timeout=write_timeout)
 
     @idiokit.stream
-    def _output():
+    def _output(input_stream):
         data = ""
 
         while True:
             for prefix, command, params in parser.feed(data):
                 if command == "PING":
-                    yield sock.sendall(format_message("PONG", *params))
+                    input_stream.send("PONG", *params)
                 yield idiokit.send(prefix, command, params)
 
-            data = yield sock.recv(4096)
+            data = yield sock.recv(4096, timeout=None)
             if not data:
                 raise IRCError("connection lost")
 
     try:
-        yield _input() | _output()
+        input_stream = _input()
+        yield input_stream | _output(input_stream)
     finally:
         yield sock.close()
 
