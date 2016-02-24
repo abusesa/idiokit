@@ -26,7 +26,6 @@ class Piped(object):
         self._tail = self._head
 
         self._closed = False
-        self._sealed = False
 
         self._next = None
         self._queue = None
@@ -36,11 +35,6 @@ class Piped(object):
         return self._head
 
     def _add(self, head):
-        if self._sealed:
-            return
-        self._on_new_head(head)
-
-    def _on_new_head(self, head):
         if head is NULL:
             return
 
@@ -59,7 +53,6 @@ class Piped(object):
 
         if not self._closed:
             if promise is None:
-                self._maybe_close()
                 return
 
             if self._next is not None:
@@ -87,23 +80,12 @@ class Piped(object):
         if self._queue:
             queued_head, queued_promise = self._queue.popleft()
             self._on_promise(queued_head, queued_promise)
-        self._on_new_head(old_head)
-
-    def _maybe_close(self):
-        if self._sealed and not self._next and not self._queue and not self._heads:
-            self._close()
-
-    def _seal(self):
-        if self._sealed:
-            return
-        self._sealed = True
-        self._maybe_close()
+        self._add(old_head)
 
     def _close(self):
         if self._closed:
             return
         self._closed = True
-        self._sealed = True
 
         if self._heads is not None:
             for head in self._heads:
@@ -118,9 +100,6 @@ class Piped(object):
         if head is NULL:
             return
         asap(self._add, head)
-
-    def seal(self):
-        asap(self._seal)
 
     def close(self):
         asap(self._close)
