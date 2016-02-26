@@ -6,7 +6,7 @@ import inspect
 import numbers
 import threading
 import collections
-from functools import partial, wraps
+from functools import wraps
 
 from ._selectloop import sleep, asap, iterate
 from .values import Value
@@ -26,7 +26,6 @@ class Piped(object):
         self._tail = self._head
 
         self._closed = False
-        self._sealed = False
 
         self._next = None
         self._queue = None
@@ -36,11 +35,6 @@ class Piped(object):
         return self._head
 
     def _add(self, head):
-        if self._sealed:
-            return
-        self._on_new_head(head)
-
-    def _on_new_head(self, head):
         if head is NULL:
             return
 
@@ -59,7 +53,6 @@ class Piped(object):
 
         if not self._closed:
             if promise is None:
-                self._maybe_close()
                 return
 
             if self._next is not None:
@@ -87,23 +80,12 @@ class Piped(object):
         if self._queue:
             queued_head, queued_promise = self._queue.popleft()
             self._on_promise(queued_head, queued_promise)
-        self._on_new_head(old_head)
-
-    def _maybe_close(self):
-        if self._sealed and not self._next and not self._queue and not self._heads:
-            self._close()
-
-    def _seal(self):
-        if self._sealed:
-            return
-        self._sealed = True
-        self._maybe_close()
+        self._add(old_head)
 
     def _close(self):
         if self._closed:
             return
         self._closed = True
-        self._sealed = True
 
         if self._heads is not None:
             for head in self._heads:
@@ -118,9 +100,6 @@ class Piped(object):
         if head is NULL:
             return
         asap(self._add, head)
-
-    def seal(self):
-        asap(self._seal)
 
     def close(self):
         asap(self._close)
@@ -174,82 +153,159 @@ class _Fork(Stream):
     def __init__(self, stream):
         self._stream = stream
 
+        self._result = Value()
+        self._input = Value()
+        self._output = Value()
+
         self._messages = Piped()
         self._signals = Piped()
 
-        self._output = Piped()
-        self._output.add(self._stream.head())
-        self._output.seal()
+        self._stream_head = self._stream.head()
+        self._messages_head = self._messages.head()
+        self._signals_head = self._signals.head()
 
-        self._result = Value()
+        self._stream._pipe(self._input, NULL, NULL)
 
-        self._current = Value()
-        self._messages.head().listen(self._message_promise)
-        self._signals.head().listen(self._signal_promise)
+        self._messages_head.listen(self._on_message)
+        self._signals_head.listen(self._on_signal)
+        self._stream_head.listen(self._on_stream)
 
-        self._stream._pipe(self._current, NULL, NULL)
-        self._stream.result().listen(self._stream_result)
+    def _unlisten_head(self, head, listener):
+        head.unsafe_unlisten(listener)
+
+        if head.unsafe_is_set() and head.unsafe_get() is not None:
+            consume, value, _ = head.unsafe_get()
+            consume.unsafe_unlisten(listener)
+            value.unsafe_unlisten(listener)
+
+        return NULL
+
+    def _close_head(self, head):
+        if head.unsafe_set(None):
+            return head
+
+        promise = head.unsafe_get()
+        if promise is None:
+            return head
+
+        _, new_value, new_head = promise
+        new_value.unsafe_set(None)
+        new_head.unsafe_set(None)
+        return new_head
+
+    def _close(self, result):
+        if not self._result.unsafe_set(result):
+            return False
+
+        self._output = self._close_head(self._output)
+        self._input = self._close_head(self._input)
+
+        self._stream_head = self._unlisten_head(self._stream_head, self._on_stream)
+        self._signals_head = self._unlisten_head(self._signals_head, self._on_signal)
+        self._messages_head = self._unlisten_head(self._messages_head, self._on_message)
+
+        self._messages.close()
+        self._signals.close()
+        self._stream.result().unsafe_unlisten(self._stream_result)
+        self._stream = None
+
+        return True
+
+    def _is_closed(self):
+        return self._result.unsafe_is_set()
+
+    def _on_stream(self, _, __):
+        if self._is_closed():
+            return
+
+        while True:
+            if not self._stream_head.unsafe_is_set():
+                self._stream_head.unsafe_listen(self._on_stream)
+                return
+
+            promise = self._stream_head.unsafe_get()
+            if promise is None:
+                self._output = self._close_head(self._output)
+                self._stream.result().unsafe_listen(self._stream_result)
+                return
+
+            consume, value, head = promise
+            if not self._output.unsafe_is_set():
+                self._output.unsafe_set((consume, Value(), Value()))
+
+            if not consume.unsafe_is_set():
+                consume.unsafe_listen(self._on_stream)
+                return
+
+            if not value.unsafe_is_set():
+                value.unsafe_listen(self._on_stream)
+                return
+
+            _, new_value, new_head = self._output.unsafe_get()
+            new_value.unsafe_set(value.unsafe_get())
+            self._output = new_head
+            self._stream_head = head
 
     def _stream_result(self, _, result):
-        if self._result.unsafe_set(result):
-            self._messages.close()
-            self._signals.close()
-            self._stream = None
+        self._close(result)
 
-    def _signal_promise(self, _, promise):
-        if promise is None:
-            return
-        consume, value, head = promise
-        consume.unsafe_set()
-        value.unsafe_listen(partial(self._signal_value, head))
-
-    def _signal_value(self, head, _, result):
-        if result is None or not result[0]:
-            head.unsafe_listen(self._signal_promise)
+    def _on_signal(self, _, __):
+        if self._is_closed():
             return
 
-        throw, args = result
+        while True:
+            if not self._signals_head.unsafe_is_set():
+                self._signals_head.unsafe_listen(self._on_signal)
+                return
 
-        self._messages.close()
-        self._signals.close()
+            promise = self._signals_head.unsafe_get()
+            if promise is None:
+                return
 
-        if self._result.unsafe_set(result):
-            self._output.close()
-            self._stream.result().unsafe_unlisten(self._stream_result)
-            self._stream = None
+            consume, value, head = promise
+            consume.unsafe_set()
+            if not value.unsafe_is_set():
+                value.unsafe_listen(self._on_signal)
+                return
 
-    def _message_promise(self, _, promise):
-        if promise is None:
-            self._current.unsafe_set(None)
-            self._current = None
+            result = value.unsafe_get()
+            if result is not None and result[0]:
+                self._close(result)
+                return
+
+            self._signals_head = head
+
+    def _on_message(self, _, __):
+        if self._is_closed():
             return
 
-        consume, value, head = promise
-        next_value = Value()
-        next_message = Value()
+        while True:
+            if not self._messages_head.unsafe_is_set():
+                self._messages_head.unsafe_listen(self._on_message)
+                return
 
-        current = self._current
-        self._current = next_message
-        current.unsafe_set((consume, next_value, next_message))
-        value.unsafe_listen(partial(self._message_value, head, next_value, next_message))
+            promise = self._messages_head.unsafe_get()
+            if promise is None:
+                self._input = self._close_head(self._input)
+                return
 
-    def _message_value(self, head, next_value, next_message, _, result):
-        if result is None or not result[0]:
-            next_value.unsafe_set(result)
-            head.unsafe_listen(self._message_promise)
-            return
+            consume, value, head = promise
+            if not self._input.unsafe_is_set():
+                self._input.unsafe_set((consume, Value(), Value()))
 
-        throw, args = result
+            if not value.unsafe_is_set():
+                value.unsafe_listen(self._on_message)
+                return
 
-        next_value.unsafe_set(None)
-        next_message.unsafe_set(None)
-        self._messages.close()
-        self._signals.close()
+            result = value.unsafe_get()
+            if result is not None and result[0]:
+                self._close(result)
+                return
 
-        if self._result.unsafe_set(result):
-            self._output.close()
-            self._stream.result().unsafe_unlisten(self._stream_result)
-            self._stream = None
+            _, new_value, new_head = self._input.unsafe_get()
+            new_value.unsafe_set(result)
+            self._input = new_head
+            self._messages_head = head
 
     def _pipe(self, messages, signals, broken):
         self._signals.add(signals)
@@ -257,7 +313,7 @@ class _Fork(Stream):
         self._messages.add(messages)
 
     def head(self):
-        return self._output.head()
+        return self._output
 
     def result(self):
         return self._result
@@ -278,7 +334,7 @@ class GeneratorBasedStream(Stream):
 
         self._current_promise = None
         self._current_result = None
-        self._current_count = 0
+        self._current_head = None
 
         self._result = Value()
         asap(self._start)
@@ -304,7 +360,8 @@ class GeneratorBasedStream(Stream):
             next._pipe(self._messages.head(), self._signals.head(), self._broken.head())
 
             self._current_result = next.result()
-            self._on_promise(next.head(), None)
+            self._current_head = next.head()
+            self._on_promise(None, None)
         finally:
             # Set all local variables to None so references to their
             # original values won't be held in potential traceback objects.
@@ -314,54 +371,48 @@ class GeneratorBasedStream(Stream):
             throw = None
             args = None
 
-    def _on_promise(self, head, _):
-        self._current_promise = None
-        self._current_count = 0
+    def _on_promise(self, _, __):
+        while True:
+            if self._current_promise is None:
+                if not self._current_head.unsafe_is_set():
+                    self._current_head.unsafe_listen(self._on_promise)
+                    return
 
-        if not head.unsafe_is_set():
-            head.unsafe_listen(self._on_promise)
-            return
+                promise = self._current_head.unsafe_get()
+                if promise is None:
+                    self._on_result(self._current_result, None)
+                    return
 
-        promise = head.unsafe_get()
-        if promise is None:
-            self._on_result(self._current_result, None)
-            return
+                consume, value, head = promise
+                self._tail = Value()
+                self._head.unsafe_set((consume, value, self._tail))
+                self._current_promise = promise
 
-        self._current_promise = promise
-        consume, value, head = promise
+            consume, value, head = self._current_promise
 
-        new_consume = Value()
-        self._tail = Value()
-        self._head.unsafe_set((new_consume, value, self._tail))
-        value.unsafe_listen(self._on_value)
-        new_consume.unsafe_listen(self._on_consume)
+            if not value.unsafe_is_set():
+                value.unsafe_listen(self._on_promise)
+                return
 
-    def _on_value(self, _, result):
-        if result is None:
-            new_consume, _, _ = self._head.unsafe_get()
-            new_consume.unsafe_set()
-        self._inc_count()
+            if value.unsafe_get() is None:
+                consume.unsafe_set()
 
-    def _on_consume(self, _, __):
-        consume, value, head = self._current_promise
-        consume.unsafe_set()
-        self._inc_count()
+            if not consume.unsafe_is_set():
+                consume.unsafe_listen(self._on_promise)
+                return
 
-    def _inc_count(self):
-        self._current_count += 1
-        if self._current_count < 2:
-            return
-
-        consume, value, head = self._current_promise
-        self._head = self._tail
-        self._on_promise(head, None)
+            self._current_head = head
+            self._current_promise = None
+            self._head = self._tail
 
     def _on_result(self, result, _):
         if not result.unsafe_is_set():
             result.unsafe_listen(self._on_result)
             return
 
+        self._current_promise = None
         self._current_result = None
+        self._current_head = None
         throw, args = result.unsafe_get()
         sleep(0.0, self._next, throw, args)
 
