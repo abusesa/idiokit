@@ -123,7 +123,7 @@ def connect(
                 continue
 
             if command == "001":
-                idiokit.stop(IRC(_main(sock, nick, parser, write_timeout=timeout), nick))
+                idiokit.stop(IRC(_main(sock, nick, parser, timeout=timeout), nick))
 
             if command == "433":
                 for nick in nicks:
@@ -138,24 +138,34 @@ def connect(
 
 
 @idiokit.stream
-def _main(sock, nick, parser, ping_interval=10.0, write_timeout=30.0):
+def _main(sock, nick, parser, ping_interval=10.0, timeout=30.0):
+    @idiokit.stream
+    def _ping():
+        while True:
+            try:
+                _, command, params = yield timer.timeout(ping_interval, idiokit.next())
+            except timer.Timeout:
+                yield idiokit.send("PING", nick)
+                try:
+                    _, command, params = yield timer.timeout(timeout, idiokit.next())
+                except timer.Timeout:
+                    raise IRCError("PING timeout")
+
+            if command == "PING":
+                yield idiokit.send("PONG", *params)
+
     @idiokit.stream
     def _input():
         while True:
-            try:
-                msg = yield timer.timeout(ping_interval, idiokit.next())
-            except timer.Timeout:
-                msg = ["PING", nick]
-            yield sock.sendall(format_message(*msg), timeout=write_timeout)
+            msg = yield idiokit.next()
+            yield sock.sendall(format_message(*msg), timeout=timeout)
 
     @idiokit.stream
-    def _output(input_stream):
+    def _output():
         data = ""
 
         while True:
             for prefix, command, params in parser.feed(data):
-                if command == "PING":
-                    input_stream.send("PONG", *params)
                 yield idiokit.send(prefix, command, params)
 
             data = yield sock.recv(4096, timeout=None)
@@ -164,7 +174,9 @@ def _main(sock, nick, parser, ping_interval=10.0, write_timeout=30.0):
 
     try:
         input_stream = _input()
-        yield input_stream | _output(input_stream)
+        output_stream = _output()
+        idiokit.pipe(output_stream.fork(), _ping(), input_stream)
+        yield idiokit.pipe(input_stream, output_stream)
     finally:
         yield sock.close()
 
