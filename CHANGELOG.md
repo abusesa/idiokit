@@ -5,6 +5,12 @@
 ### Features
 
  * Add ```socket.fromsocket(socket, close_original=True)``` for wrapping "native" Python socket objects ([5ff15c2](https://github.com/abusesa/idiokit/commit/5ff15c26a847cc2882b9109801732b332922ebcd))
+ * Add socket & ping timeouts to ```idiokit.irc``` connections ([#16](https://github.com/abusesa/idiokit/pull/16))
+  * The timeout is 30 seconds by default and can be controlled with the ```timeout``` keyword argument of ```idiokit.irc.connect``` (e.g. ```idiokit.irc.connect(..., timeout=30.0)```)
+ 
+### Fixes
+
+ * Fix accidentally blocked exception propagation ([#17](https://github.com/abusesa/idiokit/issues/17), [#18](https://github.com/abusesa/idiokit/pull/18))
 
 ## 2.4.0 (2016-02-10)
 
