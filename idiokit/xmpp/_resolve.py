@@ -20,7 +20,7 @@ def resolve(domain, forced_host=None, forced_port=None):
 
     try:
         srv_records = yield dns.srv("_xmpp-client._tcp." + domain)
-    except (dns.ResponseError, dns.DNSTimeout):
+    except dns.DNSError:
         srv_records = []
 
     if not srv_records:
