@@ -152,22 +152,25 @@ def _wrapped(ssl, timeout, func, *args, **keys):
 
 
 @idiokit.stream
-def wrap_socket(sock,
-                keyfile=None,
-                certfile=None,
-                server_side=False,
-                ssl_version=PROTOCOL_SSLv23,
-                require_cert=False,
-                ca_certs=None,
-                timeout=None):
-    keys = dict(
-        keyfile=keyfile,
-        certfile=certfile,
-        server_side=server_side,
-        cert_reqs=_ssl.CERT_REQUIRED if require_cert else _ssl.CERT_NONE,
-        ssl_version=ssl_version,
-        do_handshake_on_connect=False,
-        suppress_ragged_eofs=True)
+def wrap_socket(
+    sock,
+    keyfile=None,
+    certfile=None,
+    server_side=False,
+    ssl_version=PROTOCOL_SSLv23,
+    require_cert=False,
+    ca_certs=None,
+    timeout=None
+):
+    keys = {
+        "keyfile": keyfile,
+        "certfile": certfile,
+        "server_side": server_side,
+        "cert_reqs": _ssl.CERT_REQUIRED if require_cert else _ssl.CERT_NONE,
+        "ssl_version": ssl_version,
+        "do_handshake_on_connect": False,
+        "suppress_ragged_eofs": True
+    }
 
     if not require_cert or ca_certs is not None:
         cert = _constant_cert(ca_certs)
