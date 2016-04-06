@@ -1,6 +1,5 @@
 from __future__ import absolute_import
 
-import os
 import re
 import tempfile
 import platform
@@ -71,17 +70,10 @@ O1m5HRRBQdjLoUrIsOby9i0rQyoEYE44YlUVgLbTKNL2zl+b+Sn/zg5Z+g==
 
 @contextlib.contextmanager
 def _dummy_cert():
-    fd, path = tempfile.mkstemp()
-    try:
-        index = 0
-        while index < len(CERT_DATA):
-            index += os.write(fd, CERT_DATA[index:])
-        os.fsync(fd)
-
-        yield path
-    finally:
-        os.close(fd)
-        os.remove(path)
+    with tempfile.NamedTemporaryFile() as fileobj:
+        fileobj.write(CERT_DATA)
+        fileobj.flush()
+        yield fileobj.name
 
 
 def _constant_cert(filename):
