@@ -4,10 +4,11 @@
 
 ### Features
 
- * Add ```socket.fromsocket(socket, close_original=True)``` for wrapping "native" Python socket objects ([5ff15c2](https://github.com/abusesa/idiokit/commit/5ff15c26a847cc2882b9109801732b332922ebcd))
+ * Add ```idiokit.socket.fromfd``` and ```idiokit.socket.socketpair``` wrapping their "native" Python ```socket``` module counterparts  ([5d1fbe6](https://github.com/abusesa/idiokit/commit/5d1fbe659b07be423d69d244066bd0a8568ab095), [a255d49](https://github.com/abusesa/idiokit/commit/a255d49abbe4c232d9372431ecc5c65c781bf9bd))
  * Add socket & ping timeouts to ```idiokit.irc``` connections ([#16](https://github.com/abusesa/idiokit/pull/16))
   * The timeout is 30 seconds by default and can be controlled with the ```timeout``` keyword argument of ```idiokit.irc.connect``` (e.g. ```idiokit.irc.connect(..., timeout=30.0)```)
- 
+ * Add CA bundle info for Alpine Linux, Debian & Fedora to ```idiokit.ssl``` ([#22](https://github.com/abusesa/idiokit/pull/22))
+
 ### Fixes
 
  * Fix accidentally blocked exception propagation ([#17](https://github.com/abusesa/idiokit/issues/17), [#18](https://github.com/abusesa/idiokit/pull/18))
