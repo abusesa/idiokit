@@ -131,6 +131,14 @@ class _Socket(object):
         return self._socket.proto
 
     def __init__(self, socket):
+        # Some CPython 2.x standard socket module functions such as
+        # socket.fromfd and socket.socketpair return socket._realsocket
+        # instances which do not work with ssl.wrap_socket (see e.g.
+        # https://bugs.python.org/issue13942). Work around this by wrapping
+        # socket._realsocket instances to socket.SocketType.
+        if isinstance(socket, _socket._realsocket):
+            socket = _socket.socket(_sock=socket)
+
         self._socket = socket
 
         with wrapped_socket_errors():
