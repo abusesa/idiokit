@@ -287,7 +287,19 @@ class Socket(_Socket):
         _Socket.__init__(self, raw_socket)
 
 
-def fromfd(fd, family, type, proto=0):
+def fromfd(*args, **keys):
     with wrapped_socket_errors():
-        raw_socket = _socket.fromfd(fd, family, type, proto)
+        raw_socket = _socket.fromfd(*args, **keys)
     return _Socket(raw_socket)
+
+
+def socketpair(*args, **keys):
+    with wrapped_socket_errors():
+        left, right = _socket.socketpair(*args, **keys)
+
+    try:
+        return _Socket(left), _Socket(right)
+    except:
+        left.close()
+        right.close()
+        raise
