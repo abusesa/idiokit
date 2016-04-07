@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.5.0 (2016-04-07)
 
 ### Features
 
@@ -12,6 +12,7 @@
 ### Fixes
 
  * Fix accidentally blocked exception propagation ([#17](https://github.com/abusesa/idiokit/issues/17), [#18](https://github.com/abusesa/idiokit/pull/18))
+ * Fix XMPP connection crashes when the SRV request returns an empty set of results ([#21](https://github.com/abusesa/idiokit/issues/21), [8bf5cb0](https://github.com/abusesa/idiokit/commit/8bf5cb08b336e4c8368f4765ddfcaea7bf54c116))
 
 ## 2.4.0 (2016-02-10)
 
