@@ -287,8 +287,7 @@ class Socket(_Socket):
         _Socket.__init__(self, raw_socket)
 
 
-def fromsocket(socket, close_original=True):
-    raw_socket = _socket.fromfd(socket.fileno(), socket.family, socket.type, socket.proto)
-    if close_original:
-        socket.close()
+def fromfd(fd, family, type, proto=0):
+    with wrapped_socket_errors():
+        raw_socket = _socket.fromfd(fd, family, type, proto)
     return _Socket(raw_socket)
