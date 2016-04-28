@@ -8,6 +8,23 @@ import collections
 
 from . import heap, _time
 
+#
+# class SelectLoop(object):
+#     def __init__(self):
+#         pass
+#
+#     def select(self, rfds, wfds, xfds, timeout, callback, *args, **keys):
+#         pass
+#
+#     def cancel(self, obj):
+#         pass
+#
+#     def sleep(self, timeout, callback, *args, **keys):
+#         pass
+#
+#     def asap(self, callback, *args, **keys):
+#         pass
+
 
 class SelectLoop(object):
     _INFINITY = float("inf")
@@ -40,6 +57,11 @@ class SelectLoop(object):
         self._local = threading.local()
 
     def select(self, rfds, wfds, xfds, timeout, callback, *args, **keys):
+        # Check the fast path: Would the select return immediately?
+        has_errors, outr, outw, outx = self._select(rfds, wfds, xfds, 0.0)
+        if has_errors or outr or outw or outx:
+            return asap(callback, has_errors, outr, outw, outx, *args, **keys)
+
         types = tuple(rfds), tuple(wfds), tuple(xfds)
         return self._select_add(types, timeout, callback, args, keys)
 
