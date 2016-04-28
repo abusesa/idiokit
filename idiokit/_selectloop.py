@@ -8,23 +8,6 @@ import collections
 
 from . import heap, _time
 
-#
-# class SelectLoop(object):
-#     def __init__(self):
-#         pass
-#
-#     def select(self, rfds, wfds, xfds, timeout, callback, *args, **keys):
-#         pass
-#
-#     def cancel(self, obj):
-#         pass
-#
-#     def sleep(self, timeout, callback, *args, **keys):
-#         pass
-#
-#     def asap(self, callback, *args, **keys):
-#         pass
-
 
 class SelectLoop(object):
     _INFINITY = float("inf")
