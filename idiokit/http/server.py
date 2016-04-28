@@ -426,9 +426,7 @@ class _ChunkedWriter(object):
             raise WriterError("already finished")
 
         if data:
-            yield self._socket.sendall("{0:x}\r\n".format(len(data)))
-            yield self._socket.sendall(data)
-            yield self._socket.sendall("\r\n")
+            yield self._socket.sendall(b"{0:x}\r\n{1}\r\n".format(len(data), data))
         else:
             yield timer.sleep(0.0)
 
