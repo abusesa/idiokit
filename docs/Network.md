@@ -1,8 +1,17 @@
 # Network Programming
 
-## idiokit.socket
+The original proposition for idiokit was to make writing complex XMPP bots easier (`idiokit.xmpp`). By necessity idiokit had to support basic socket programming (`idiokit.socket`,o `idiokit.ssl`) from the start, but has also grown other handy capabilities along the way (`idiokit.http`, `idiokit.dns`, `idiokit.irc`).
+
+
+## Plain Sockets (idiokit.socket)
+
+`idiokit.socket` has been built to mimic the structure of Python's native `socket` module. Or at least the parts of it that deal directly with sockets: `socket.getaddrinfo` and such do not have counterparts in `idiokit.socket`.
+
+You create a new socket object with `idiokit.socket.Socket(...)`, and those objects offer almost all methods native socket objects do, just asynchronously versions of them.
 
 ### Echo Server
+
+Let's build an echo server along the lines of the [standard library example](https://docs.python.org/2/library/socket.html#example). Compare and contrast how the `idiokit.socket` methods map to the native `socket` ones.
 
 ```python
 import idiokit
@@ -11,16 +20,18 @@ from idiokit import socket
 
 @idiokit.stream
 def server(host, port):
-    sock = socket.Socket()
-    yield sock.bind((host, port))
-    yield sock.listen(1)
+    s = socket.Socket(socket.AF_INET, socket.SOCK_STREAM)
+    yield s.bind((host, port))
+    yield s.listen(1)
 
-    conn, addr = yield sock.accept()
+    conn, addr = yield s.accept()
+    print "Connected by:", addr
     while True:
-        data = yield conn.recv(512)
+        data = yield conn.recv(1024)
         if not data:
             break
         yield conn.sendall(data)
+    yield conn.close()
 
 
 idiokit.main_loop(server("localhost", 8080))
@@ -29,40 +40,26 @@ idiokit.main_loop(server("localhost", 8080))
 ### Echo Client
 
 ```python
-import sys
 import idiokit
-from idiokit import socket, select
+from idiokit import socket
 
 
 @idiokit.stream
 def client(host, port):
-    sock = socket.Socket()
-    yield sock.connect((host, port))
-    yield write(sock) | read(sock)
+    s = socket.Socket(socket.AF_INET, socket.SOCK_STREAM)
 
-
-@idiokit.stream
-def write(sock):
-    while True:
-        yield select.select((sys.stdin,), (), ())
-        line = sys.stdin.readline()
-        yield sock.sendall(line)
-
-
-@idiokit.stream
-def read(sock):
-    while True:
-        data = yield sock.recv(1024)
-        if not data:
-            break
-        sys.stdout.write(data)
-        sys.stdout.flush()
+    yield s.connect((host, port))
+    yield s.sendall("Hello, World!")
+    data = yield s.recv(1024)
+    yield s.close()
+    print "Received", repr(data)
 
 
 idiokit.main_loop(client("localhost", 8080))
 ```
 
-## idiokit.ssl
+
+## SSL / TLS Sockets (idiokit.ssl)
 
 ```python
 import sys
@@ -112,7 +109,8 @@ Traceback (most recent call last):
 idiokit.ssl.SSLCertificateError: hostname '192.30.252.130' doesn't match 'github.com' or 'www.github.com'
 ```
 
-## idiokit.http
+
+## Streaming HTTP (idiokit.http)
 
 ### HTTP Client
 
@@ -184,7 +182,8 @@ $ curl -L -d 'Hello, World!' http://localhost:8080/
 Hello, World!
 ```
 
-## idiokit.dns
+
+## Asynchronous DNS (idiokit.dns)
 
 ```python
 import idiokit
@@ -216,7 +215,8 @@ def main(name):
 idiokit.main_loop(main("www.github.com"))
 ```
 
-## idiokit.xmpp
+
+## XMPP (idiokit.xmpp)
 
 ```python
 import getpass
@@ -252,7 +252,8 @@ roomname = raw_input("Channel: ")
 idiokit.main_loop(echobot(username, password, roomname))
 ```
 
-## idiokit.irc
+
+## IRC (idiokit.irc)
 
 ```python
 import idiokit
