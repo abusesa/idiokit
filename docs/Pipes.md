@@ -69,7 +69,7 @@ Received number 5
 ```
 
 
-## Output + input redirection
+## Output + Input Redirection
 
 ```python
 import idiokit
@@ -296,6 +296,8 @@ Printer X got number 3 from Producer A
 Printer X got number 3 from Producer B
 Printer Y got number 3 from Producer B
 ```
+
+`idiokit.send` is considered a success when at least *one* party has consumed it with e.g. `idiokit.next`.
 
 
 ## Forks
