@@ -20,7 +20,7 @@ def server(host, port):
         data = yield conn.recv(512)
         if not data:
             break
-        yield conn.send(data)
+        yield conn.sendall(data)
 
 
 idiokit.main_loop(server("localhost", 8080))
@@ -46,7 +46,7 @@ def write(sock):
     while True:
         yield select.select((sys.stdin,), (), ())
         line = sys.stdin.readline()
-        yield sock.send(line)
+        yield sock.sendall(line)
 
 
 @idiokit.stream
@@ -116,7 +116,73 @@ idiokit.ssl.SSLCertificateError: hostname '192.30.252.130' doesn't match 'github
 
 ### HTTP Client
 
+```python
+import sys
+import idiokit
+import idiokit.http.client
+
+
+@idiokit.stream
+def main(url):
+    request = yield idiokit.http.client.request("GET", url)
+    response = yield request.finish()
+
+    while True:
+        data = yield response.read(1024)
+        if not data:
+            break
+        sys.stdout.write(data)
+        sys.stdout.flush()
+
+
+idiokit.main_loop(main("https://github.com"))
+```
+
+Dealing with unix domain sockets:
+
+```python
+client = idiokit.http.client.Client()
+client.mount("http+unix://", idiokit.http.client.HTTPUnixAdapter())
+request = yield client.request("GET", "http+unix://%2Fpath%2Fto%2Fsocket/")
+```
+
 ### HTTP Server
+
+```python
+import httplib
+
+import idiokit
+from idiokit.http.server import serve_http
+
+
+@idiokit.stream
+def handler(addr, request, response):
+    if request.method != "POST":
+        yield response.write_status(httplib.METHOD_NOT_ALLOWED)
+        return
+
+    if request.uri != "/echo":
+        yield response.write_status(httplib.TEMPORARY_REDIRECT)
+        yield response.write_headers({
+            "location": "/echo"
+        })
+        return
+
+    while True:
+        data = yield request.read(512)
+        print data
+        if not data:
+            break
+        yield response.write(data)
+
+
+idiokit.main_loop(serve_http(handler, "localhost", 8080))
+```
+
+```console
+$ curl -L -d 'Hello, World!' http://localhost:8080/
+Hello, World!
+```
 
 ## idiokit.dns
 
