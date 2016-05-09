@@ -40,8 +40,8 @@ idiokit.main_loop(serve_http(handler, "localhost", 8080))
 
  * [Pipes](./Pipes.md): How to compose your asynchronous functions to handy pipelines.
 
- * [Helpers](./Helpers.md): Helpful tools for general idiokit programming.
-
  * [Network Programming](./Network.md): idiokit can handle basic sockets as well as some higher level protocols.
+
+ * [Helpers](./Helpers.md): Helpful tools for general idiokit programming.
 
  * [Common Problems](./Problems.md): Common problems that pop up from time to time - and some proposed solutions.
