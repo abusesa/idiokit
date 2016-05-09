@@ -9,9 +9,9 @@ The original proposition for idiokit was to make writing complex XMPP bots easie
 
 You create a new socket object with `idiokit.socket.Socket(...)`, and those objects offer almost all methods native socket objects do, just asynchronously versions of them.
 
-### Echo Server
+Let's build echo server and client along the lines of the [standard library example](https://docs.python.org/2/library/socket.html#example). Compare and contrast how the `idiokit.socket` methods map to the native `socket` ones.
 
-Let's build an echo server along the lines of the [standard library example](https://docs.python.org/2/library/socket.html#example). Compare and contrast how the `idiokit.socket` methods map to the native `socket` ones.
+### Echo Server
 
 ```python
 import idiokit
