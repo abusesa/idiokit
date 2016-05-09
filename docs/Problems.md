@@ -37,10 +37,9 @@ def produce():
     for number in range(1000):
         print "Sending out", number
         yield idiokit.send(number)
-        yield idiokit.sleep(1.0)
 
 
-idiokit.main_loop(produce() | idiokit.consume())
+idiokit.main_loop(produce())
 ```
 
 This will idle forever after the first print.
@@ -53,10 +52,6 @@ Sending out 0
 Use `idiokit.consume` which is like a `/dev/null` for streams:
 
 ```python
-import idiokit
-
-...
-
 idiokit.main_loop(produce() | idiokit.consume())
 ```
 
