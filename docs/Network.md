@@ -186,6 +186,99 @@ Hello, World!
 
 ## idiokit.dns
 
+```python
+import idiokit
+from idiokit import dns
+
+
+@idiokit.stream
+def output(record_type, resolver):
+    try:
+        records = yield resolver
+    except (ValueError, dns.DNSError):
+        return
+
+    print record_type, "records:"
+    for result in records:
+        print "   ", result
+
+
+@idiokit.stream
+def main(name):
+    yield output("CNAME", dns.cname(name))
+    yield output("A", dns.a(name))
+    yield output("AAAA", dns.aaaa(name))
+    yield output("TXT", dns.txt(name))
+    yield output("MX", dns.mx(name))
+    yield output("PTR", dns.ptr(name))
+
+
+idiokit.main_loop(main("www.github.com"))
+```
+
 ## idiokit.xmpp
 
+```python
+import getpass
+import idiokit
+from idiokit.xmpp import connect, jid
+
+
+@idiokit.stream
+def prevent_feedback_loop(own_jid):
+    while True:
+        elements = yield idiokit.next()
+
+        for message in elements.named("message").with_attrs("from"):
+            sender = jid.JID(message.get_attr("from"))
+            if sender == own_jid:
+                continue
+
+            for body in message.children("body"):
+                yield idiokit.send(body)
+
+
+@idiokit.stream
+def echobot(username, password, roomname):
+    xmpp = yield connect(username, password)
+    room = yield xmpp.muc.join(roomname)
+
+    yield room | prevent_feedback_loop(room.jid) | room
+
+
+username = raw_input("Username: ")
+password = getpass.getpass()
+roomname = raw_input("Channel: ")
+idiokit.main_loop(echobot(username, password, roomname))
+```
+
 ## idiokit.irc
+
+```python
+import idiokit
+from idiokit.irc import connect
+
+
+@idiokit.stream
+def filter_messages(own_nick, channel):
+    while True:
+        prefix, command, params = yield idiokit.next()
+        if command != "PRIVMSG":
+            continue
+        if not params or params[0] != channel:
+            continue
+        yield idiokit.send(command, *params)
+
+
+@idiokit.stream
+def echobot(host, port, channel):
+    irc = yield connect(host, port, "echobot")
+    yield irc.join(channel)
+    yield irc | filter_messages(irc.nick, channel) | irc
+
+
+host = raw_input("Host: ")
+port = int(raw_input("Port: "))
+channel = raw_input("Channel: ")
+idiokit.main_loop(echobot(host, port, channel))
+```
