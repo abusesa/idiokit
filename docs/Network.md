@@ -7,9 +7,7 @@ The original proposition for idiokit was to make writing complex XMPP bots easie
 
 `idiokit.socket` has been built to mimic the structure of Python's native `socket` module. Or at least the parts of it that deal directly with sockets: `socket.getaddrinfo` and such do not have counterparts in `idiokit.socket`.
 
-You create a new socket object with `idiokit.socket.Socket(...)`, and those objects offer almost all methods native socket objects do, just asynchronously versions of them.
-
-Let's build echo server and client along the lines of the [standard library example](https://docs.python.org/2/library/socket.html#example). Compare and contrast how the `idiokit.socket` methods map to the native `socket` ones.
+You create a new socket object with `idiokit.socket.Socket(...)`, and those objects offer almost all methods native socket objects do, just asynchronously versions of them. Let's build echo client and server along the lines of the [standard library example](https://docs.python.org/2/library/socket.html#example). Compare and contrast how the `idiokit.socket` methods map to the native `socket` ones.
 
 ### Echo Server
 
@@ -27,15 +25,17 @@ def server(host, port):
     conn, addr = yield s.accept()
     print "Connected by:", addr
     while True:
-        data = yield conn.recv(1024)
+        data = yield conn.recv(1024, timeout=15.0)
         if not data:
             break
-        yield conn.sendall(data)
+        yield conn.sendall(data, timeout=15.0)
     yield conn.close()
 
 
 idiokit.main_loop(server("localhost", 8080))
 ```
+
+The above code demonstrates an additional feature: Timeouts can be set per method call. For example the line `data = yield conn.recv(1024, timeout=15.0)` will wait for only for 15 seconds and raise `socket.SocketTimeout` if the server can't receive any input within the time limit. The `timeout` keyword argument can be passed to many `idiokit.socket` methods like `connect`, `recv`, `send` and `sendall`.
 
 ### Echo Client
 
