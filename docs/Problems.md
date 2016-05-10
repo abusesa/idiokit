@@ -26,36 +26,6 @@ idiokit.main_loop(serve_http(handler, "localhost", 8080))
 Use `idiokit.thread` or better yet, an asynchronous idiokit counterpart when available: In this case `idiokit.dns.a` does the trick.
 
 
-## Blocking the Pipeline: `idiokit.send` without `idiokit.next`
-
-```python
-import idiokit
-
-
-@idiokit.stream
-def produce():
-    for number in range(1000):
-        print "Sending out", number
-        yield idiokit.send(number)
-
-
-idiokit.main_loop(produce())
-```
-
-This will idle forever after the first print.
-
-```console
-$ python example.py
-Sending out 0
-```
-
-Use `idiokit.consume` which is like a `/dev/null` for streams:
-
-```python
-idiokit.main_loop(produce() | idiokit.consume())
-```
-
-
 ## Forgetting to `yield`
 
 This is what happens when you forget to yield in your streams:
