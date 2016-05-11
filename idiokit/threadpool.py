@@ -19,58 +19,58 @@ class ThreadPool(object):
 
     def __init__(self, idle_time=1.0):
         self.idle_time = idle_time
-
-        self.lock = self._Lock()
         self.supervisor = None
-
         self.alive = 0
         self.threads = self._deque()
-        self.queue = self._deque()
 
+    @idiokit.stream
     def run(self, func, *args, **keys):
         event = self._Event()
 
-        with self.lock:
-            if self.threads:
-                _, lock, queue = self.threads.pop()
-                queue.append((event, func, args, keys))
-                lock.release()
-            else:
-                lock = self._Lock()
-                queue = [(event, func, args, keys)]
+        if self.threads:
+            _, lock, queue = self.threads.pop()
+            queue.append((event, func, args, keys))
+            lock.release()
+        else:
+            lock = self._Lock()
+            queue = [(event, func, args, keys)]
 
-                thread = self._Thread(target=self._thread, args=(lock, queue))
-                thread.daemon = True
-                thread.start()
+            thread = self._Thread(target=self._thread, args=(lock, queue))
+            thread.daemon = True
+            thread.start()
 
-                self.alive += 1
+            self.alive += 1
 
-            if self.supervisor is None:
-                self.supervisor = self._supervisor()
+        if self.supervisor is None:
+            self.supervisor = self._supervisor()
 
-        return event
+        result = yield event
+        idiokit.stop(result)
 
     @idiokit.stream
     def _supervisor(self):
         while True:
             while True:
                 yield self._sleep(self.idle_time / 2.0)
+                if self.alive == 0:
+                    break
 
-                with self.lock:
-                    if self.alive == 0:
-                        break
-
-                    cut = self._monotonic() - self.idle_time
-                    while self.threads and self.threads[0][0] < cut:
-                        _, lock, queue = self.threads.popleft()
-                        queue.append(None)
-                        lock.release()
+                cut = self._monotonic() - self.idle_time
+                while self.threads and self.threads[0][0] < cut:
+                    _, lock, queue = self.threads.popleft()
+                    queue.append(None)
+                    lock.release()
 
             yield self._sleep(self.idle_time)
-            with self.lock:
-                if self.alive == 0:
-                    self.supervisor = None
-                    return
+            if self.alive == 0:
+                self.supervisor = None
+                return
+
+    def _append(self, lock, queue):
+        self.threads.append((self._monotonic(), lock, queue))
+
+    def _finish(self):
+        self.alive -= 1
 
     def _thread(self, lock, queue):
         while True:
@@ -78,12 +78,10 @@ class ThreadPool(object):
 
             item = queue.pop()
             if item is None:
-                with self.lock:
-                    self.alive -= 1
+                self._asap(self._finish)
                 return
 
             event, func, args, keys = item
-
             try:
                 throw = False
                 args = (func(*args, **keys),)
@@ -91,9 +89,7 @@ class ThreadPool(object):
                 throw = True
                 args = self._exc_info()
 
-            with self.lock:
-                self.threads.append((self._monotonic(), lock, queue))
-
+            self._asap(self._append, lock, queue)
             if throw:
                 self._asap(event.fail, *args)
             else:
