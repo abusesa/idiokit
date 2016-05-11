@@ -1,6 +1,13 @@
 # Changelog
 
 
+## 2.6.1 (2016-05-12)
+
+### Fixes
+
+ * Do a larger part of the bookeeping work for `idiokit.thread` calls in the main thread, meaning less potential places for errors during Python interpreter shutdown ([3bebf76](https://github.com/abusesa/idiokit/commit/3bebf769a1b3f9cfd011e4ae1a3db72727f1f864))
+
+
 ## 2.6.0 (2016-05-11)
 
 ### Features
