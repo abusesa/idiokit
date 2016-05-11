@@ -20,7 +20,7 @@ def tmpdir():
 
 class TestWrapSocket(unittest.TestCase):
     @idiokit.stream
-    def _test_wrap_socket(self, client_conn, server_conn):
+    def _test_wrap_socket(self, client_conn, server_conn, require_cert=False):
         # Self-signed combined certfile/keyfile created using cfssl version
         # 1.2.0 with the following command:
         #   echo '{"key":{"algo":"rsa","size":2048}}' | cfssl selfsign idiokit.example -
@@ -92,7 +92,7 @@ class TestWrapSocket(unittest.TestCase):
         def run_client(client_conn):
             client = yield ssl.wrap_socket(
                 client_conn,
-                require_cert=False
+                require_cert=require_cert
             )
 
             result = ""
@@ -147,3 +147,11 @@ class TestWrapSocket(unittest.TestCase):
             socket.fromfd(left.fileno(), left.family, left.type),
             socket.fromfd(right.fileno(), right.family, right.type)
         ))
+
+    def test_should_check_certificates_when_require_cert_is_set(self):
+        left, right = socket.socketpair()
+        self.assertRaises(
+            ssl.SSLError,
+            idiokit.main_loop,
+            self._test_wrap_socket(left, right, require_cert=True)
+        )

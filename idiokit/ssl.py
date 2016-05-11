@@ -31,7 +31,7 @@ del _name, _names
 
 
 # A cert to make the ssl.wrap_socket to use the system CAs.
-CERT_DATA = """
+_DUMMY_CERT_DATA = """
 -----BEGIN CERTIFICATE-----
 MIIFxzCCA6+gAwIBAgIJANrA5MxUQxeMMA0GCSqGSIb3DQEBBQUAMEsxSTBHBgNV
 BAMUQC0mZ01sU1FaNCwmZD01bjF5J0cjMjZKKXc9RSlEaGZ6QlVVby9XLTI0Iip1
@@ -66,21 +66,6 @@ HO9ICWDSY09Ahip73dCYbWwiwCvNbbp57nMTnN+8AHQlLiZ85IO1wmbEJ34gQRgR
 O1m5HRRBQdjLoUrIsOby9i0rQyoEYE44YlUVgLbTKNL2zl+b+Sn/zg5Z+g==
 -----END CERTIFICATE-----
 """
-
-
-@contextlib.contextmanager
-def _dummy_cert():
-    with tempfile.NamedTemporaryFile() as fileobj:
-        fileobj.write(CERT_DATA)
-        fileobj.flush()
-        yield fileobj.name
-
-
-def _constant_cert(filename):
-    @contextlib.contextmanager
-    def _cert():
-        yield filename
-    return _cert
 
 
 def _infer_linux_ca_bundle(ca_bundles_for_distros):
@@ -122,16 +107,30 @@ def _infer_linux_ca_bundle(ca_bundles_for_distros):
     return None
 
 
-_default_cert = _dummy_cert
-
-
 if platform.system().lower() == "linux":
     _ca_bundle_path = _infer_linux_ca_bundle({
         "/etc/ssl/certs/ca-certificates.crt": ["ubuntu", "alpine", "debian"],
         "/etc/pki/tls/certs/ca-bundle.crt": ["centos", "fedora"]
     })
+else:
+    _ca_bundle_path = None
+
+
+@contextlib.contextmanager
+def _ca_certs(ca_certs=None):
+    if ca_certs is not None:
+        yield ca_certs
+        return
+
     if _ca_bundle_path is not None:
-        _default_cert = _constant_cert(_ca_bundle_path)
+        yield _ca_bundle_path
+        return
+
+    with tempfile.NamedTemporaryFile() as fileobj:
+        fileobj.write(_DUMMY_CERT_DATA)
+        fileobj.flush()
+        yield fileobj.name
+ca_certs = _ca_certs
 
 
 @idiokit.stream
@@ -172,13 +171,8 @@ def wrap_socket(
         "suppress_ragged_eofs": True
     }
 
-    if not require_cert or ca_certs is not None:
-        cert = _constant_cert(ca_certs)
-    else:
-        cert = _default_cert
-
-    with cert() as cert_file:
-        ssl = _ssl.wrap_socket(sock._socket, ca_certs=cert_file, **keys)
+    with _ca_certs(ca_certs) as ca_certs:
+        ssl = _ssl.wrap_socket(sock._socket, ca_certs=ca_certs, **keys)
         yield _wrapped(ssl, timeout, ssl.do_handshake)
     idiokit.stop(_SSLSocket(ssl))
 
