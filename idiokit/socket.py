@@ -6,7 +6,7 @@ import errno
 import contextlib
 import socket as _socket
 
-from . import idiokit, threadpool, select, timer
+from . import idiokit, select, timer
 
 # Import constants from the standard socket module.
 for _name in getattr(_socket, "__all__", dir(_socket)):
@@ -182,13 +182,17 @@ class _Socket(object):
 
     @idiokit.stream
     def shutdown(self, how):
+        yield timer.sleep(0.0)
+
         with wrapped_socket_errors():
-            yield threadpool.thread(self._socket.shutdown, how)
+            self._socket.shutdown(how)
 
     @idiokit.stream
     def close(self):
+        yield timer.sleep(0.0)
+
         with wrapped_socket_errors():
-            yield threadpool.thread(self._socket.close)
+            self._socket.close()
 
     @idiokit.stream
     def recv(self, bufsize, flags=0, timeout=None):

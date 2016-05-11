@@ -6,7 +6,7 @@ import platform
 import contextlib
 import ssl as _ssl
 
-from . import idiokit, select, socket, timer, threadpool
+from . import idiokit, select, socket, timer
 
 
 class SSLError(socket.SocketError):
@@ -233,13 +233,17 @@ class _SSLSocket(object):
 
     @idiokit.stream
     def shutdown(self, how):
+        yield timer.sleep(0.0)
+
         with socket.wrapped_socket_errors():
-            yield threadpool.thread(self._ssl.shutdown, how)
+            self._ssl.shutdown(how)
 
     @idiokit.stream
     def close(self):
+        yield timer.sleep(0.0)
+
         with socket.wrapped_socket_errors():
-            yield threadpool.thread(self._ssl.close)
+            self._ssl.close()
 
 
 def identities(cert):
