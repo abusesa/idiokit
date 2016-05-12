@@ -86,3 +86,56 @@ Traceback (most recent call last):
     raise TypeError("expected a stream, got {0!r}".format(obj))
 TypeError: expected a stream, got None
 ```
+
+
+## TypeError: exceptions must be old-style classes or derived from BaseException, not NoneType
+
+Problem:
+
+```python
+import idiokit
+
+
+@idiokit.stream
+def main():
+    try:
+        raise Exception()
+    except:
+        yield idiokit.sleep(0.0)
+        raise
+
+
+idiokit.main_loop(main())
+```
+
+```console
+$ python example.py
+Traceback (most recent call last):
+  File "example.py", line 13, in <module>
+    idiokit.main_loop(main())
+  File "/usr/local/lib/python2.7/site-packages/idiokit/idiokit.py", line 354, in _next
+    next = require_stream(self._gen.send(peel_args(args)))
+  File "example.py", line 10, in main
+    raise
+TypeError: exceptions must be old-style classes or derived from BaseException, not NoneType
+```
+
+Workaround:
+
+```python
+import sys
+import idiokit
+
+
+@idiokit.stream
+def main():
+    try:
+        raise Exception()
+    except:
+        exc_type, exc_value, exc_traceback = sys.exc_info()
+        yield idiokit.sleep(0.0)
+        raise exc_type, exc_value, exc_traceback
+
+
+idiokit.main_loop(main())
+```
