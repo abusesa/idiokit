@@ -168,7 +168,6 @@ def handler(addr, request, response):
 
     while True:
         data = yield request.read(512)
-        print data
         if not data:
             break
         yield response.write(data)
