@@ -3,6 +3,8 @@
 
 ## 2.7.0 (2016-05-14)
 
+### Features
+
  * Add `.gettimeout()` and `.settimeout(...)` support to `idiokit.socket` and `idiokit.ssl` ([684f2c5](https://github.com/abusesa/idiokit/commit/684f2c560028befce129d29a9a162abc40ee8dab))
    * A socket's default timeout is set to 15 seconds with `s.settimeout(15.0)`, but can still be overriden per method by using the `timeout=...` keyword argument (e.g. `s.recv(..., timeout=30.0)` sets the timeout to 30 seconds for that specific `recv` operation).
 
