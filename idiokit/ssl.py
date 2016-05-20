@@ -110,7 +110,7 @@ def _infer_linux_ca_bundle(ca_bundles_for_distros):
 if platform.system().lower() == "linux":
     _ca_bundle_path = _infer_linux_ca_bundle({
         "/etc/ssl/certs/ca-certificates.crt": ["ubuntu", "alpine", "debian"],
-        "/etc/pki/tls/certs/ca-bundle.crt": ["centos", "fedora"]
+        "/etc/pki/tls/certs/ca-bundle.crt": ["centos", "fedora", "redhat"]
     })
 else:
     _ca_bundle_path = None

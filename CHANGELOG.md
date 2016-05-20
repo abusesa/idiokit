@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.7.1 (not released)
+
+### Features
+
+ * Add Red Hat to CA bundle paths in idiokit.ssl ([#24](https://github.com/abusesa/idiokit/pull/24))
+
 
 ## 2.7.0 (2016-05-14)
 
