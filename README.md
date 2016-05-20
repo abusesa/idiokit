@@ -2,6 +2,14 @@
 
 idiokit is a Python 2.x library for asynchronous tasks.
 
+
+## Documentation
+
+Take a look at [docs/README.md](./docs/README.md) for idiokit API documentation and examples.
+
+See [CHANGELOG.md](./CHANGELOG.md) to find out what's new in each release.
+
+
 ## Running tests & linter
 
 We run automated tests (for Python 2.6, 2.7 and PyPy) and flake8 linter for each repository push. View the logs at https://circleci.com/gh/abusesa/idiokit.
@@ -11,10 +19,6 @@ To run the tests locally you need to have [```tox```](http://tox.testrun.org/) i
 ```
 $ tox
 ```
-
-## Changelog
-
-See [CHANGELOG.md](./CHANGELOG.md).
 
 
 ## License
