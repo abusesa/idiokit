@@ -2,7 +2,7 @@
 
 **idiokit** is a library for asynchronous & concurrent programming for Python 2.6 and 2.7. Started in 2009 along with the [AbuseHelper](https://github.com/abusesa/abusehelper) project, idiokit has since been proven to be a general tool for situations involving Python, asynchronicity and concurrency.
 
-idiokit aims to offer a middle ground between threads and event loops with an abstraction for cooperative multitasking called **streams**. You can launch and run thousands of these streams concurrently, yet still write most of your code in a linear way much like any non-concurrent code. Streams can also be composed by **piping** them together - think of [Unix Pipelines](https%3A//en.wikipedia.org/wiki/Pipeline_%28Unix%29) but dealing with Python objects instead of raw bytes.
+idiokit aims to offer a middle ground between threads and event loops with an abstraction for cooperative multitasking called **streams**. You can launch and run thousands of these streams concurrently, yet still write most of your code in a linear way much like any non-concurrent code. Streams can also be composed by **piping** them together - think of [Unix Pipelines](https://en.wikipedia.org/wiki/Pipeline_(Unix)) but dealing with Python objects instead of raw bytes.
 
 
 ### Example: HTTP API for DNS queries
