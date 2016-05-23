@@ -1,15 +1,12 @@
 # Changelog
 
-## 2.7.1 (not released)
-
-### Features
-
- * Add Red Hat to CA bundle paths in idiokit.ssl ([#24](https://github.com/abusesa/idiokit/pull/24))
- * Add OpenBSD to CA bundle paths in idiokit.ssl ([#25](https://github.com/abusesa/idiokit/pull/25))
+## 2.7.1 (2016-05-23)
 
 ### Fixes 
 
-* Fix CA bundle path for Ubuntu in idiokit.ssl ([#25](https://github.com/abusesa/idiokit/pull/25))
+ * Add Red Hat to CA bundle paths in idiokit.ssl ([#24](https://github.com/abusesa/idiokit/pull/24))
+ * Add OpenBSD to CA bundle paths in idiokit.ssl ([#25](https://github.com/abusesa/idiokit/pull/25))
+ * Fix CA bundle path for Ubuntu in idiokit.ssl ([#25](https://github.com/abusesa/idiokit/pull/25))
 
 ## 2.7.0 (2016-05-14)
 
