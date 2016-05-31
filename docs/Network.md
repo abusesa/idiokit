@@ -188,30 +188,36 @@ Hello, World!
 import idiokit
 from idiokit import dns
 
-
 @idiokit.stream
-def output(record_type, resolver):
+def output(record_type, query, resolver):
     try:
         records = yield resolver
     except (ValueError, dns.DNSError):
         return
 
-    print record_type, "records:"
+    print record_type, "records for", query
     for result in records:
         print "   ", result
 
 
 @idiokit.stream
-def main(name):
-    yield output("CNAME", dns.cname(name))
-    yield output("A", dns.a(name))
-    yield output("AAAA", dns.aaaa(name))
-    yield output("TXT", dns.txt(name))
-    yield output("MX", dns.mx(name))
-    yield output("PTR", dns.ptr(name))
+def main():
+    name = "www.github.com"
+
+    yield output("CNAME", name, dns.cname(name))
+    yield output("A", name, dns.a(name))
+    yield output("AAAA", name, dns.aaaa(name))
+    yield output("TXT", name, dns.txt(name))
+    yield output("MX", name, dns.mx(name))
+
+    name = "131.252.30.192.in-addr.arpa"
+    yield output("PTR", name, dns.ptr(name))
+
+    ip = "192.30.252.131"
+    yield output("PTR (using reverse_lookup() helper)", ip, dns.reverse_lookup(ip))
 
 
-idiokit.main_loop(main("www.github.com"))
+idiokit.main_loop(main())
 ```
 
 
