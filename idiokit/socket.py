@@ -6,7 +6,7 @@ import errno
 import contextlib
 import socket as _socket
 
-from . import idiokit, threadpool, select, timer
+from . import idiokit, select, timer
 
 # Import constants from the standard socket module.
 for _name in getattr(_socket, "__all__", dir(_socket)):
@@ -81,39 +81,30 @@ _ALLOWED_SOCKET_ERRNOS = frozenset([
 ])
 
 
-@idiokit.stream
-def _recv(socket, timeout, func, *args, **keys):
-    for timeout in countdown(timeout):
-        yield select.select((socket,), (), (), timeout)
-
-        try:
-            data = func(*args, **keys)
-        except _socket.error as err:
-            if err.errno not in _ALLOWED_SOCKET_ERRNOS:
-                raise
-        else:
-            idiokit.stop(data)
+def _wrapped_call(default_result, func, *args, **keys):
+    try:
+        result = func(*args, **keys)
+    except _socket.error as err:
+        if err.errno not in _ALLOWED_SOCKET_ERRNOS:
+            raise
+        return default_result
+    return result
 
 
-@idiokit.stream
-def _send(socket, timeout, func, *args, **keys):
-    for timeout in countdown(timeout):
-        yield select.select((), (socket,), (), timeout)
-
-        try:
-            bytes = func(*args, **keys)
-        except _socket.error as err:
-            if err.errno not in _ALLOWED_SOCKET_ERRNOS:
-                raise
-        else:
-            idiokit.stop(bytes)
+_DEFAULT_TIMEOUT = object()
 
 
-def _sendto_with_flags(string, flags, address, timeout=None):
+def _resolve_timeout(socket, timeout):
+    if timeout is _DEFAULT_TIMEOUT:
+        return socket.gettimeout()
+    return timeout
+
+
+def _sendto_with_flags(string, flags, address, timeout=_DEFAULT_TIMEOUT):
     return string, flags, address, timeout
 
 
-def _sendto_without_flags(string, address, timeout=None):
+def _sendto_without_flags(string, address, timeout=_DEFAULT_TIMEOUT):
     return string, 0, address, timeout
 
 
@@ -131,10 +122,25 @@ class _Socket(object):
         return self._socket.proto
 
     def __init__(self, socket):
+        # Some CPython 2.x standard socket module functions such as
+        # socket.fromfd and socket.socketpair return socket._realsocket
+        # instances which do not work with ssl.wrap_socket (see e.g.
+        # https://bugs.python.org/issue13942). Work around this by wrapping
+        # socket._realsocket instances to socket.SocketType.
+        if isinstance(socket, _socket._realsocket):
+            socket = _socket.socket(_sock=socket)
+
         self._socket = socket
+        self._timeout = None
 
         with wrapped_socket_errors():
             self._socket.setblocking(False)
+
+    def settimeout(self, timeout):
+        self._timeout = timeout
+
+    def gettimeout(self):
+        return self._timeout
 
     @idiokit.stream
     def getpeername(self, *args, **keys):
@@ -165,13 +171,21 @@ class _Socket(object):
             self._socket.listen(backlog)
 
     @idiokit.stream
-    def accept(self, timeout=None):
+    def accept(self, timeout=_DEFAULT_TIMEOUT):
+        timeout = _resolve_timeout(self, timeout)
         with wrapped_socket_errors():
-            socket, address = yield _recv(self._socket, timeout, self._socket.accept)
-        idiokit.stop(_Socket(socket), address)
+            for timeout in countdown(timeout):
+                yield select.select((self._socket,), (), (), timeout)
+
+                result = _wrapped_call(None, self._socket.accept)
+                if result is not None:
+                    socket, address = result
+                    idiokit.stop(_Socket(socket), address)
 
     @idiokit.stream
-    def connect(self, address, timeout=None):
+    def connect(self, address, timeout=_DEFAULT_TIMEOUT):
+        timeout = _resolve_timeout(self, timeout)
+
         yield timer.sleep(0.0)
 
         for timeout in countdown(timeout):
@@ -187,55 +201,73 @@ class _Socket(object):
 
     @idiokit.stream
     def shutdown(self, how):
+        yield timer.sleep(0.0)
+
         with wrapped_socket_errors():
-            yield threadpool.thread(self._socket.shutdown, how)
+            self._socket.shutdown(how)
 
     @idiokit.stream
     def close(self):
+        yield timer.sleep(0.0)
+
         with wrapped_socket_errors():
-            yield threadpool.thread(self._socket.close)
+            self._socket.close()
 
     @idiokit.stream
-    def recv(self, bufsize, flags=0, timeout=None):
+    def recv(self, bufsize, flags=0, timeout=_DEFAULT_TIMEOUT):
+        timeout = _resolve_timeout(self, timeout)
         if bufsize <= 0:
             yield timer.sleep(0.0)
             idiokit.stop("")
-
-        with wrapped_socket_errors():
-            result = yield _recv(self._socket, timeout, self._socket.recv, bufsize, flags)
-        idiokit.stop(result)
-
-    @idiokit.stream
-    def recvfrom(self, bufsize, flags=0, timeout=None):
-        if bufsize <= 0:
-            yield timer.sleep(0.0)
-            idiokit.stop("")
-
-        with wrapped_socket_errors():
-            result = yield _recv(self._socket, timeout, self._socket.recvfrom, bufsize, flags)
-        idiokit.stop(result)
-
-    @idiokit.stream
-    def send(self, data, flags=0, timeout=None):
-        check_sendable_type(data)
-
-        with wrapped_socket_errors():
-            result = yield _send(self._socket, timeout, self._socket.send, data, flags)
-        idiokit.stop(result)
-
-    @idiokit.stream
-    def sendall(self, data, flags=0, timeout=None):
-        check_sendable_type(data)
-
-        offset = 0
-        length = len(data)
 
         with wrapped_socket_errors():
             for timeout in countdown(timeout):
-                buf = buffer(data, offset)
-                bytes = yield _send(self._socket, timeout, self._socket.send, buf, flags)
+                yield select.select((self._socket,), (), (), timeout)
 
-                offset += bytes
+                result = _wrapped_call(None, self._socket.recv, bufsize, flags)
+                if result is not None:
+                    idiokit.stop(result)
+
+    @idiokit.stream
+    def recvfrom(self, bufsize, flags=0, timeout=_DEFAULT_TIMEOUT):
+        timeout = _resolve_timeout(self, timeout)
+        if bufsize <= 0:
+            yield timer.sleep(0.0)
+            idiokit.stop("")
+
+        with wrapped_socket_errors():
+            for timeout in countdown(timeout):
+                yield select.select((self._socket,), (), (), timeout)
+
+                result = _wrapped_call(None, self._socket.recvfrom, bufsize, flags)
+                if result is not None:
+                    idiokit.stop(result)
+
+    @idiokit.stream
+    def send(self, data, flags=0, timeout=_DEFAULT_TIMEOUT):
+        check_sendable_type(data)
+        timeout = _resolve_timeout(self, timeout)
+
+        with wrapped_socket_errors():
+            for timeout in countdown(timeout):
+                yield select.select((), (self._socket,), (), timeout)
+
+                count = _wrapped_call(None, self._socket.send, data, flags)
+                if count is not None:
+                    idiokit.stop(count)
+
+    @idiokit.stream
+    def sendall(self, data, flags=0, timeout=_DEFAULT_TIMEOUT):
+        check_sendable_type(data)
+        timeout = _resolve_timeout(self, timeout)
+
+        offset = 0
+        length = len(data)
+        with wrapped_socket_errors():
+            for timeout in countdown(timeout):
+                yield select.select((), (self._socket,), (), timeout)
+
+                offset += _wrapped_call(0, self._socket.send, buffer(data, offset), flags)
                 if offset >= length:
                     break
 
@@ -247,10 +279,15 @@ class _Socket(object):
             data, flags, address, timeout = _sendto_with_flags(data, *args, **keys)
         except TypeError:
             data, flags, address, timeout = _sendto_without_flags(data, *args, **keys)
+        timeout = _resolve_timeout(self, timeout)
 
         with wrapped_socket_errors():
-            result = yield _send(self._socket, timeout, self._socket.sendto, data, flags, address)
-        idiokit.stop(result)
+            for timeout in countdown(timeout):
+                yield select.select((), (self._socket,), (), timeout)
+
+                count = _wrapped_call(None, self._socket.sendto, data, flags, address)
+                if count is not None:
+                    idiokit.stop(count)
 
     @idiokit.stream
     def getsockopt(self, *args, **keys):
@@ -275,7 +312,7 @@ class _Socket(object):
     # Not implemented:
     # connect_ex: Use connect(...)
     # recv_into, recvfrom_into: Use recv(...) and recvfrom(...)
-    # setblocking, settimeout, gettimeout: Use Socket.<method>(..., timeout=<seconds>)
+    # setblocking: Use settimeout(...)
     # ioctl
     # makefile
 
@@ -287,8 +324,19 @@ class Socket(_Socket):
         _Socket.__init__(self, raw_socket)
 
 
-def fromsocket(socket, close_original=True):
-    raw_socket = _socket.fromfd(socket.fileno(), socket.family, socket.type, socket.proto)
-    if close_original:
-        socket.close()
+def fromfd(*args, **keys):
+    with wrapped_socket_errors():
+        raw_socket = _socket.fromfd(*args, **keys)
     return _Socket(raw_socket)
+
+
+def socketpair(*args, **keys):
+    with wrapped_socket_errors():
+        left, right = _socket.socketpair(*args, **keys)
+
+    try:
+        return _Socket(left), _Socket(right)
+    except:
+        left.close()
+        right.close()
+        raise

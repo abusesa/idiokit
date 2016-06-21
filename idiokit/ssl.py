@@ -1,13 +1,12 @@
 from __future__ import absolute_import
 
-import os
 import re
 import tempfile
 import platform
 import contextlib
 import ssl as _ssl
 
-from . import idiokit, select, socket, timer, threadpool
+from . import idiokit, select, socket, timer
 
 
 class SSLError(socket.SocketError):
@@ -32,7 +31,7 @@ del _name, _names
 
 
 # A cert to make the ssl.wrap_socket to use the system CAs.
-CERT_DATA = """
+_DUMMY_CERT_DATA = """
 -----BEGIN CERTIFICATE-----
 MIIFxzCCA6+gAwIBAgIJANrA5MxUQxeMMA0GCSqGSIb3DQEBBQUAMEsxSTBHBgNV
 BAMUQC0mZ01sU1FaNCwmZD01bjF5J0cjMjZKKXc9RSlEaGZ6QlVVby9XLTI0Iip1
@@ -69,35 +68,71 @@ O1m5HRRBQdjLoUrIsOby9i0rQyoEYE44YlUVgLbTKNL2zl+b+Sn/zg5Z+g==
 """
 
 
-@contextlib.contextmanager
-def _dummy_cert():
-    fd, path = tempfile.mkstemp()
-    try:
-        index = 0
-        while index < len(CERT_DATA):
-            index += os.write(fd, CERT_DATA[index:])
-        os.fsync(fd)
+def _infer_linux_ca_bundle(ca_bundles_for_distros):
+    """
+    Return a CA certificate bundle typical for the Linux distribution
+    the program is currently running on.
 
-        yield path
-    finally:
-        os.close(fd)
-        os.remove(path)
+    Inference is based on the argument, assumed to be a dictionary listing
+    potential CA certificate bundle paths and for each path a list of Linux
+    distributions that usually use that path. The distribution names should be
+    given in the format platform.linux_distribution returns when its
+    full_distribution_name argument is set to False. Names are matched
+    case-sensitively.
+
+    >>> distro = platform.linux_distribution(full_distribution_name=False)[0]
+    >>> _infer_linux_ca_bundle({
+    ...     "/path/to/ca-bundle.crt": [distro],
+    ...     "/some/other/ca-bundle.crt": ["other" + distro]
+    ... })
+    '/path/to/ca-bundle.crt'
+
+    Return None when no CA bundle path can be inferred.
+
+    >>> _infer_linux_ca_bundle({})
+    """
+
+    supported_dists = set()
+    for ca_bundle_path, distro_names in ca_bundles_for_distros.items():
+        supported_dists.update(distro_names)
+
+    distro, _, _ = platform.linux_distribution(
+        full_distribution_name=False,
+        supported_dists=supported_dists
+    )
+
+    for ca_bundle_path, distro_names in ca_bundles_for_distros.items():
+        if distro in distro_names:
+            return ca_bundle_path
+    return None
 
 
-def _constant_cert(filename):
-    @contextlib.contextmanager
-    def _cert():
-        yield filename
-    return _cert
-
-
-_distro = platform.linux_distribution(full_distribution_name=False)[0].lower()
-if _distro == "ubuntu":
-    _default_cert = _constant_cert("/etc/ssl/certs/ca-certificates.crt")
-elif _distro == "centos":
-    _default_cert = _constant_cert("/etc/pki/tls/certs/ca-bundle.crt")
+if platform.system().lower() == "linux":
+    _ca_bundle_path = _infer_linux_ca_bundle({
+        "/etc/ssl/certs/ca-certificates.crt": ["Ubuntu", "alpine", "debian"],
+        "/etc/pki/tls/certs/ca-bundle.crt": ["centos", "fedora", "redhat"]
+    })
+elif platform.system().lower() == "openbsd":
+    _ca_bundle_path = "/etc/ssl/cert.pem"
 else:
-    _default_cert = _dummy_cert
+    _ca_bundle_path = None
+
+
+@contextlib.contextmanager
+def _ca_certs(ca_certs=None):
+    if ca_certs is not None:
+        yield ca_certs
+        return
+
+    if _ca_bundle_path is not None:
+        yield _ca_bundle_path
+        return
+
+    with tempfile.NamedTemporaryFile() as fileobj:
+        fileobj.write(_DUMMY_CERT_DATA)
+        fileobj.flush()
+        yield fileobj.name
+ca_certs = _ca_certs
 
 
 @idiokit.stream
@@ -118,39 +153,45 @@ def _wrapped(ssl, timeout, func, *args, **keys):
 
 
 @idiokit.stream
-def wrap_socket(sock,
-                keyfile=None,
-                certfile=None,
-                server_side=False,
-                ssl_version=PROTOCOL_SSLv23,
-                require_cert=False,
-                ca_certs=None,
-                timeout=None):
-    keys = dict(
-        keyfile=keyfile,
-        certfile=certfile,
-        server_side=server_side,
-        cert_reqs=_ssl.CERT_REQUIRED if require_cert else _ssl.CERT_NONE,
-        ssl_version=ssl_version,
-        do_handshake_on_connect=False,
-        suppress_ragged_eofs=True)
+def wrap_socket(
+    sock,
+    keyfile=None,
+    certfile=None,
+    server_side=False,
+    ssl_version=PROTOCOL_SSLv23,
+    require_cert=False,
+    ca_certs=None,
+    timeout=socket._DEFAULT_TIMEOUT
+):
+    keys = {
+        "keyfile": keyfile,
+        "certfile": certfile,
+        "server_side": server_side,
+        "cert_reqs": _ssl.CERT_REQUIRED if require_cert else _ssl.CERT_NONE,
+        "ssl_version": ssl_version,
+        "do_handshake_on_connect": False,
+        "suppress_ragged_eofs": True
+    }
 
-    if not require_cert or ca_certs is not None:
-        cert = _constant_cert(ca_certs)
-    else:
-        cert = _default_cert
-
-    with cert() as cert_file:
-        ssl = _ssl.wrap_socket(sock._socket, ca_certs=cert_file, **keys)
+    timeout = socket._resolve_timeout(sock, timeout)
+    with _ca_certs(ca_certs) as ca_certs:
+        ssl = _ssl.wrap_socket(sock._socket, ca_certs=ca_certs, **keys)
         yield _wrapped(ssl, timeout, ssl.do_handshake)
-    idiokit.stop(_SSLSocket(ssl))
+    idiokit.stop(_SSLSocket(ssl, sock))
 
 
 class _SSLSocket(object):
     CHUNK_SIZE = 8 * 1024
 
-    def __init__(self, ssl):
+    def __init__(self, ssl, socket):
         self._ssl = ssl
+        self._socket = socket
+
+    def settimeout(self, timeout):
+        self._socket.settimeout(timeout)
+
+    def gettimeout(self):
+        return self._socket.gettimeout()
 
     @idiokit.stream
     def getpeercert(self, binary_form=False):
@@ -158,9 +199,10 @@ class _SSLSocket(object):
         idiokit.stop(self._ssl.getpeercert(binary_form))
 
     @idiokit.stream
-    def recv(self, bufsize, flags=0, timeout=None):
+    def recv(self, bufsize, flags=0, timeout=socket._DEFAULT_TIMEOUT):
         if flags != 0:
             raise ValueError("flags not supported by SSL sockets")
+        timeout = socket._resolve_timeout(self, timeout)
 
         if bufsize <= 0:
             yield timer.sleep(0.0)
@@ -170,20 +212,22 @@ class _SSLSocket(object):
         idiokit.stop(result)
 
     @idiokit.stream
-    def send(self, data, flags=0, timeout=None):
+    def send(self, data, flags=0, timeout=socket._DEFAULT_TIMEOUT):
         socket.check_sendable_type(data)
         if flags != 0:
             raise ValueError("flags not supported by SSL sockets")
+        timeout = socket._resolve_timeout(self, timeout)
 
         buf = buffer(data, 0, self.CHUNK_SIZE)
         result = yield _wrapped(self._ssl, timeout, self._ssl.write, buf)
         idiokit.stop(result)
 
     @idiokit.stream
-    def sendall(self, data, flags=0, timeout=None):
+    def sendall(self, data, flags=0, timeout=socket._DEFAULT_TIMEOUT):
         socket.check_sendable_type(data)
         if flags != 0:
             raise ValueError("flags not supported by SSL sockets")
+        timeout = socket._resolve_timeout(self, timeout)
 
         offset = 0
         length = len(data)
@@ -202,13 +246,17 @@ class _SSLSocket(object):
 
     @idiokit.stream
     def shutdown(self, how):
+        yield timer.sleep(0.0)
+
         with socket.wrapped_socket_errors():
-            yield threadpool.thread(self._ssl.shutdown, how)
+            self._ssl.shutdown(how)
 
     @idiokit.stream
     def close(self):
+        yield timer.sleep(0.0)
+
         with socket.wrapped_socket_errors():
-            yield threadpool.thread(self._ssl.close)
+            self._ssl.close()
 
 
 def identities(cert):
