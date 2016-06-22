@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.8.0 (not released)
+## 2.8.0 (2016-06-22)
 
 ### Features
 
