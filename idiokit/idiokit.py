@@ -11,7 +11,7 @@ from functools import wraps
 from ._selectloop import sleep, asap, iterate
 from .values import Value
 
-__version__ = "2.7.1"
+__version__ = "2.8.0"
 
 NULL = Value(None)
 

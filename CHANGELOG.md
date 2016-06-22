@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.8.0 (not released)
+
+### Features
+
+ * Switch to setuptools for packaging ([#19](https://github.com/abusesa/idiokit/pull/19))
+
 ## 2.7.1 (2016-05-23)
 
 ### Fixes 
