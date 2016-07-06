@@ -485,6 +485,16 @@ class TXT(_ReprMixin):
         return cls(strings)
 
     def __init__(self, strings):
+        """
+        >>> TXT(["a" * 256])
+        Traceback (most recent call last):
+        ...
+        ValueError: too long string
+        """
+
+        for string in strings:
+            if len(string) > 255:
+                raise ValueError("too long string")
         self._strings = tuple(strings)
 
     @property
@@ -494,11 +504,7 @@ class TXT(_ReprMixin):
     def pack(self):
         strings = []
         for string in self._strings:
-            length = len(string)
-            if length > 255:
-                raise MessageError()
-
-            strings.append(chr(length))
+            strings.append(chr(len(string)))
             strings.append(string)
         return "".join(strings)
 RR.register_type(TXT)
