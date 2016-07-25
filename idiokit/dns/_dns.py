@@ -388,7 +388,7 @@ class A(_ReprMixin):
     >>> A.unpack('abcdefg', 0, 1)
     Traceback (most recent call last):
     ...
-    MessageError: expected 4 bytes of RDATA, got 1
+    NotEnoughData: expected 4 bytes of RDATA, got 1
     """
 
     code = 1
@@ -396,7 +396,7 @@ class A(_ReprMixin):
     @classmethod
     def unpack(cls, data, offset, length):
         if length != 4:
-            raise MessageError("expected 4 bytes of RDATA, got {0}".format(length))
+            raise NotEnoughData("expected 4 bytes of RDATA, got {0}".format(length))
         ip = _socket.inet_ntop(_socket.AF_INET, data[offset:offset + length])
         return cls(ip)
 
@@ -424,7 +424,7 @@ class AAAA(_ReprMixin):
     >>> AAAA.unpack('abcdefg', 0, 4)
     Traceback (most recent call last):
     ...
-    MessageError: expected 16 bytes of RDATA, got 4
+    NotEnoughData: expected 16 bytes of RDATA, got 4
     """
 
     code = 28
@@ -432,7 +432,7 @@ class AAAA(_ReprMixin):
     @classmethod
     def unpack(cls, data, offset, length):
         if length != 16:
-            raise MessageError("expected 16 bytes of RDATA, got {0}".format(length))
+            raise NotEnoughData("expected 16 bytes of RDATA, got {0}".format(length))
         ip = _socket.inet_ntop(_socket.AF_INET6, data[offset:offset + length])
         return cls(ip)
 
@@ -458,6 +458,11 @@ class TXT(_ReprMixin):
 
     >>> TXT.unpack(packed, 0, len(packed))
     TXT(strings=('test string', 'another test string'))
+
+    >>> TXT.unpack(packed[:-1], 0, len(packed)-1)
+    Traceback (most recent call last):
+    ...
+    NotEnoughData: a character string spans over the end of RDATA
     """
 
     code = 16
@@ -472,7 +477,7 @@ class TXT(_ReprMixin):
             offset += 1
 
             if offset + amount > end:
-                raise MessageError("a character string spans over the end of RDATA")
+                raise NotEnoughData("a character string spans over the end of RDATA")
 
             strings.append(data[offset:offset + amount])
             offset += amount
@@ -480,6 +485,16 @@ class TXT(_ReprMixin):
         return cls(strings)
 
     def __init__(self, strings):
+        """
+        >>> TXT(["a" * 256])
+        Traceback (most recent call last):
+        ...
+        ValueError: too long string
+        """
+
+        for string in strings:
+            if len(string) > 255:
+                raise ValueError("too long string")
         self._strings = tuple(strings)
 
     @property
@@ -489,11 +504,7 @@ class TXT(_ReprMixin):
     def pack(self):
         strings = []
         for string in self._strings:
-            length = len(string)
-            if length > 255:
-                raise MessageError()
-
-            strings.append(chr(length))
+            strings.append(chr(len(string)))
             strings.append(string)
         return "".join(strings)
 RR.register_type(TXT)
