@@ -409,6 +409,8 @@ class A(_ReprMixin):
 
     def pack(self):
         return _socket.inet_pton(_socket.AF_INET, self._ip)
+
+
 RR.register_type(A)
 
 
@@ -445,6 +447,8 @@ class AAAA(_ReprMixin):
 
     def pack(self):
         return _socket.inet_pton(_socket.AF_INET6, self._ip)
+
+
 RR.register_type(AAAA)
 
 
@@ -507,6 +511,8 @@ class TXT(_ReprMixin):
             strings.append(chr(len(string)))
             strings.append(string)
         return "".join(strings)
+
+
 RR.register_type(TXT)
 
 
@@ -536,6 +542,8 @@ class PTR(_ReprMixin):
 
     def pack(self):
         return pack_name(self._name)
+
+
 RR.register_type(PTR)
 
 
@@ -565,6 +573,8 @@ class CNAME(_ReprMixin):
 
     def pack(self):
         return pack_name(self._name)
+
+
 RR.register_type(CNAME)
 
 
@@ -617,6 +627,8 @@ class SRV(_ReprMixin):
 
     def pack(self):
         return self._struct.pack(self._priority, self._weight, self._port) + pack_name(self._target)
+
+
 RR.register_type(SRV)
 
 
@@ -658,6 +670,8 @@ class MX(_ReprMixin):
 
     def pack(self):
         return self._struct.pack(self._preference) + pack_name(self._exchange)
+
+
 RR.register_type(MX)
 
 

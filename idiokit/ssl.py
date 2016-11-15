@@ -132,6 +132,8 @@ def _ca_certs(ca_certs=None):
         fileobj.write(_DUMMY_CERT_DATA)
         fileobj.flush()
         yield fileobj.name
+
+
 ca_certs = _ca_certs
 
 

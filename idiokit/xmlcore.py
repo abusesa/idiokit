@@ -138,6 +138,8 @@ def quoteattr(attr):
     _quoteattr_cache[attr] = value
     _quoteattr_cache_size += length
     return value
+
+
 _quoteattr_cache = {}
 _quoteattr_cache_size = 0
 _quoteattr_cache_max_size = 2 ** 16

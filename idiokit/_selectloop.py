@@ -244,6 +244,7 @@ class SelectLoop(object):
         calls = self._process(has_errors, rfds, wfds, xfds)
         self._perform(calls)
 
+
 global_select_loop = SelectLoop()
 select = global_select_loop.select
 sleep = global_select_loop.sleep
