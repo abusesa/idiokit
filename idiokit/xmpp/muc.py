@@ -2,7 +2,7 @@ from __future__ import absolute_import, unicode_literals
 
 import random
 
-from .. import idiokit
+from .. import idiokit, timer
 from ..xmlcore import Element
 from .core import STANZA_NS, XMPPError
 from .jid import JID
@@ -65,7 +65,10 @@ def join_room(jid, xmpp, output, password=None, history=False):
     yield xmpp.core.presence(x, to=JID(jid))
 
     while True:
-        element = yield output.next()
+        try:
+            element = yield timer.timeout(120.0, output.next())
+        except timer.Timeout:
+            raise MUCError("timeout while joining room {0!r}".format(unicode(jid.bare())))
 
         parsed = parse_presence(element, jid)
         if parsed is None:

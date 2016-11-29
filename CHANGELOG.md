@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.8.1 (2016-XX-YY)
+
+### Fixes
+
+ * Add timeout to xmpp.muc.join() for case where connection dies while client is waiting for presence messages sent by server ([#29](https://github.com/abusesa/idiokit/pull/29))
+
 ## 2.8.0 (2016-06-22)
 
 ### Features
