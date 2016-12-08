@@ -5,6 +5,7 @@
 ### Fixes
 
  * Add timeout to xmpp.muc.join() for case where connection dies while client is waiting for presence messages sent by server ([#29](https://github.com/abusesa/idiokit/pull/29))
+ * Better exception handling and cleanups to ```idiokit.dns``` ([#28](https://github.com/abusesa/idiokit/pull/28))
 
 ## 2.8.0 (2016-06-22)
 
