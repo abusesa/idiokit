@@ -45,7 +45,8 @@ pipeline {
         textpercentage = "Coverage: " + Math.round(percentage).toString() + "%";
         manager.addShortText(textpercentage, "black", bgcolour, "2px", "black");
 
-        if (currentBuild.getPreviousBuild()?.getResult().toString() != "SUCCESS") {
+        previousResult = currentBuild.getPreviousBuild()?.getResult().toString()
+        if (previousResult != "SUCCESS" && previousResult != "null") {
           emailext body: '''${SCRIPT, template="abusesa-html.template"}''',
                  recipientProviders: [[$class: 'DevelopersRecipientProvider'],
                                       [$class: 'CulpritsRecipientProvider']],
