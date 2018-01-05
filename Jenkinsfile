@@ -7,10 +7,10 @@ pipeline {
     stage('Setup') {
       steps {
         sh 'eval "$(pyenv init -)"'
-        sh 'pyenv install -s pypy-5.0.1'
-        sh 'pyenv install -s 2.6.8'
-        sh 'pyenv install -s 2.7.10'
-        sh 'pyenv local 2.6.8 2.7.10 pypy-5.0.1'
+        sh 'pyenv install -s ${PY26_VER}'
+        sh 'pyenv install -s ${PY27_VER}'
+        sh 'pyenv install -s ${PYPY2_VER}'
+        sh 'pyenv local ${PY26_VER} ${PY27_VER} ${PYPY2_VER}'
       }
     }
     stage('Unit test') {
