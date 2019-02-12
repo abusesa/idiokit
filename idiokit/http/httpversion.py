@@ -84,7 +84,7 @@ class HTTPVersion(collections.namedtuple("HTTPVersion", ["major", "minor"])):
         ValueError: invalid HTTP version string
         """
 
-        match = re.match("^HTTP/(\d+)\.(\d+)$", string)
+        match = re.match(r"^HTTP/(\d+)\.(\d+)$", string)
         if match is None:
             raise ValueError("invalid HTTP version string")
 

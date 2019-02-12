@@ -99,7 +99,7 @@ def resourceprep(string):
     return string
 
 
-JID_REX = re.compile("^(?:(.*?)@)?([^\.\/]+(?:\.[^\.\/]+)*)(?:/(.*))?$", re.U)
+JID_REX = re.compile(r"^(?:(.*?)@)?([^\.\/]+(?:\.[^\.\/]+)*)(?:/(.*))?$", re.U)
 
 
 def split_jid(jid):

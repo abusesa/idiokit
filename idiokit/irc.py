@@ -53,7 +53,7 @@ def format_message(command, *params):
     return " ".join(message) + "\r\n"
 
 
-ERROR_REX = re.compile("^(4|5)\d\d$")
+ERROR_REX = re.compile(r"^(4|5)\d\d$")
 
 
 class NickAlreadyInUse(IRCError):
