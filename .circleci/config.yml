@@ -1,0 +1,52 @@
+version: 2
+workflows:
+  version: 2
+  test:
+    jobs:
+      - test-2.7
+      - test-pypy
+jobs:
+  test-2.7:
+    docker:
+      - image: circleci/python:2.7
+    steps:
+      - run:
+          command: |
+            git clone https://github.com/abusesa/idiokit .
+      - run:
+          command: |
+            sudo pip install tox
+            mkdir results
+      - run:
+          command: |
+            sudo tox -e flake8 idiokit
+      - run:
+          command: |
+            sudo tox -e py27 -- idiokit --junitxml=results/py27.xml
+      - store_test_results:
+          path: results
+      - store_artifacts:
+          path: results
+          destination: results
+  test-pypy:
+    docker:
+      - image: pypy:2-6.0
+    steps:
+      - run:
+          command: |
+            git clone https://github.com/abusesa/idiokit .
+      - run:
+          command: |
+            pip install tox
+            mkdir results
+      - run:
+          command: |
+            tox -e flake8 idiokit
+      - run:
+          command: |
+            tox -e pypy -- idiokit --junitxml=results/pypy.xml
+      - store_test_results:
+          path: results
+      - store_artifacts:
+          path: results
+          destination: results
