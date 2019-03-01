@@ -112,7 +112,7 @@ if platform.system().lower() == "linux":
         "/etc/ssl/certs/ca-certificates.crt": ["Ubuntu", "alpine", "debian"],
         "/etc/pki/tls/certs/ca-bundle.crt": ["centos", "fedora", "redhat"]
     })
-elif platform.system().lower() == "openbsd":
+elif platform.system().lower() in ["openbsd", "freebsd"]:
     _ca_bundle_path = "/etc/ssl/cert.pem"
 else:
     _ca_bundle_path = None
