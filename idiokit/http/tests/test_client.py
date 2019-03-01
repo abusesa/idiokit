@@ -5,6 +5,8 @@ import idiokit
 import unittest
 import tempfile
 from idiokit import socket
+from idiokit.socket import SocketTimeout
+from idiokit.http.server import ConnectionLost
 
 from ..client import Client, HTTPUnixAdapter
 
@@ -26,6 +28,37 @@ def serve(test_string, sock):
         yield conn.sendall("HTTP/1.0 200 OK\r\n")
         yield conn.sendall("\r\n")
         yield conn.sendall(test_string)
+    finally:
+        yield conn.close()
+
+
+@idiokit.stream
+def serve_simulate_timeout_start(sock):
+    conn, _ = yield sock.accept()
+    try:
+        while True:
+            yield idiokit.sleep(1.0)
+    finally:
+        yield conn.close()
+
+
+@idiokit.stream
+def serve_simulate_timeout_body(sock):
+    conn, _ = yield sock.accept()
+    try:
+        request = ""
+        while True:
+            data = yield conn.recv(1024)
+            if not data:
+                raise RuntimeError("not enough data")
+
+            request += data
+            if "\r\n\r\n" in request:
+                break
+
+        yield conn.sendall("HTTP/1.0 200 OK\r\n")
+        yield conn.sendall("Content-Length: 1024\r\n")
+        yield conn.sendall("\r\n")
     finally:
         yield conn.close()
 
@@ -93,3 +126,37 @@ class TestClient(unittest.TestCase):
         client = Client()
         client.mount("http+unix://", HTTPUnixAdapter())
         self.assertEqual("this is a test", idiokit.main_loop(main("this is a test", client)))
+
+    def test_http_timeout_start(self):
+        @idiokit.stream
+        def main(client):
+            s = socket.Socket(socket.AF_INET)
+            try:
+                yield s.bind(("127.0.0.1", 0))
+                yield s.listen(1)
+
+                _, port = yield s.getsockname()
+                result = yield serve_simulate_timeout_start(s) | get(client, "http://127.0.0.1:{0}/".format(port))
+            finally:
+                yield s.close()
+            idiokit.stop(result)
+
+        client = Client(timeout=5.0)
+        self.assertRaises(SocketTimeout, idiokit.main_loop, main(client))
+
+    def test_http_timeout_body(self):
+        @idiokit.stream
+        def main(client):
+            s = socket.Socket(socket.AF_INET)
+            try:
+                yield s.bind(("127.0.0.1", 0))
+                yield s.listen(1)
+
+                _, port = yield s.getsockname()
+                result = yield serve_simulate_timeout_body(s) | get(client, "http://127.0.0.1:{0}/".format(port))
+            finally:
+                yield s.close()
+            idiokit.stop(result)
+
+        client = Client(timeout=5.0)
+        self.assertRaises(ConnectionLost, idiokit.main_loop, main(client))

@@ -290,7 +290,7 @@ class Client(object):
         yield write_request_line(sock, method, path, httpversion.HTTP11)
         yield write_headers(sock, headers)
 
-        request = ClientRequest(method, url, headers, writer, _Buffered(sock))
+        request = ClientRequest(method, url, headers, writer, _Buffered(sock, self.timeout))
         yield request.write(data)
         idiokit.stop(request)
 

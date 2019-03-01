@@ -97,14 +97,15 @@ def get_header_list(headers, name, default=None):
 
 
 class _Buffered(object):
-    def __init__(self, reader):
+    def __init__(self, reader, timeout=None):
         self._reader = reader
         self._buffer = collections.deque()
+        self._timeout = timeout
 
     @idiokit.stream
     def read(self, amount):
         if not self._buffer:
-            data = yield self._reader.recv(amount)
+            data = yield self._reader.recv(amount, timeout=self._timeout)
             idiokit.stop(data)
 
         offset, data = self._buffer[0]
