@@ -283,6 +283,8 @@ class Client(object):
         adapter = self._adapter_for_url(url)
         hostname, sock = yield adapter.connect(self, url)
 
+        sock.settimeout(self.timeout)
+
         writer, headers = self._resolve_headers(method, hostname, headers, data, sock)
 
         parsed = urlparse.urlparse(url)
@@ -290,7 +292,7 @@ class Client(object):
         yield write_request_line(sock, method, path, httpversion.HTTP11)
         yield write_headers(sock, headers)
 
-        request = ClientRequest(method, url, headers, writer, _Buffered(sock, self.timeout))
+        request = ClientRequest(method, url, headers, writer, _Buffered(sock))
         yield request.write(data)
         idiokit.stop(request)
 
