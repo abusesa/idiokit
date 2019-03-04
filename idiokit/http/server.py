@@ -35,7 +35,7 @@ def _close_socket(sock):
     yield sock.close()
 
 
-class ConnectionLost(Exception):
+class ConnectionLost(socket.SocketError):
     pass
 
 
